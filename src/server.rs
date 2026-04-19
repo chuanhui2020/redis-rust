@@ -1,0 +1,1773 @@
+// TCP 服务器模块，负责监听连接和处理客户端请求
+
+use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
+
+use bytes::{Bytes, BytesMut};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{broadcast, mpsc};
+
+use crate::aof::AofWriter;
+use crate::command::{Command, CommandExecutor, CommandParser, extract_cmd_info};
+use crate::error::Result;
+use crate::keyspace::KeyspaceNotifier;
+use crate::protocol::{RespParser, RespValue};
+use crate::pubsub::PubSubManager;
+use crate::scripting::ScriptEngine;
+use crate::slowlog::SlowLog;
+use crate::storage::StorageEngine;
+
+/// 客户端消息（从订阅频道转发而来）
+#[derive(Debug, Clone)]
+enum ClientMessage {
+    /// 精确频道消息: (频道名, 内容)
+    Message(String, Bytes),
+    /// 模式消息: (模式, 频道名, 内容)
+    PMessage(String, String, Bytes),
+}
+
+/// 客户端订阅状态
+struct SubscriptionState {
+    /// 精确订阅: 频道名 -> 转发任务 abort handle
+    channels: HashMap<String, tokio::task::AbortHandle>,
+    /// 模式订阅: 模式 -> 转发任务 abort handle
+    patterns: HashMap<String, tokio::task::AbortHandle>,
+    /// 用于向客户端主循环发送聚合消息（主要被克隆到转发任务中使用）
+    #[allow(dead_code)]
+    msg_tx: mpsc::UnboundedSender<ClientMessage>,
+}
+
+impl SubscriptionState {
+    fn new(msg_tx: mpsc::UnboundedSender<ClientMessage>) -> Self {
+        Self {
+            channels: HashMap::new(),
+            patterns: HashMap::new(),
+            msg_tx,
+        }
+    }
+
+    /// 当前活跃订阅总数
+    fn total(&self) -> usize {
+        self.channels.len() + self.patterns.len()
+    }
+}
+
+/// 回复模式
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplyMode {
+    /// 正常回复
+    On,
+    /// 不回复任何命令
+    Off,
+    /// 跳过下一条命令的回复
+    Skip,
+}
+
+/// 客户端信息
+#[derive(Debug, Clone)]
+pub struct ClientInfo {
+    pub id: u64,
+    pub addr: String,
+    pub name: Option<String>,
+    pub db: usize,
+    /// 客户端标志
+    pub flags: HashSet<String>,
+    /// 是否被阻塞
+    pub blocked: bool,
+    /// 阻塞原因
+    pub blocked_reason: Option<String>,
+}
+
+/// TCP 服务器结构体
+#[derive(Debug, Clone)]
+pub struct Server {
+    /// 监听地址
+    addr: String,
+    /// 存储引擎
+    storage: StorageEngine,
+    /// AOF 写入器（可选）
+    aof: Option<Arc<Mutex<AofWriter>>>,
+    /// 发布订阅管理器
+    pubsub: PubSubManager,
+    /// 密码（可选）
+    password: Option<String>,
+    /// 已连接客户端注册表
+    clients: Arc<RwLock<HashMap<u64, ClientInfo>>>,
+    /// 下一个客户端 ID
+    next_client_id: Arc<AtomicU64>,
+    /// Lua 脚本引擎
+    script_engine: ScriptEngine,
+    /// RDB 快照文件路径（可选）
+    rdb_path: Option<String>,
+    /// 慢查询日志
+    slowlog: SlowLog,
+    /// ACL 管理器（可选）
+    acl: Option<crate::acl::AclManager>,
+    /// 客户端暂停状态：(结束时间, 模式 WRITE|ALL)
+    client_pause: Arc<RwLock<Option<(Instant, String)>>>,
+    /// 待关闭的客户端 ID 集合
+    client_kill_flags: Arc<Mutex<HashSet<u64>>>,
+    /// MONITOR 广播发送器
+    monitor_tx: tokio::sync::broadcast::Sender<String>,
+    /// 延迟追踪器
+    latency: crate::latency::LatencyTracker,
+    /// 全局 Keyspace 通知器
+    keyspace_notifier: Arc<KeyspaceNotifier>,
+}
+
+/// 客户端连接处理器
+#[derive(Debug)]
+pub struct ConnectionHandler {
+    /// RESP 协议解析器
+    parser: RespParser,
+    /// 命令解析器
+    cmd_parser: CommandParser,
+    /// 命令执行器
+    executor: CommandExecutor,
+}
+
+impl Server {
+    /// 创建新的服务器实例
+    pub fn new(
+        addr: &str,
+        mut storage: StorageEngine,
+        aof: Option<Arc<Mutex<AofWriter>>>,
+        pubsub: PubSubManager,
+        password: Option<String>,
+    ) -> Self {
+        let keyspace_notifier = Arc::new(KeyspaceNotifier::new(pubsub.clone()));
+        storage.set_keyspace_notifier(keyspace_notifier.clone());
+        Self {
+            addr: addr.to_string(),
+            storage,
+            aof,
+            pubsub,
+            password,
+            clients: Arc::new(RwLock::new(HashMap::new())),
+            next_client_id: Arc::new(AtomicU64::new(1)),
+            script_engine: ScriptEngine::new(),
+            rdb_path: None,
+            slowlog: SlowLog::new(),
+            acl: None,
+            client_pause: Arc::new(RwLock::new(None)),
+            client_kill_flags: Arc::new(Mutex::new(HashSet::new())),
+            monitor_tx: tokio::sync::broadcast::channel(1024).0,
+            latency: crate::latency::LatencyTracker::new(),
+            keyspace_notifier,
+        }
+    }
+
+    /// 设置 ACL 管理器
+    pub fn with_acl(mut self, acl: crate::acl::AclManager) -> Self {
+        self.acl = Some(acl);
+        self
+    }
+
+    /// 设置 RDB 快照文件路径
+    pub fn with_rdb_path(mut self, path: &str) -> Self {
+        self.rdb_path = Some(path.to_string());
+        self
+    }
+
+    /// 启动服务器，开始监听并处理连接
+    pub async fn run(self) -> Result<()> {
+        let listener = TcpListener::bind(&self.addr).await?;
+        self.run_with_listener(listener).await
+    }
+
+    /// 绑定到指定地址，返回实际绑定的地址和后台任务句柄
+    /// 适用于测试场景（使用 0 端口让 OS 分配随机端口）
+    pub async fn start(self) -> Result<(SocketAddr, tokio::task::JoinHandle<Result<()>>)> {
+        let listener = TcpListener::bind(&self.addr).await?;
+        let local_addr = listener.local_addr()?;
+        let handle = tokio::spawn(self.run_with_listener(listener));
+        Ok((local_addr, handle))
+    }
+
+    /// 使用已绑定的监听器运行服务主循环
+    async fn run_with_listener(self, listener: TcpListener) -> Result<()> {
+        log::info!("服务器已启动，等待客户端连接...");
+
+        loop {
+            let (stream, peer_addr) = listener.accept().await?;
+            log::info!("客户端已连接: {}", peer_addr);
+
+            // 每个连接克隆一份存储引擎、AOF 写入器和 pubsub
+            let storage = self.storage.clone();
+            let aof = self.aof.clone();
+            let pubsub = self.pubsub.clone();
+            let password = self.password.clone();
+            let clients = self.clients.clone();
+            let next_client_id = self.next_client_id.clone();
+            let script_engine = self.script_engine.clone();
+            let rdb_path = self.rdb_path.clone();
+            let slowlog = self.slowlog.clone();
+            let acl = self.acl.clone();
+            let client_pause = self.client_pause.clone();
+            let client_kill_flags = self.client_kill_flags.clone();
+            let monitor_tx = self.monitor_tx.clone();
+            let latency = self.latency.clone();
+            let keyspace_notifier = self.keyspace_notifier.clone();
+            tokio::spawn(async move {
+                if let Err(e) = handle_connection(
+                    stream, peer_addr.to_string(), storage, aof, pubsub,
+                    password, clients, next_client_id, script_engine, rdb_path, slowlog, acl,
+                    client_pause, client_kill_flags, monitor_tx, latency,
+                    keyspace_notifier,
+                ).await {
+                    log::error!("处理连接 {} 时出错: {}", peer_addr, e);
+                }
+                log::info!("客户端已断开: {}", peer_addr);
+            });
+        }
+    }
+}
+
+/// 客户端连接守卫，连接断开时自动从注册表中移除
+struct ClientGuard {
+    client_id: u64,
+    clients: Arc<RwLock<HashMap<u64, ClientInfo>>>,
+}
+
+impl Drop for ClientGuard {
+    fn drop(&mut self) {
+        let _ = self.clients.write().unwrap().remove(&self.client_id);
+    }
+}
+
+/// 辅助函数：创建 BulkString
+fn bulk(s: &str) -> RespValue {
+    RespValue::BulkString(Some(Bytes::copy_from_slice(s.as_bytes())))
+}
+
+/// 辅助函数：从 Bytes 创建 BulkString
+fn bulk_bytes(b: &Bytes) -> RespValue {
+    RespValue::BulkString(Some(b.clone()))
+}
+
+/// 处理单个客户端连接
+async fn handle_connection(
+    mut stream: TcpStream,
+    peer_addr: String,
+    mut storage: StorageEngine,
+    aof: Option<Arc<Mutex<AofWriter>>>,
+    pubsub: PubSubManager,
+    password: Option<String>,
+    clients: Arc<RwLock<HashMap<u64, ClientInfo>>>,
+    next_client_id: Arc<AtomicU64>,
+    script_engine: ScriptEngine,
+    rdb_path: Option<String>,
+    slowlog: SlowLog,
+    acl: Option<crate::acl::AclManager>,
+    client_pause: Arc<RwLock<Option<(Instant, String)>>>,
+    client_kill_flags: Arc<Mutex<HashSet<u64>>>,
+    monitor_tx: tokio::sync::broadcast::Sender<String>,
+    latency: crate::latency::LatencyTracker,
+    keyspace_notifier: Arc<KeyspaceNotifier>,
+) -> Result<()> {
+    // 分配客户端 ID
+    let client_id = next_client_id.fetch_add(1, Ordering::SeqCst);
+
+    // 注册客户端
+    {
+        let mut clients_guard = clients.write().unwrap();
+        clients_guard.insert(client_id, ClientInfo {
+            id: client_id,
+            addr: peer_addr.clone(),
+            name: None,
+            db: 0,
+            flags: HashSet::new(),
+            blocked: false,
+            blocked_reason: None,
+        });
+    }
+    let _client_guard = ClientGuard { client_id, clients: clients.clone() };
+
+    // 连接状态
+    let mut authenticated = password.is_none() && acl.is_none();
+    let mut client_name: Option<String> = None;
+    let mut _current_db_index: usize = 0;
+    let mut current_user = "default".to_string();
+    let mut reply_mode = ReplyMode::On;
+    let mut client_flags: HashSet<String> = HashSet::new();
+    let mut blocked = false;
+    let mut blocked_reason: Option<String> = None;
+
+    let mut executor = match aof.clone() {
+        Some(aof_writer) => {
+            CommandExecutor::new_with_aof(storage.clone(), aof_writer)
+        }
+        None => CommandExecutor::new(storage.clone()),
+    };
+    executor.set_script_engine(script_engine);
+    executor.set_slowlog(slowlog.clone());
+    executor.set_latency(latency);
+    if let Some(ref acl_mgr) = acl {
+        executor.set_acl(acl_mgr.clone());
+    }
+
+    // 设置全局 Keyspace 通知器
+    executor.set_keyspace_notifier(keyspace_notifier.clone());
+    storage.set_keyspace_notifier(keyspace_notifier);
+    let handler = ConnectionHandler {
+        parser: RespParser::new(),
+        cmd_parser: CommandParser::new(),
+        executor,
+    };
+
+    // 使用 BytesMut 作为读取缓冲区
+    let mut buf = BytesMut::with_capacity(4096);
+
+    // 订阅状态
+    let (msg_tx, mut msg_rx) = mpsc::unbounded_channel::<ClientMessage>();
+    let mut sub_state = SubscriptionState::new(msg_tx.clone());
+    let mut is_subscribed = false;
+
+    // 事务状态
+    let mut in_transaction = false;
+    let mut tx_queue: Vec<Command> = Vec::new();
+    let mut watched: HashMap<String, u64> = HashMap::new();
+    // 保留一份 storage 用于事务中的 WATCH/EXEC 检查
+    let tx_storage = storage.clone();
+
+    loop {
+        // 尝试从缓冲区解析一个完整的 RESP 消息
+        let maybe_resp = match handler.parser.parse(&mut buf) {
+            Ok(r) => r,
+            Err(e) => {
+                log::warn!("RESP 协议解析错误: {}", e);
+                let err_resp = RespValue::Error(format!(
+                    "ERR protocol error: {}",
+                    e
+                ));
+                if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                    log::error!("写入错误响应失败: {}", e);
+                    return Ok(());
+                }
+                continue;
+            }
+        };
+
+        match maybe_resp {
+            Some(resp_value) => {
+                // 解析 RESP 为 Command
+                match handler.cmd_parser.parse(resp_value) {
+                    Ok(cmd) => {
+                        log::debug!("收到命令: {:?}", cmd);
+
+                        // 认证检查：未认证且设置了密码时，只允许特定命令
+                        let is_auth_exempt = matches!(
+                            cmd,
+                            Command::Auth(_, _) | Command::Quit | Command::Ping(_) | Command::CommandInfo | Command::Hello(_, _, _)
+                        );
+                        if !authenticated && password.is_some() && !is_auth_exempt {
+                            let resp = RespValue::Error(
+                                "NOAUTH Authentication required.".to_string()
+                            );
+                            if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                log::error!("写入响应失败: {}", e);
+                                return Ok(());
+                            }
+                            continue;
+                        }
+
+                        // ---------- 事务模式处理 ----------
+                        if in_transaction {
+                            match cmd {
+                                Command::Exec => {
+                                    in_transaction = false;
+                                    // 检查 WATCH 的 key 版本是否变化
+                                    let check_passed = if watched.is_empty() {
+                                        true
+                                    } else {
+                                        match tx_storage.watch_check(&watched) {
+                                            Ok(true) => true,
+                                            Ok(false) => false,
+                                            Err(e) => {
+                                                let resp = RespValue::Error(format!("ERR {}", e));
+                                                let _ = write_resp(&mut stream, &handler, &resp).await;
+                                                watched.clear();
+                                                tx_queue.clear();
+                                                continue;
+                                            }
+                                        }
+                                    };
+                                    watched.clear();
+                                    if !check_passed {
+                                        tx_queue.clear();
+                                        let resp = RespValue::BulkString(None);
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                        continue;
+                                    }
+                                    // 依次执行队列中的命令
+                                    let mut results = Vec::new();
+                                    for queued_cmd in tx_queue.drain(..) {
+                                        let result = match queued_cmd {
+                                            Command::Publish(channel, message) => {
+                                                match pubsub.publish(&channel, message) {
+                                                    Ok(count) => RespValue::Integer(count as i64),
+                                                    Err(e) => RespValue::Error(format!("ERR {}", e)),
+                                                }
+                                            }
+                                            other => {
+                                                match handler.executor.execute(other) {
+                                                    Ok(resp) => resp,
+                                                    Err(e) => RespValue::Error(format!("ERR {}", e)),
+                                                }
+                                            }
+                                        };
+                                        results.push(result);
+                                    }
+                                    let resp = RespValue::Array(results);
+                                    if let Err(e) = send_reply(&mut stream, &handler, &resp, &mut reply_mode).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                    continue;
+                                }
+                                Command::Discard => {
+                                    in_transaction = false;
+                                    tx_queue.clear();
+                                    watched.clear();
+                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                    continue;
+                                }
+                                Command::Multi => {
+                                    let resp = RespValue::Error(
+                                        "ERR MULTI calls can not be nested".to_string()
+                                    );
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                    continue;
+                                }
+                                Command::Watch(_) => {
+                                    let resp = RespValue::Error(
+                                        "ERR WATCH inside MULTI is not allowed".to_string()
+                                    );
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                    continue;
+                                }
+                                other => {
+                                    tx_queue.push(other);
+                                    let resp = RespValue::SimpleString("QUEUED".to_string());
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                    continue;
+                                }
+                            }
+                        }
+
+                        // ---------- 非事务模式命令处理 ----------
+
+                        // ACL 权限检查
+                        if let Some(ref acl_mgr) = acl {
+                            let (cmd_name, keys) = extract_cmd_info(&cmd);
+                            let key_refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
+                            match acl_mgr.check_command(&current_user, &cmd_name, &key_refs) {
+                                Ok(true) => {}
+                                Ok(false) => {
+                                    let _ = acl_mgr.log_deny(&current_user, "command", "toplevel", &cmd_name);
+                                    let resp = RespValue::Error(
+                                        "NOPERM this user has no permissions to run the '".to_string()
+                                            + &cmd_name + "' command"
+                                    );
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                    continue;
+                                }
+                                Err(e) => {
+                                    let resp = RespValue::Error(format!("ERR {}", e));
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                    continue;
+                                }
+                            }
+                        }
+
+                        // 检查是否被 CLIENT KILL 标记
+                        let killed = {
+                            let kf = client_kill_flags.lock();
+                            kf.map(|g| g.contains(&client_id)).unwrap_or(false)
+                        };
+                        if killed {
+                            let resp = RespValue::Error("ERR Connection closed by CLIENT KILL".to_string());
+                            let _ = write_resp(&mut stream, &handler, &resp).await;
+                            return Ok(());
+                        }
+
+                        // 客户端暂停检查
+                        let should_sleep = {
+                            let cp = client_pause.read();
+                            if let Ok(guard) = cp {
+                                if let Some((end, mode)) = guard.as_ref() {
+                                    let now = Instant::now();
+                                    if now < *end {
+                                        let is_write = cmd.is_write_command();
+                                        if mode == "ALL" || (mode == "WRITE" && is_write) {
+                                            Some(end.duration_since(now))
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        };
+                        if let Some(remaining) = should_sleep {
+                            tokio::time::sleep(tokio::time::Duration::from_millis(remaining.as_millis() as u64)).await;
+                        }
+
+                        match cmd {
+                            Command::Multi => {
+                                in_transaction = true;
+                                tx_queue.clear();
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::Watch(keys) => {
+                                watched.clear();
+                                for key in keys {
+                                    match tx_storage.get_version(&key) {
+                                        Ok(ver) => {
+                                            watched.insert(key, ver);
+                                        }
+                                        Err(e) => {
+                                            log::warn!("获取 key {} 版本号失败: {}", key, e);
+                                        }
+                                    }
+                                }
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::Exec => {
+                                let resp = RespValue::Error(
+                                    "ERR EXEC without MULTI".to_string()
+                                );
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::Discard => {
+                                let resp = RespValue::Error(
+                                    "ERR DISCARD without MULTI".to_string()
+                                );
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::BgRewriteAof => {
+                                let resp = if let Some(ref aof) = aof {
+                                    let path = aof.lock().map(|g| g.path().to_string()).ok();
+                                    match path {
+                                        Some(p) => {
+                                            let temp_path = format!("{}.tmp", p);
+                                            let use_rdb_preamble = handler.executor.aof_use_rdb_preamble();
+                                            match crate::aof::AofRewriter::rewrite(&storage, &temp_path, &p, use_rdb_preamble) {
+                                                Ok(_) => {
+                                                    let _ = aof.lock().map(|mut g| g.reopen());
+                                                    RespValue::SimpleString("Background append only file rewriting started".to_string())
+                                                }
+                                                Err(e) => {
+                                                    RespValue::Error(format!("ERR AOF 重写失败: {}", e))
+                                                }
+                                            }
+                                        }
+                                        None => {
+                                            RespValue::Error("ERR AOF writer 锁中毒".to_string())
+                                        }
+                                    }
+                                } else {
+                                    RespValue::Error("ERR AOF is not enabled".to_string())
+                                };
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::Subscribe(channels) => {
+                                is_subscribed = true;
+                                for ch in channels {
+                                    let rx = pubsub.subscribe(&ch);
+                                    let tx = msg_tx.clone();
+                                    let ch_clone = ch.clone();
+                                    let handle = tokio::spawn(async move {
+                                        let mut rx = rx;
+                                        loop {
+                                            match rx.recv().await {
+                                                Ok(data) => {
+                                                    if tx.send(ClientMessage::Message(ch_clone.clone(), data)).is_err() {
+                                                        break;
+                                                    }
+                                                }
+                                                Err(broadcast::error::RecvError::Closed) => break,
+                                                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                                            }
+                                        }
+                                    });
+                                    sub_state.channels.insert(ch.clone(), handle.abort_handle());
+
+                                    let count = sub_state.total();
+                                    let resp = RespValue::Array(vec![
+                                        bulk("subscribe"),
+                                        bulk(&ch),
+                                        RespValue::Integer(count as i64),
+                                    ]);
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                            Command::Unsubscribe(channels) => {
+                                let to_unsub = if channels.is_empty() {
+                                    // 无参数则取消所有精确订阅
+                                    sub_state.channels.keys().cloned().collect::<Vec<_>>()
+                                } else {
+                                    channels
+                                };
+                                for ch in to_unsub {
+                                    if let Some(handle) = sub_state.channels.remove(&ch) {
+                                        handle.abort();
+                                        pubsub.unsubscribe(&ch);
+                                    }
+                                    let count = sub_state.total();
+                                    let resp = RespValue::Array(vec![
+                                        bulk("unsubscribe"),
+                                        bulk(&ch),
+                                        RespValue::Integer(count as i64),
+                                    ]);
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                }
+                                if sub_state.total() == 0 {
+                                    is_subscribed = false;
+                                }
+                            }
+                            Command::PSubscribe(patterns) => {
+                                is_subscribed = true;
+                                for pat in patterns {
+                                    let rx = pubsub.psubscribe(&pat);
+                                    let tx = msg_tx.clone();
+                                    let pat_clone = pat.clone();
+                                    let handle = tokio::spawn(async move {
+                                        let mut rx = rx;
+                                        loop {
+                                            match rx.recv().await {
+                                                Ok((ch, data)) => {
+                                                    if tx.send(ClientMessage::PMessage(pat_clone.clone(), ch, data)).is_err() {
+                                                        break;
+                                                    }
+                                                }
+                                                Err(broadcast::error::RecvError::Closed) => break,
+                                                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                                            }
+                                        }
+                                    });
+                                    sub_state.patterns.insert(pat.clone(), handle.abort_handle());
+
+                                    let count = sub_state.total();
+                                    let resp = RespValue::Array(vec![
+                                        bulk("psubscribe"),
+                                        bulk(&pat),
+                                        RespValue::Integer(count as i64),
+                                    ]);
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                            Command::PUnsubscribe(patterns) => {
+                                let to_unsub = if patterns.is_empty() {
+                                    sub_state.patterns.keys().cloned().collect::<Vec<_>>()
+                                } else {
+                                    patterns
+                                };
+                                for pat in to_unsub {
+                                    if let Some(handle) = sub_state.patterns.remove(&pat) {
+                                        handle.abort();
+                                        pubsub.punsubscribe(&pat);
+                                    }
+                                    let count = sub_state.total();
+                                    let resp = RespValue::Array(vec![
+                                        bulk("punsubscribe"),
+                                        bulk(&pat),
+                                        RespValue::Integer(count as i64),
+                                    ]);
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                }
+                                if sub_state.total() == 0 {
+                                    is_subscribed = false;
+                                }
+                            }
+                            Command::Publish(channel, message) => {
+                                match pubsub.publish(&channel, message) {
+                                    Ok(count) => {
+                                        let resp = RespValue::Integer(count as i64);
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let resp = RespValue::Error(format!("ERR {}", e));
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入错误响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            // ---------- 无需认证即可执行的命令 ----------
+                            Command::Auth(username, pwd) => {
+                                let acl = handler.executor.acl();
+                                if let Some(ref acl_mgr) = acl {
+                                    match acl_mgr.authenticate(&username, &pwd) {
+                                        Ok(true) => {
+                                            authenticated = true;
+                                            current_user = username;
+                                            let resp = RespValue::SimpleString("OK".to_string());
+                                            if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                log::error!("写入响应失败: {}", e);
+                                                return Ok(());
+                                            }
+                                        }
+                                        Ok(false) => {
+                                            let resp = RespValue::Error("ERR invalid password".to_string());
+                                            if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                log::error!("写入响应失败: {}", e);
+                                                return Ok(());
+                                            }
+                                        }
+                                        Err(e) => {
+                                            let resp = RespValue::Error(format!("ERR {}", e));
+                                            if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                log::error!("写入响应失败: {}", e);
+                                                return Ok(());
+                                            }
+                                        }
+                                    }
+                                } else if let Some(ref expected) = password {
+                                    // 兼容旧模式：使用全局密码
+                                    if username == "default" && pwd == *expected {
+                                        authenticated = true;
+                                        let resp = RespValue::SimpleString("OK".to_string());
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    } else {
+                                        let resp = RespValue::Error("ERR invalid password".to_string());
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                } else {
+                                    // 未设置密码，直接返回 OK
+                                    authenticated = true;
+                                    current_user = username;
+                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                            Command::Shutdown(_) => {
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                let _ = write_resp(&mut stream, &handler, &resp).await;
+                                return Ok(());
+                            }
+                            Command::Quit => {
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                let _ = write_resp(&mut stream, &handler, &resp).await;
+                                return Ok(());
+                            }
+                            Command::CommandInfo => {
+                                // redis-benchmark 需要，无需认证
+                                match handler.executor.execute(cmd) {
+                                    Ok(response) => {
+                                        if let Err(e) = write_resp(&mut stream, &handler, &response).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let err_resp = RespValue::Error(format!("ERR {}", e));
+                                        if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                            log::error!("写入错误响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            // ---------- 需要认证的数据库/客户端命令 ----------
+                            Command::Select(index) => {
+                                match handler.executor.select_db(index) {
+                                    Ok(()) => {
+                                        _current_db_index = index;
+                                        // 更新客户端注册表中的 db
+                                        if let Ok(mut guard) = clients.write() {
+                                            if let Some(info) = guard.get_mut(&client_id) {
+                                                info.db = index;
+                                            }
+                                        }
+                                        let resp = RespValue::SimpleString("OK".to_string());
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let resp = RespValue::Error(format!("ERR {}", e));
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            Command::ClientSetName(name) => {
+                                client_name = Some(name.clone());
+                                if let Ok(mut guard) = clients.write() {
+                                    if let Some(info) = guard.get_mut(&client_id) {
+                                        info.name = Some(name);
+                                    }
+                                }
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientGetName => {
+                                let resp = match client_name {
+                                    Some(ref name) => RespValue::BulkString(Some(Bytes::from(name.clone()))),
+                                    None => RespValue::BulkString(None),
+                                };
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientList => {
+                                let list = if let Ok(guard) = clients.read() {
+                                    guard.values()
+                                        .map(|info| {
+                                            format!("id={} addr={} name={} db={} flags={}",
+                                                info.id,
+                                                info.addr,
+                                                info.name.as_deref().unwrap_or(""),
+                                                info.db,
+                                                info.flags.iter().cloned().collect::<Vec<_>>().join(","),
+                                            )
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join("\n")
+                                } else {
+                                    String::new()
+                                };
+                                let resp = RespValue::BulkString(Some(Bytes::from(list)));
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientInfo => {
+                                let info_str = format!(
+                                    "id={} addr={} name={} db={} flags={} blocked={}",
+                                    client_id,
+                                    peer_addr,
+                                    client_name.as_deref().unwrap_or(""),
+                                    _current_db_index,
+                                    client_flags.iter().cloned().collect::<Vec<_>>().join(","),
+                                    if blocked { "1" } else { "0" }
+                                );
+                                let resp = RespValue::BulkString(Some(Bytes::from(info_str)));
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientNoEvict(flag) => {
+                                if flag {
+                                    client_flags.insert("no-evict".to_string());
+                                } else {
+                                    client_flags.remove("no-evict");
+                                }
+                                if let Ok(mut guard) = clients.write() {
+                                    if let Some(info) = guard.get_mut(&client_id) {
+                                        if flag {
+                                            info.flags.insert("no-evict".to_string());
+                                        } else {
+                                            info.flags.remove("no-evict");
+                                        }
+                                    }
+                                }
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientNoTouch(flag) => {
+                                if flag {
+                                    client_flags.insert("no-touch".to_string());
+                                } else {
+                                    client_flags.remove("no-touch");
+                                }
+                                if let Ok(mut guard) = clients.write() {
+                                    if let Some(info) = guard.get_mut(&client_id) {
+                                        if flag {
+                                            info.flags.insert("no-touch".to_string());
+                                        } else {
+                                            info.flags.remove("no-touch");
+                                        }
+                                    }
+                                }
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientReply(mode) => {
+                                reply_mode = mode;
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientKill { id, addr, user, skipme } => {
+                                let mut count = 0;
+                                {
+                                    let guard = clients.read().unwrap();
+                                    for (cid, info) in guard.iter() {
+                                        if *cid == client_id && skipme {
+                                            continue;
+                                        }
+                                        if let Some(kid) = id {
+                                            if *cid != kid { continue; }
+                                        }
+                                        if let Some(ref kaddr) = addr {
+                                            if info.addr != *kaddr { continue; }
+                                        }
+                                        if let Some(ref kuser) = user {
+                                            if current_user != *kuser { continue; }
+                                        }
+                                        if let Ok(mut kf) = client_kill_flags.lock() {
+                                            kf.insert(*cid);
+                                        }
+                                        count += 1;
+                                    }
+                                }
+                                let resp = RespValue::Integer(count as i64);
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientPause(timeout, mode) => {
+                                let end = Instant::now() + Duration::from_millis(timeout);
+                                if let Ok(mut cp) = client_pause.write() {
+                                    *cp = Some((end, mode.clone()));
+                                }
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientUnpause => {
+                                if let Ok(mut cp) = client_pause.write() {
+                                    *cp = None;
+                                }
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientUnblock(target_id, reason) => {
+                                let mut unblocked = false;
+                                if let Ok(mut guard) = clients.write() {
+                                    if let Some(info) = guard.get_mut(&target_id) {
+                                        if info.blocked {
+                                            info.blocked = false;
+                                            info.blocked_reason = Some(reason.clone());
+                                            unblocked = true;
+                                        }
+                                    }
+                                }
+                                let resp = RespValue::Integer(if unblocked { 1 } else { 0 });
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientId => {
+                                let resp = RespValue::Integer(client_id as i64);
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::Ping(message) if is_subscribed => {
+                                // 订阅模式下的 PING
+                                let resp = match message {
+                                    Some(m) => RespValue::Array(vec![bulk("pong"), bulk(&m)]),
+                                    None => RespValue::SimpleString("PONG".to_string()),
+                                };
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            _other if is_subscribed => {
+                                // 订阅模式下不允许非 pub/sub 命令
+                                let resp = RespValue::Error(
+                                    "ERR only (P)SUBSCRIBE / (P)UNSUBSCRIBE / PING / QUIT allowed in this context".to_string()
+                                );
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::BLPop(keys, timeout) => {
+                                // 先尝试非阻塞弹出
+                                let cmd = Command::BLPop(keys.clone(), timeout);
+                                match handler.executor.execute(cmd) {
+                                    Ok(RespValue::BulkString(None)) => {
+                                        // 需要阻塞等待
+                                        match handler.executor.storage().blpop(&keys, timeout).await {
+                                            Ok(Some((key, value))) => {
+                                                // 阻塞成功，执行 LPOP 写 AOF
+                                                let _ = handler.executor.execute(Command::LPop(key.clone()));
+                                                let resp = RespValue::Array(vec![
+                                                    RespValue::BulkString(Some(bytes::Bytes::from(key))),
+                                                    RespValue::BulkString(Some(value)),
+                                                ]);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                let resp = RespValue::BulkString(None);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                let err_resp = RespValue::Error(format!("ERR {}", e));
+                                                if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                                    log::error!("写入错误响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Ok(resp) => {
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("命令执行失败: {}", e);
+                                        let err_resp = RespValue::Error(format!("ERR {}", e));
+                                        if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                            log::error!("写入错误响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            Command::BRPop(keys, timeout) => {
+                                // 先尝试非阻塞弹出
+                                let cmd = Command::BRPop(keys.clone(), timeout);
+                                match handler.executor.execute(cmd) {
+                                    Ok(RespValue::BulkString(None)) => {
+                                        // 需要阻塞等待
+                                        match handler.executor.storage().brpop(&keys, timeout).await {
+                                            Ok(Some((key, value))) => {
+                                                // 阻塞成功，执行 RPOP 写 AOF
+                                                let _ = handler.executor.execute(Command::RPop(key.clone()));
+                                                let resp = RespValue::Array(vec![
+                                                    RespValue::BulkString(Some(bytes::Bytes::from(key))),
+                                                    RespValue::BulkString(Some(value)),
+                                                ]);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                let resp = RespValue::BulkString(None);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                let err_resp = RespValue::Error(format!("ERR {}", e));
+                                                if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                                    log::error!("写入错误响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Ok(resp) => {
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("命令执行失败: {}", e);
+                                        let err_resp = RespValue::Error(format!("ERR {}", e));
+                                        if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                            log::error!("写入错误响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            Command::Save => {
+                                match rdb_path {
+                                    Some(ref path) => {
+                                        match crate::rdb::save(&storage, path) {
+                                            Ok(()) => {
+                                                let resp = RespValue::SimpleString("OK".to_string());
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                let err_resp = RespValue::Error(format!("ERR {}", e));
+                                                if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                                    log::error!("写入错误响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                        }
+                                    }
+                                    None => {
+                                        let resp = RespValue::Error("ERR RDB 路径未配置".to_string());
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            Command::BgSave => {
+                                match rdb_path {
+                                    Some(ref path) => {
+                                        let storage_clone = storage.clone();
+                                        let path_clone = path.clone();
+                                        tokio::spawn(async move {
+                                            if let Err(e) = crate::rdb::save(&storage_clone, &path_clone) {
+                                                log::error!("BGSAVE 失败: {}", e);
+                                            } else {
+                                                log::info!("BGSAVE 完成");
+                                            }
+                                        });
+                                        let resp = RespValue::SimpleString("Background saving started".to_string());
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    None => {
+                                        let resp = RespValue::Error("ERR RDB 路径未配置".to_string());
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            Command::BLmove(source, dest, left_from, left_to, timeout) => {
+                                let cmd = Command::Lmove(source.clone(), dest.clone(), left_from, left_to);
+                                match handler.executor.execute(cmd) {
+                                    Ok(RespValue::BulkString(None)) => {
+                                        match handler.executor.storage().blmove(&source, &dest, left_from, left_to, timeout).await {
+                                            Ok(Some(value)) => {
+                                                let _ = handler.executor.execute(Command::Lmove(source.clone(), dest.clone(), left_from, left_to));
+                                                let resp = RespValue::BulkString(Some(value));
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                let resp = RespValue::BulkString(None);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                let err_resp = RespValue::Error(format!("ERR {}", e));
+                                                if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                                    log::error!("写入错误响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Ok(resp) => {
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("命令执行失败: {}", e);
+                                        let err_resp = RespValue::Error(format!("ERR {}", e));
+                                        if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                            log::error!("写入错误响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            Command::BLmpop(keys, left, count, timeout) => {
+                                let cmd = Command::Lmpop(keys.clone(), left, count);
+                                match handler.executor.execute(cmd) {
+                                    Ok(RespValue::BulkString(None)) => {
+                                        match handler.executor.storage().blmpop(&keys, left, count, timeout).await {
+                                            Ok(Some((key, values))) => {
+                                                let _ = handler.executor.execute(Command::Lmpop(keys.clone(), left, count));
+                                                let mut arr = Vec::new();
+                                                arr.push(RespValue::BulkString(Some(bytes::Bytes::from(key))));
+                                                let vals: Vec<RespValue> = values.into_iter()
+                                                    .map(|v| RespValue::BulkString(Some(v)))
+                                                    .collect();
+                                                arr.push(RespValue::Array(vals));
+                                                let resp = RespValue::Array(arr);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                let resp = RespValue::BulkString(None);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                let err_resp = RespValue::Error(format!("ERR {}", e));
+                                                if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                                    log::error!("写入错误响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Ok(resp) => {
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("命令执行失败: {}", e);
+                                        let err_resp = RespValue::Error(format!("ERR {}", e));
+                                        if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                            log::error!("写入错误响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            Command::BRpoplpush(source, dest, timeout) => {
+                                let cmd = Command::Rpoplpush(source.clone(), dest.clone());
+                                match handler.executor.execute(cmd) {
+                                    Ok(RespValue::BulkString(None)) => {
+                                        match handler.executor.storage().brpoplpush(&source, &dest, timeout).await {
+                                            Ok(Some(value)) => {
+                                                let _ = handler.executor.execute(Command::Rpoplpush(source.clone(), dest.clone()));
+                                                let resp = RespValue::BulkString(Some(value));
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                let resp = RespValue::BulkString(None);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                let err_resp = RespValue::Error(format!("ERR {}", e));
+                                                if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                                    log::error!("写入错误响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Ok(resp) => {
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("命令执行失败: {}", e);
+                                        let err_resp = RespValue::Error(format!("ERR {}", e));
+                                        if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                            log::error!("写入错误响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            Command::BZMpop(timeout, keys, min_or_max, count) => {
+                                let cmd = Command::ZMpop(keys.clone(), min_or_max, count);
+                                match handler.executor.execute(cmd) {
+                                    Ok(RespValue::BulkString(None)) => {
+                                        match handler.executor.storage().bzmpop(&keys, min_or_max, count, timeout).await {
+                                            Ok(Some((key, pairs))) => {
+                                                let _ = handler.executor.execute(Command::ZMpop(keys.clone(), min_or_max, count));
+                                                let mut pair_values = Vec::new();
+                                                for (member, score) in pairs {
+                                                    pair_values.push(RespValue::BulkString(Some(bytes::Bytes::from(member))));
+                                                    pair_values.push(RespValue::BulkString(Some(bytes::Bytes::from(format!("{}", score)))));
+                                                }
+                                                let resp = RespValue::Array(vec![
+                                                    RespValue::BulkString(Some(bytes::Bytes::from(key))),
+                                                    RespValue::Array(pair_values),
+                                                ]);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                let resp = RespValue::BulkString(None);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                let err_resp = RespValue::Error(format!("ERR {}", e));
+                                                if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                                    log::error!("写入错误响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Ok(resp) => {
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("命令执行失败: {}", e);
+                                        let err_resp = RespValue::Error(format!("ERR {}", e));
+                                        if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                            log::error!("写入错误响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            Command::BZPopMin(keys, timeout) => {
+                                let cmd = Command::ZPopMin(keys[0].clone(), 1);
+                                match handler.executor.execute(cmd) {
+                                    Ok(RespValue::Array(ref arr)) if !arr.is_empty() => {
+                                        if let Err(e) = write_resp(&mut stream, &handler, &RespValue::Array(arr.clone())).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    _ => {
+                                        match handler.executor.storage().bzpopmin(&keys, timeout).await {
+                                            Ok(Some((key, member, score))) => {
+                                                let _ = handler.executor.execute(Command::ZPopMin(key.clone(), 1));
+                                                let resp = RespValue::Array(vec![
+                                                    RespValue::BulkString(Some(bytes::Bytes::from(key))),
+                                                    RespValue::BulkString(Some(bytes::Bytes::from(member))),
+                                                    RespValue::BulkString(Some(bytes::Bytes::from(format!("{}", score)))),
+                                                ]);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                let resp = RespValue::BulkString(None);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                let err_resp = RespValue::Error(format!("ERR {}", e));
+                                                if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                                    log::error!("写入错误响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Command::BZPopMax(keys, timeout) => {
+                                let cmd = Command::ZPopMax(keys[0].clone(), 1);
+                                match handler.executor.execute(cmd) {
+                                    Ok(RespValue::Array(ref arr)) if !arr.is_empty() => {
+                                        if let Err(e) = write_resp(&mut stream, &handler, &RespValue::Array(arr.clone())).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    _ => {
+                                        match handler.executor.storage().bzpopmax(&keys, timeout).await {
+                                            Ok(Some((key, member, score))) => {
+                                                let _ = handler.executor.execute(Command::ZPopMax(key.clone(), 1));
+                                                let resp = RespValue::Array(vec![
+                                                    RespValue::BulkString(Some(bytes::Bytes::from(key))),
+                                                    RespValue::BulkString(Some(bytes::Bytes::from(member))),
+                                                    RespValue::BulkString(Some(bytes::Bytes::from(format!("{}", score)))),
+                                                ]);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                let resp = RespValue::BulkString(None);
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                let err_resp = RespValue::Error(format!("ERR {}", e));
+                                                if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                                                    log::error!("写入错误响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Command::Reset => {
+                                authenticated = password.is_none() && acl.is_none();
+                                current_user = "default".to_string();
+                                client_name = None;
+                                _current_db_index = 0;
+                                reply_mode = ReplyMode::On;
+                                client_flags.clear();
+                                in_transaction = false;
+                                tx_queue.clear();
+                                watched.clear();
+                                if let Ok(mut guard) = clients.write() {
+                                    if let Some(info) = guard.get_mut(&client_id) {
+                                        info.db = 0;
+                                        info.name = None;
+                                        info.flags.clear();
+                                        info.blocked = false;
+                                        info.blocked_reason = None;
+                                    }
+                                }
+                                let resp = RespValue::SimpleString("RESET".to_string());
+                                if let Err(_e) = write_resp(&mut stream, &handler, &resp).await {
+                                    return Ok(());
+                                }
+                            }
+                            Command::Hello(protover, auth, setname) => {
+                                if let Some((username, pwd)) = auth {
+                                    let auth_ok = if let Some(ref acl_mgr) = acl {
+                                        acl_mgr.authenticate(&username, &pwd).unwrap_or(false)
+                                    } else if let Some(ref expected) = password {
+                                        username == "default" && pwd == *expected
+                                    } else {
+                                        true
+                                    };
+                                    if !auth_ok {
+                                        let resp = RespValue::Error(
+                                            "WRONGPASS invalid username-password pair or user is disabled.".to_string()
+                                        );
+                                        if let Err(_e) = write_resp(&mut stream, &handler, &resp).await {
+                                            return Ok(());
+                                        }
+                                        continue;
+                                    }
+                                    authenticated = true;
+                                    current_user = username;
+                                }
+                                if let Some(name) = setname {
+                                    client_name = Some(name.clone());
+                                    if let Ok(mut guard) = clients.write() {
+                                        if let Some(info) = guard.get_mut(&client_id) {
+                                            info.name = Some(name);
+                                        }
+                                    }
+                                }
+                                let mut map = Vec::new();
+                                map.push(RespValue::BulkString(Some(Bytes::from("server"))));
+                                map.push(RespValue::BulkString(Some(Bytes::from("redis-rust"))));
+                                map.push(RespValue::BulkString(Some(Bytes::from("version"))));
+                                map.push(RespValue::BulkString(Some(Bytes::from("7.0.0"))));
+                                map.push(RespValue::BulkString(Some(Bytes::from("proto"))));
+                                map.push(RespValue::Integer(protover as i64));
+                                map.push(RespValue::BulkString(Some(Bytes::from("id"))));
+                                map.push(RespValue::Integer(client_id as i64));
+                                map.push(RespValue::BulkString(Some(Bytes::from("mode"))));
+                                map.push(RespValue::BulkString(Some(Bytes::from("standalone"))));
+                                map.push(RespValue::BulkString(Some(Bytes::from("role"))));
+                                map.push(RespValue::BulkString(Some(Bytes::from("master"))));
+                                let resp = RespValue::Array(map);
+                                if let Err(_e) = write_resp(&mut stream, &handler, &resp).await {
+                                    return Ok(());
+                                }
+                            }
+                            Command::Monitor => {
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(_e) = write_resp(&mut stream, &handler, &resp).await {
+                                    return Ok(());
+                                }
+                                let mut monitor_rx = monitor_tx.subscribe();
+                                loop {
+                                    tokio::select! {
+                                        result = stream.read_buf(&mut buf) => {
+                                            match result {
+                                                Ok(0) => return Ok(()),
+                                                Ok(_) => {}
+                                                Err(_) => return Ok(()),
+                                            }
+                                        }
+                                        msg = monitor_rx.recv() => {
+                                            match msg {
+                                                Ok(cmd_str) => {
+                                                    let resp = RespValue::SimpleString(cmd_str);
+                                                    if let Err(_e) = write_resp(&mut stream, &handler, &resp).await {
+                                                        return Ok(());
+                                                    }
+                                                }
+                                                Err(broadcast::error::RecvError::Closed) => return Ok(()),
+                                                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            other => {
+                                // 普通命令，交给执行器，同时广播到 MONITOR
+                                let (cmd_name, args) = extract_cmd_info(&other);
+                                let monitor_str = format!(
+                                    "{:.6} [{} {}] \"{}\" {}",
+                                    std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_secs_f64(),
+                                    peer_addr,
+                                    client_id,
+                                    cmd_name,
+                                    args.iter().map(|a| format!("\"{}\"", a)).collect::<Vec<_>>().join(" ")
+                                );
+                                let _ = monitor_tx.send(monitor_str);
+                                match handler.executor.execute(other) {
+                                    Ok(response) => {
+                                        if let Err(e) = send_reply(&mut stream, &handler, &response, &mut reply_mode).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("命令执行失败: {}", e);
+                                        let err_resp = RespValue::Error(format!("ERR {}", e));
+                                        if let Err(e) = send_reply(&mut stream, &handler, &err_resp, &mut reply_mode).await {
+                                            log::error!("写入错误响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("命令解析失败: {}", e);
+                        let err_resp = RespValue::Error(format!("ERR {}", e));
+                        if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                            log::error!("写入错误响应失败: {}", e);
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+            None => {
+                // 缓冲区中数据不完整，需要从网络读取更多数据
+                if buf.capacity() - buf.len() < 1024 {
+                    buf.reserve(4096);
+                }
+
+                if is_subscribed {
+                    // 订阅模式下需要同时监听网络和订阅消息
+                    tokio::select! {
+                        result = stream.read_buf(&mut buf) => {
+                            match result {
+                                Ok(0) => {
+                                    log::debug!("客户端发送 EOF，关闭连接");
+                                    return Ok(());
+                                }
+                                Ok(n) => {
+                                    log::debug!("从网络读取 {} 字节", n);
+                                }
+                                Err(e) => {
+                                    let kind = e.kind();
+                                    if kind == std::io::ErrorKind::ConnectionReset
+                                        || kind == std::io::ErrorKind::BrokenPipe
+                                        || kind == std::io::ErrorKind::ConnectionAborted
+                                    {
+                                        log::debug!("客户端断开连接: {}", e);
+                                    } else {
+                                        log::debug!("读取数据失败: {}", e);
+                                    }
+                                    return Ok(());
+                                }
+                            }
+                        }
+                        maybe_msg = msg_rx.recv() => {
+                            match maybe_msg {
+                                Some(ClientMessage::Message(channel, data)) => {
+                                    let resp = RespValue::Array(vec![
+                                        bulk("message"),
+                                        bulk(&channel),
+                                        bulk_bytes(&data),
+                                    ]);
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入消息失败: {}", e);
+                                        return Ok(());
+                                    }
+                                }
+                                Some(ClientMessage::PMessage(pattern, channel, data)) => {
+                                    let resp = RespValue::Array(vec![
+                                        bulk("pmessage"),
+                                        bulk(&pattern),
+                                        bulk(&channel),
+                                        bulk_bytes(&data),
+                                    ]);
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入消息失败: {}", e);
+                                        return Ok(());
+                                    }
+                                }
+                                None => {
+                                    // 所有 sender 已关闭，正常退出
+                                    log::debug!("消息通道已关闭");
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    let bytes_read = match stream.read_buf(&mut buf).await {
+                        Ok(0) => {
+                            log::debug!("客户端发送 EOF，关闭连接");
+                            return Ok(());
+                        }
+                        Ok(n) => n,
+                        Err(e) => {
+                            let kind = e.kind();
+                            if kind == std::io::ErrorKind::ConnectionReset
+                                || kind == std::io::ErrorKind::BrokenPipe
+                                || kind == std::io::ErrorKind::ConnectionAborted
+                            {
+                                log::debug!("客户端断开连接: {}", e);
+                            } else {
+                                log::error!("读取数据失败: {}", e);
+                            }
+                            return Ok(());
+                        }
+                    };
+                    log::debug!("从网络读取 {} 字节", bytes_read);
+                }
+            }
+        }
+    }
+}
+
+/// 将 RESP 值编码并写入流
+async fn write_resp(
+    stream: &mut TcpStream,
+    handler: &ConnectionHandler,
+    resp: &RespValue,
+) -> std::io::Result<()> {
+    let encoded = handler.parser.encode(resp);
+    stream.write_all(&encoded).await
+}
+
+/// 根据回复模式发送响应
+async fn send_reply(
+    stream: &mut TcpStream,
+    handler: &ConnectionHandler,
+    resp: &RespValue,
+    reply_mode: &mut ReplyMode,
+) -> std::io::Result<()> {
+    match *reply_mode {
+        ReplyMode::Off => Ok(()),
+        ReplyMode::Skip => {
+            *reply_mode = ReplyMode::On;
+            Ok(())
+        }
+        ReplyMode::On => write_resp(stream, handler, resp).await,
+    }
+}

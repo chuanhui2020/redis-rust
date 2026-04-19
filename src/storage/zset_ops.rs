@@ -1,0 +1,2027 @@
+use super::*;
+
+#[derive(Debug, Clone)]
+pub struct ZSetData {
+    /// member -> score
+    pub member_to_score: HashMap<String, f64>,
+    /// (score, member) -> ()，按分数排序
+    pub score_to_member: BTreeMap<(OrderedFloat<f64>, String), ()>,
+}
+
+impl ZSetData {
+    pub fn new() -> Self {
+        Self {
+            member_to_score: HashMap::new(),
+            score_to_member: BTreeMap::new(),
+        }
+    }
+
+    /// 添加或更新成员的分数
+    /// 返回 true 表示新成员，false 表示更新已有成员
+    pub fn add(&mut self, member: String, score: f64) -> bool {
+        let is_new = if let Some(old_score) = self.member_to_score.get(&member) {
+            let old_key = (OrderedFloat(*old_score), member.clone());
+            self.score_to_member.remove(&old_key);
+            false
+        } else {
+            true
+        };
+        self.member_to_score.insert(member.clone(), score);
+        let new_key = (OrderedFloat(score), member);
+        self.score_to_member.insert(new_key, ());
+        is_new
+    }
+
+    /// 删除成员，返回是否删除成功
+    pub fn remove(&mut self, member: &str) -> bool {
+        if let Some(score) = self.member_to_score.remove(member) {
+            let key = (OrderedFloat(score), member.to_string());
+            self.score_to_member.remove(&key);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 获取成员的分数
+    pub fn score(&self, member: &str) -> Option<f64> {
+        self.member_to_score.get(member).copied()
+    }
+
+    /// 获取成员的排名（从 0 开始，按分数升序）
+    pub fn rank(&self, member: &str) -> Option<usize> {
+        let score = self.member_to_score.get(member)?;
+        let key = (OrderedFloat(*score), member.to_string());
+        self.score_to_member.keys().position(|k| *k == key)
+    }
+
+    /// 按排名范围获取成员
+    pub fn range_by_rank(&self, start: isize, stop: isize) -> Vec<(String, f64)> {
+        let len = self.score_to_member.len() as isize;
+        let mut s = start;
+        let mut e = stop;
+        if s < 0 {
+            s = len + s;
+        }
+        if e < 0 {
+            e = len + e;
+        }
+        s = s.max(0);
+        e = e.min(len - 1);
+        if s > e {
+            return vec![];
+        }
+        self.score_to_member
+            .keys()
+            .skip(s as usize)
+            .take((e - s + 1) as usize)
+            .map(|(score, member)| (member.clone(), score.into_inner()))
+            .collect()
+    }
+
+    /// 按分数范围获取成员
+    pub fn range_by_score(&self, min: f64, max: f64) -> Vec<(String, f64)> {
+        let min_key = (OrderedFloat(min), String::new());
+        let max_key = (OrderedFloat(max), String::from("\u{10FFFF}"));
+        self.score_to_member
+            .range(min_key..=max_key)
+            .map(|((score, member), _)| (member.clone(), score.into_inner()))
+            .collect()
+    }
+
+    /// 获取成员的降序排名（从 0 开始，按分数降序）
+    pub fn rev_rank(&self, member: &str) -> Option<usize> {
+        let rank = self.rank(member)?;
+        Some(self.member_to_score.len().saturating_sub(1) - rank)
+    }
+
+    /// 按排名范围获取成员（降序）
+    pub fn rev_range_by_rank(&self, start: isize, stop: isize) -> Vec<(String, f64)> {
+        let len = self.score_to_member.len() as isize;
+        let mut s = start;
+        let mut e = stop;
+        if s < 0 {
+            s = len + s;
+        }
+        if e < 0 {
+            e = len + e;
+        }
+        s = s.max(0);
+        e = e.min(len - 1);
+        if s > e {
+            return vec![];
+        }
+        self.score_to_member
+            .keys()
+            .rev()
+            .skip(s as usize)
+            .take((e - s + 1) as usize)
+            .map(|(score, member)| (member.clone(), score.into_inner()))
+            .collect()
+    }
+
+    /// 按分数范围计数
+    pub fn count_by_score(&self, min: f64, max: f64) -> usize {
+        self.range_by_score(min, max).len()
+    }
+
+    /// 弹出分数最小的成员
+    pub fn pop_min(&mut self, count: usize) -> Vec<(String, f64)> {
+        let to_pop: Vec<(String, f64)> = self
+            .score_to_member
+            .keys()
+            .take(count)
+            .map(|(score, member)| (member.clone(), score.into_inner()))
+            .collect();
+        for (member, _) in &to_pop {
+            self.remove(member);
+        }
+        to_pop
+    }
+
+    /// 弹出分数最大的成员
+    pub fn pop_max(&mut self, count: usize) -> Vec<(String, f64)> {
+        let to_pop: Vec<(String, f64)> = self
+            .score_to_member
+            .keys()
+            .rev()
+            .take(count)
+            .map(|(score, member)| (member.clone(), score.into_inner()))
+            .collect();
+        for (member, _) in &to_pop {
+            self.remove(member);
+        }
+        to_pop
+    }
+
+    /// 检查所有成员是否具有相同分数
+    pub fn all_same_score(&self) -> bool {
+        if self.member_to_score.len() <= 1 {
+            return true;
+        }
+        let first_score = self.score_to_member.keys().next().unwrap().0;
+        self.score_to_member.keys().all(|(s, _)| *s == first_score)
+    }
+
+    /// 按字典序范围获取成员（要求所有成员具有相同分数）
+    /// min/max 格式: "[member" 或 "(member" 或 "-" 或 "+"
+    pub fn range_by_lex(&self, min: &str, max: &str) -> Result<Vec<String>> {
+        if !self.all_same_score() {
+            return Err(AppError::Storage(
+                "ZRANGEBYLEX 要求所有成员具有相同分数".to_string(),
+            ));
+        }
+        let (min_inclusive, min_val) = parse_lex_bound(min);
+        let (max_inclusive, max_val) = parse_lex_bound(max);
+
+        let mut result = Vec::new();
+        for (_, member) in self.score_to_member.keys() {
+            let pass_min = match &min_val {
+                None => true, // "-"
+                Some(v) => {
+                    if min_inclusive {
+                        member >= v
+                    } else {
+                        member > v
+                    }
+                }
+            };
+            let pass_max = match &max_val {
+                None => true, // "+"
+                Some(v) => {
+                    if max_inclusive {
+                        member <= v
+                    } else {
+                        member < v
+                    }
+                }
+            };
+            if pass_min && pass_max {
+                result.push(member.clone());
+            }
+        }
+        Ok(result)
+    }
+
+    /// 按字典序范围获取成员（降序，要求所有成员具有相同分数）
+    pub fn rev_range_by_lex(&self, min: &str, max: &str) -> Result<Vec<String>> {
+        if !self.all_same_score() {
+            return Err(AppError::Storage(
+                "ZREVRANGEBYLEX 要求所有成员具有相同分数".to_string(),
+            ));
+        }
+        let (min_inclusive, min_val) = parse_lex_bound(min);
+        let (max_inclusive, max_val) = parse_lex_bound(max);
+
+        let mut result = Vec::new();
+        for (_, member) in self.score_to_member.keys().rev() {
+            let pass_min = match &min_val {
+                None => true, // "-"
+                Some(v) => {
+                    if min_inclusive {
+                        member >= v
+                    } else {
+                        member > v
+                    }
+                }
+            };
+            let pass_max = match &max_val {
+                None => true, // "+"
+                Some(v) => {
+                    if max_inclusive {
+                        member <= v
+                    } else {
+                        member < v
+                    }
+                }
+            };
+            if pass_min && pass_max {
+                result.push(member.clone());
+            }
+        }
+        Ok(result)
+    }
+
+    /// 按字典序范围计数（要求所有成员具有相同分数）
+    pub fn lex_count(&self, min: &str, max: &str) -> Result<usize> {
+        Ok(self.range_by_lex(min, max)?.len())
+    }
+
+    /// 随机返回成员
+    /// count > 0: 不重复返回最多 count 个
+    /// count < 0: 允许重复返回 |count| 个
+    pub fn rand_member(&self, count: i64, with_scores: bool) -> Vec<(String, f64)> {
+        use rand::seq::SliceRandom;
+        let members: Vec<(String, f64)> = self
+            .score_to_member
+            .keys()
+            .map(|(score, member)| (member.clone(), score.into_inner()))
+            .collect();
+        if members.is_empty() {
+            return vec![];
+        }
+        if count > 0 {
+            let n = count as usize;
+            let mut rng = rand::thread_rng();
+            let mut selected = members.choose_multiple(&mut rng, n).cloned().collect::<Vec<_>>();
+            selected.shuffle(&mut rng);
+            selected
+        } else {
+            let n = count.abs() as usize;
+            let mut rng = rand::thread_rng();
+            (0..n)
+                .map(|_| members.choose(&mut rng).unwrap().clone())
+                .collect()
+        }
+    }
+}
+
+/// 解析 ZRANGEBYLEX 的范围边界
+/// 返回 (是否包含, 边界值)
+// ---------- BITFIELD 类型定义 ----------
+
+/// BITFIELD 编码类型
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BitFieldEncoding {
+    /// 是否有符号
+    pub signed: bool,
+    /// 位宽（1-64）
+    pub bits: usize,
+}
+
+/// BITFIELD 偏移量
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BitFieldOffset {
+    /// 绝对位偏移（如 0, 8, 16）
+    Num(usize),
+    /// 类型宽度的倍数偏移（如 #0, #1, #2）
+    Hash(usize),
+}
+
+/// BITFIELD 溢出策略
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BitFieldOverflow {
+    /// 回绕（默认）
+    Wrap,
+    /// 饱和
+    Sat,
+    /// 失败
+    Fail,
+}
+
+impl Default for BitFieldOverflow {
+    fn default() -> Self {
+        BitFieldOverflow::Wrap
+    }
+}
+
+/// BITFIELD 子操作
+#[derive(Debug, Clone, PartialEq)]
+pub enum BitFieldOp {
+    /// GET type offset
+    Get(BitFieldEncoding, BitFieldOffset),
+    /// SET type offset value
+    Set(BitFieldEncoding, BitFieldOffset, i64),
+    /// INCRBY type offset increment
+    IncrBy(BitFieldEncoding, BitFieldOffset, i64),
+    /// OVERFLOW WRAP|SAT|FAIL
+    Overflow(BitFieldOverflow),
+}
+
+/// BITFIELD 执行结果
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BitFieldResult {
+    /// 成功返回整数值
+    Value(i64),
+    /// FAIL 溢出时返回 nil
+    Nil,
+}
+
+impl BitFieldEncoding {
+    /// 解析编码字符串，如 "i8", "u16", "u63"
+    pub fn parse(s: &str) -> Result<Self> {
+        let s = s.to_ascii_lowercase();
+        if s.len() < 2 {
+            return Err(AppError::Command("BITFIELD 编码格式错误".to_string()));
+        }
+        let signed = match s.chars().next() {
+            Some('i') => true,
+            Some('u') => false,
+            _ => return Err(AppError::Command("BITFIELD 编码必须以 i 或 u 开头".to_string())),
+        };
+        let bits: usize = s[1..].parse().map_err(|_| {
+            AppError::Command("BITFIELD 编码位宽必须是整数".to_string())
+        })?;
+        if bits == 0 || bits > 64 {
+            return Err(AppError::Command("BITFIELD 编码位宽必须在 1-64 之间".to_string()));
+        }
+        if !signed && bits == 64 {
+            return Err(AppError::Command("BITFIELD 无符号编码最大支持 u63".to_string()));
+        }
+        Ok(BitFieldEncoding { signed, bits })
+    }
+
+    /// 计算最大值
+    pub fn max_value(&self) -> i64 {
+        if self.signed {
+            (1i64 << (self.bits - 1)) - 1
+        } else {
+            ((1u64 << self.bits) - 1) as i64
+        }
+    }
+
+    /// 计算最小值
+    pub fn min_value(&self) -> i64 {
+        if self.signed {
+            -(1i64 << (self.bits - 1))
+        } else {
+            0
+        }
+    }
+}
+
+impl BitFieldOffset {
+    /// 解析偏移字符串，如 "0", "#1", "#2"
+    pub fn parse(s: &str) -> Result<Self> {
+        if let Some(num_str) = s.strip_prefix('#') {
+            let num: usize = num_str.parse().map_err(|_| {
+                AppError::Command("BITFIELD #偏移必须是整数".to_string())
+            })?;
+            Ok(BitFieldOffset::Hash(num))
+        } else {
+            let num: usize = s.parse().map_err(|_| {
+                AppError::Command("BITFIELD 偏移必须是整数".to_string())
+            })?;
+            Ok(BitFieldOffset::Num(num))
+        }
+    }
+
+    /// 计算实际位偏移
+    pub fn resolve(&self, encoding: &BitFieldEncoding) -> usize {
+        match self {
+            BitFieldOffset::Num(n) => *n,
+            BitFieldOffset::Hash(n) => n * encoding.bits,
+        }
+    }
+}
+
+/// 从字节数组中按大端序读取指定位域（返回无符号值）
+fn read_bitfield_unsigned(bytes: &[u8], offset: usize, bits: usize) -> u64 {
+    let mut value: u64 = 0;
+    for i in 0..bits {
+        let byte_idx = (offset + i) / 8;
+        let bit_idx = 7 - ((offset + i) % 8); // 大端序：MSB 在前
+        let bit = if byte_idx < bytes.len() {
+            (bytes[byte_idx] >> bit_idx) & 1
+        } else {
+            0
+        };
+        value = (value << 1) | (bit as u64);
+    }
+    value
+}
+
+/// 将有符号位域值从无符号表示转换为 i64
+fn unsigned_to_signed(value: u64, bits: usize) -> i64 {
+    let sign_bit = 1u64 << (bits - 1);
+    if value & sign_bit != 0 {
+        // 负数：补码转换
+        (value as i64) - (1i64 << bits)
+    } else {
+        value as i64
+    }
+}
+
+/// 将 i64 转换为指定宽度的无符号表示
+fn signed_to_unsigned(value: i64, bits: usize) -> u64 {
+    let mask = if bits == 64 { !0u64 } else { (1u64 << bits) - 1 };
+    (value as u64) & mask
+}
+
+/// 向字节数组中按大端序写入指定位域
+fn write_bitfield(bytes: &mut Vec<u8>, offset: usize, bits: usize, value: u64) {
+    let needed = (offset + bits + 7) / 8;
+    if bytes.len() < needed {
+        bytes.resize(needed, 0);
+    }
+    for i in 0..bits {
+        let byte_idx = (offset + i) / 8;
+        let bit_idx = 7 - ((offset + i) % 8);
+        let bit_pos = bits - 1 - i; // 从高位到低位
+        let bit = ((value >> bit_pos) & 1) as u8;
+        if bit == 1 {
+            bytes[byte_idx] |= 1 << bit_idx;
+        } else {
+            bytes[byte_idx] &= !(1 << bit_idx);
+        }
+    }
+}
+
+/// 读取指定位域的值
+fn read_field(bytes: &[u8], encoding: &BitFieldEncoding, offset: usize) -> i64 {
+    let raw = read_bitfield_unsigned(bytes, offset, encoding.bits);
+    if encoding.signed {
+        unsigned_to_signed(raw, encoding.bits)
+    } else {
+        raw as i64
+    }
+}
+
+/// 写入指定位域的值
+fn write_field(bytes: &mut Vec<u8>, encoding: &BitFieldEncoding, offset: usize, value: i64) {
+    let raw = if encoding.signed {
+        signed_to_unsigned(value, encoding.bits)
+    } else {
+        (value as u64) & ((1u64 << encoding.bits) - 1)
+    };
+    write_bitfield(bytes, offset, encoding.bits, raw);
+}
+
+/// 执行 INCRBY 并处理溢出
+fn incr_with_overflow(
+    old_value: i64,
+    increment: i64,
+    encoding: &BitFieldEncoding,
+    overflow: BitFieldOverflow,
+) -> BitFieldResult {
+    let new_value = old_value.saturating_add(increment);
+    let max_val = encoding.max_value();
+    let min_val = encoding.min_value();
+
+    match overflow {
+        BitFieldOverflow::Wrap => {
+            // 回绕：直接截断
+            let wrapped = if encoding.signed {
+                let range = 1i64 << encoding.bits;
+                let mut v = new_value % range;
+                if v < min_val {
+                    v += range;
+                } else if v > max_val {
+                    v -= range;
+                }
+                v
+            } else {
+                let mask = (1u64 << encoding.bits) - 1;
+                ((new_value as u64) & mask) as i64
+            };
+            BitFieldResult::Value(wrapped)
+        }
+        BitFieldOverflow::Sat => {
+            // 饱和
+            if new_value > max_val {
+                BitFieldResult::Value(max_val)
+            } else if new_value < min_val {
+                BitFieldResult::Value(min_val)
+            } else {
+                BitFieldResult::Value(new_value)
+            }
+        }
+        BitFieldOverflow::Fail => {
+            // 失败：溢出时返回 nil
+            if new_value > max_val || new_value < min_val {
+                BitFieldResult::Nil
+            } else {
+                BitFieldResult::Value(new_value)
+            }
+        }
+    }
+}
+
+impl Default for ZSetData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn parse_lex_bound(bound: &str) -> (bool, Option<String>) {
+    if bound == "-" {
+        return (true, None);
+    }
+    if bound == "+" {
+        return (true, None);
+    }
+    if let Some(rest) = bound.strip_prefix('[') {
+        return (true, Some(rest.to_string()));
+    }
+    if let Some(rest) = bound.strip_prefix('(') {
+        return (false, Some(rest.to_string()));
+    }
+    // 默认按包含处理
+    (true, Some(bound.to_string()))
+}
+
+impl StorageEngine {
+    pub fn zadd(&self, key: &str, pairs: Vec<(f64, String)>) -> Result<i64> {
+        self.evict_if_needed()?;
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get_mut(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    let mut zset = ZSetData::new();
+                    let mut count = 0i64;
+                    for (score, member) in pairs {
+                        if zset.add(member, score) {
+                            count += 1;
+                        }
+                    }
+                    map.insert(key.to_string(), StorageValue::ZSet(zset));
+                    self.notify_blocking_waiters(key);
+                    Ok(count)
+                } else {
+                    Self::check_zset_type(v)?;
+                    let zset = Self::as_zset_mut(v).unwrap();
+                    let mut count = 0i64;
+                    for (score, member) in pairs {
+                        if zset.add(member, score) {
+                            count += 1;
+                        }
+                    }
+                    self.notify_blocking_waiters(key);
+                    Ok(count)
+                }
+            }
+            None => {
+                let mut zset = ZSetData::new();
+                let mut count = 0i64;
+                for (score, member) in pairs {
+                    if zset.add(member, score) {
+                        count += 1;
+                    }
+                }
+                map.insert(key.to_string(), StorageValue::ZSet(zset));
+                self.notify_blocking_waiters(key);
+                Ok(count)
+            }
+        }
+    }
+
+    /// 从有序集合中删除一个或多个成员
+    /// 返回实际删除的成员数量
+    pub fn zrem(&self, key: &str, members: &[String]) -> Result<i64> {
+        self.evict_if_needed()?;
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get_mut(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(0)
+                } else {
+                    Self::check_zset_type(v)?;
+                    let zset = Self::as_zset_mut(v).unwrap();
+                    let mut count = 0i64;
+                    for member in members {
+                        if zset.remove(member) {
+                            count += 1;
+                        }
+                    }
+                    if zset.member_to_score.is_empty() {
+                        map.remove(key);
+                    }
+                    Ok(count)
+                }
+            }
+            None => Ok(0),
+        }
+    }
+
+    /// 返回有序集合中成员的分数
+    pub fn zscore(&self, key: &str, member: &str) -> Result<Option<f64>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(None)
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => Ok(z.score(member)),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// 返回有序集合中成员的排名（从 0 开始，按分数升序）
+    pub fn zrank(&self, key: &str, member: &str) -> Result<Option<usize>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(None)
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => Ok(z.rank(member)),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// 按排名范围返回有序集合中的成员
+    /// with_scores 为 true 时同时返回分数
+    pub fn zrange(
+        &self,
+        key: &str,
+        start: isize,
+        stop: isize,
+        _with_scores: bool,
+    ) -> Result<Vec<(String, f64)>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(vec![])
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => Ok(z.range_by_rank(start, stop)),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(vec![]),
+        }
+    }
+
+    /// 按分数范围返回有序集合中的成员
+    /// with_scores 为 true 时同时返回分数
+    pub fn zrangebyscore(
+        &self,
+        key: &str,
+        min: f64,
+        max: f64,
+        _with_scores: bool,
+    ) -> Result<Vec<(String, f64)>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(vec![])
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => Ok(z.range_by_score(min, max)),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(vec![]),
+        }
+    }
+
+    /// 返回有序集合的成员数量
+    pub fn zcard(&self, key: &str) -> Result<usize> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(0)
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => Ok(z.member_to_score.len()),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(0),
+        }
+    }
+
+    /// 按排名范围返回有序集合中的成员（降序）
+    pub fn zrevrange(
+        &self,
+        key: &str,
+        start: isize,
+        stop: isize,
+        _with_scores: bool,
+    ) -> Result<Vec<(String, f64)>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(vec![])
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => Ok(z.rev_range_by_rank(start, stop)),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(vec![]),
+        }
+    }
+
+    /// 获取成员的降序排名
+    pub fn zrevrank(&self, key: &str, member: &str) -> Result<Option<usize>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(None)
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => Ok(z.rev_rank(member)),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// 增加成员的分数
+    /// 返回新的分数字符串
+    pub fn zincrby(&self, key: &str, increment: f64, member: String) -> Result<String> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get_mut(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    let mut zset = ZSetData::new();
+                    zset.add(member.clone(), increment);
+                    map.insert(key.to_string(), StorageValue::ZSet(zset));
+                    self.bump_version(key);
+                    self.touch(key);
+                    self.notify_blocking_waiters(key);
+                    Ok(format!("{}", increment))
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => {
+                            let new_score = z.score(&member).unwrap_or(0.0) + increment;
+                            z.add(member, new_score);
+                            self.bump_version(key);
+                            self.touch(key);
+                            self.notify_blocking_waiters(key);
+                            Ok(format!("{}", new_score))
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => {
+                let mut zset = ZSetData::new();
+                zset.add(member.clone(), increment);
+                map.insert(key.to_string(), StorageValue::ZSet(zset));
+                self.bump_version(key);
+                self.touch(key);
+                self.notify_blocking_waiters(key);
+                Ok(format!("{}", increment))
+            }
+        }
+    }
+
+    /// 返回分数范围内的成员数量
+    pub fn zcount(&self, key: &str, min: f64, max: f64) -> Result<usize> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(0)
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => Ok(z.count_by_score(min, max)),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(0),
+        }
+    }
+
+    /// 弹出分数最小的成员
+    pub fn zpopmin(&self, key: &str, count: usize) -> Result<Vec<(String, f64)>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get_mut(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(vec![])
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => {
+                            let result = z.pop_min(count);
+                            if z.member_to_score.is_empty() {
+                                map.remove(key);
+                            }
+                            self.bump_version(key);
+                            self.touch(key);
+                            Ok(result)
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(vec![]),
+        }
+    }
+
+    /// 弹出分数最大的成员
+    pub fn zpopmax(&self, key: &str, count: usize) -> Result<Vec<(String, f64)>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get_mut(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(vec![])
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => {
+                            let result = z.pop_max(count);
+                            if z.member_to_score.is_empty() {
+                                map.remove(key);
+                            }
+                            self.bump_version(key);
+                            self.touch(key);
+                            Ok(result)
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(vec![]),
+        }
+    }
+
+    /// 有序集合并集存储
+    pub fn zunionstore(
+        &self,
+        destination: &str,
+        keys: &[String],
+        weights: Option<&[f64]>,
+        aggregate: &str,
+    ) -> Result<usize> {
+        let db = self.db();
+        let mut union_scores: HashMap<String, Vec<f64>> = HashMap::new();
+
+        for (idx, key) in keys.iter().enumerate() {
+            let weight = weights.map(|w| w.get(idx).copied().unwrap_or(1.0)).unwrap_or(1.0);
+            let map = db.inner.get_shard(key).read()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            if let Some(v) = map.get(key) {
+                if Self::is_expired(v) {
+                    continue;
+                }
+                if let StorageValue::ZSet(z) = v {
+                    for (member, score) in &z.member_to_score {
+                        union_scores
+                            .entry(member.clone())
+                            .or_default()
+                            .push(*score * weight);
+                    }
+                }
+            }
+        }
+
+        let result_len = union_scores.len();
+
+        let mut result = ZSetData::new();
+        for (member, scores) in union_scores {
+            let final_score = match aggregate.to_ascii_uppercase().as_str() {
+                "MIN" => scores.into_iter().fold(f64::INFINITY, f64::min),
+                "MAX" => scores.into_iter().fold(f64::NEG_INFINITY, f64::max),
+                _ => scores.iter().sum(),
+            };
+            result.add(member, final_score);
+        }
+
+        let mut map = db.inner.get_shard(destination).write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        map.insert(destination.to_string(), StorageValue::ZSet(result));
+        self.bump_version(destination);
+        self.touch(destination);
+        Ok(result_len)
+    }
+
+    /// 有序集合交集存储
+    pub fn zinterstore(
+        &self,
+        destination: &str,
+        keys: &[String],
+        weights: Option<&[f64]>,
+        aggregate: &str,
+    ) -> Result<usize> {
+        let db = self.db();
+
+        if keys.is_empty() {
+            let mut map = db.inner.get_shard(destination).write()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            map.remove(destination);
+            self.bump_version(destination);
+            return Ok(0);
+        }
+
+        let mut first = true;
+        let mut inter_members: HashMap<String, Vec<f64>> = HashMap::new();
+
+        for (idx, key) in keys.iter().enumerate() {
+            let weight = weights.map(|w| w.get(idx).copied().unwrap_or(1.0)).unwrap_or(1.0);
+            let mut current_members: HashMap<String, f64> = HashMap::new();
+
+            let map = db.inner.get_shard(key).read()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            if let Some(v) = map.get(key) {
+                if !Self::is_expired(v) {
+                    if let StorageValue::ZSet(z) = v {
+                        for (member, score) in &z.member_to_score {
+                            current_members.insert(member.clone(), *score * weight);
+                        }
+                    }
+                }
+            }
+
+            if first {
+                for (member, score) in current_members {
+                    inter_members.insert(member, vec![score]);
+                }
+                first = false;
+            } else {
+                inter_members.retain(|member, scores| {
+                    if let Some(score) = current_members.get(member) {
+                        scores.push(*score);
+                        true
+                    } else {
+                        false
+                    }
+                });
+            }
+        }
+
+        let result_len = inter_members.len();
+
+        let mut result = ZSetData::new();
+        for (member, scores) in inter_members {
+            let final_score = match aggregate.to_ascii_uppercase().as_str() {
+                "MIN" => scores.into_iter().fold(f64::INFINITY, f64::min),
+                "MAX" => scores.into_iter().fold(f64::NEG_INFINITY, f64::max),
+                _ => scores.iter().sum(),
+            };
+            result.add(member, final_score);
+        }
+
+        let mut map = db.inner.get_shard(destination).write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        map.insert(destination.to_string(), StorageValue::ZSet(result));
+        self.bump_version(destination);
+        self.touch(destination);
+        Ok(result_len)
+    }
+
+    /// 增量迭代有序集合
+    pub fn zscan(
+        &self,
+        key: &str,
+        cursor: usize,
+        pattern: &str,
+        count: usize,
+    ) -> Result<(usize, Vec<(String, f64)>)> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    return Ok((0, vec![]));
+                }
+                Self::check_zset_type(v)?;
+                match v {
+                    StorageValue::ZSet(z) => {
+                        let items: Vec<(String, f64)> = z
+                            .score_to_member
+                            .keys()
+                            .map(|(score, member)| (member.clone(), score.into_inner()))
+                            .collect();
+
+                        let mut filtered = Vec::new();
+                        for (member, score) in items {
+                            if Self::glob_match(&member, pattern) {
+                                filtered.push((member, score));
+                            }
+                        }
+
+                        if cursor >= filtered.len() {
+                            return Ok((0, vec![]));
+                        }
+
+                        let count = if count == 0 { 10 } else { count };
+                        let end = (cursor + count).min(filtered.len());
+                        let result = filtered[cursor..end].to_vec();
+                        let new_cursor = if end >= filtered.len() { 0 } else { end };
+
+                        Ok((new_cursor, result))
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            None => Ok((0, vec![])),
+        }
+    }
+
+    /// 按字典序范围返回有序集合成员
+    pub fn zrangebylex(&self, key: &str, min: &str, max: &str) -> Result<Vec<String>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(vec![])
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => z.range_by_lex(min, max),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(vec![]),
+        }
+    }
+
+    /// 随机返回有序集合中的成员
+    pub fn zrandmember(
+        &self,
+        key: &str,
+        count: i64,
+        with_scores: bool,
+    ) -> Result<Vec<(String, f64)>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(vec![])
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => Ok(z.rand_member(count, with_scores)),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(vec![]),
+        }
+    }
+
+    /// 返回有序集合差集（不存储）
+    pub fn zdiff(&self, keys: &[String], with_scores: bool) -> Result<Vec<(String, f64)>> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let db = self.db();
+        let mut first = true;
+        let mut diff_members: HashMap<String, f64> = HashMap::new();
+
+        for key in keys {
+            let map = db.inner.get_shard(key).read()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            let current: HashMap<String, f64> = if let Some(v) = map.get(key) {
+                if Self::is_expired(v) {
+                    HashMap::new()
+                } else if let StorageValue::ZSet(z) = v {
+                    z.member_to_score.clone()
+                } else {
+                    HashMap::new()
+                }
+            } else {
+                HashMap::new()
+            };
+
+            if first {
+                diff_members = current;
+                first = false;
+            } else {
+                diff_members.retain(|member, _| !current.contains_key(member));
+            }
+        }
+
+        let mut result: Vec<(String, f64)> = diff_members.into_iter().collect();
+        // 按分数升序、成员字典序排序
+        result.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        if !with_scores {
+            // 即使 with_scores 为 false，为了接口统一仍返回 (String, f64)
+            // 调用方根据需要只使用 member
+        }
+        Ok(result)
+    }
+
+    /// 有序集合差集存储
+    pub fn zdiffstore(&self, destination: &str, keys: &[String]) -> Result<usize> {
+        let db = self.db();
+
+        if keys.is_empty() {
+            let mut map = db.inner.get_shard(destination).write()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            map.remove(destination);
+            self.bump_version(destination);
+            return Ok(0);
+        }
+
+        let mut first = true;
+        let mut diff_members: HashMap<String, f64> = HashMap::new();
+
+        for key in keys {
+            let map = db.inner.get_shard(key).read()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            let current: HashMap<String, f64> = if let Some(v) = map.get(key) {
+                if Self::is_expired(v) {
+                    HashMap::new()
+                } else if let StorageValue::ZSet(z) = v {
+                    z.member_to_score.clone()
+                } else {
+                    HashMap::new()
+                }
+            } else {
+                HashMap::new()
+            };
+
+            if first {
+                diff_members = current;
+                first = false;
+            } else {
+                diff_members.retain(|member, _| !current.contains_key(member));
+            }
+        }
+
+        let mut result = ZSetData::new();
+        for (member, score) in diff_members {
+            result.add(member, score);
+        }
+        let count = result.member_to_score.len();
+        let mut map = db.inner.get_shard(destination).write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        map.insert(destination.to_string(), StorageValue::ZSet(result));
+        self.bump_version(destination);
+        self.touch(destination);
+        Ok(count)
+    }
+
+    /// 返回有序集合交集（不存储）
+    pub fn zinter(
+        &self,
+        keys: &[String],
+        weights: Option<&[f64]>,
+        aggregate: &str,
+        with_scores: bool,
+    ) -> Result<Vec<(String, f64)>> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let db = self.db();
+        let mut first = true;
+        let mut inter_members: HashMap<String, Vec<f64>> = HashMap::new();
+
+        for (idx, key) in keys.iter().enumerate() {
+            let weight = weights.map(|w| w.get(idx).copied().unwrap_or(1.0)).unwrap_or(1.0);
+            let mut current_members: HashMap<String, f64> = HashMap::new();
+
+            let map = db.inner.get_shard(key).read()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            if let Some(v) = map.get(key) {
+                if !Self::is_expired(v) {
+                    if let StorageValue::ZSet(z) = v {
+                        for (member, score) in &z.member_to_score {
+                            current_members.insert(member.clone(), *score * weight);
+                        }
+                    }
+                }
+            }
+
+            if first {
+                for (member, score) in current_members {
+                    inter_members.insert(member, vec![score]);
+                }
+                first = false;
+            } else {
+                inter_members.retain(|member, scores| {
+                    if let Some(score) = current_members.get(member) {
+                        scores.push(*score);
+                        true
+                    } else {
+                        false
+                    }
+                });
+            }
+        }
+
+        let mut result: Vec<(String, f64)> = Vec::new();
+        for (member, scores) in inter_members {
+            let final_score = match aggregate.to_ascii_uppercase().as_str() {
+                "MIN" => scores.into_iter().fold(f64::INFINITY, f64::min),
+                "MAX" => scores.into_iter().fold(f64::NEG_INFINITY, f64::max),
+                _ => scores.iter().sum(),
+            };
+            result.push((member, final_score));
+        }
+        result.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        Ok(result)
+    }
+
+    /// 返回有序集合并集（不存储）
+    pub fn zunion(
+        &self,
+        keys: &[String],
+        weights: Option<&[f64]>,
+        aggregate: &str,
+        with_scores: bool,
+    ) -> Result<Vec<(String, f64)>> {
+        let db = self.db();
+        let mut union_scores: HashMap<String, Vec<f64>> = HashMap::new();
+
+        for (idx, key) in keys.iter().enumerate() {
+            let weight = weights.map(|w| w.get(idx).copied().unwrap_or(1.0)).unwrap_or(1.0);
+            let map = db.inner.get_shard(key).read()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            if let Some(v) = map.get(key) {
+                if Self::is_expired(v) {
+                    continue;
+                }
+                if let StorageValue::ZSet(z) = v {
+                    for (member, score) in &z.member_to_score {
+                        union_scores
+                            .entry(member.clone())
+                            .or_default()
+                            .push(*score * weight);
+                    }
+                }
+            }
+        }
+
+        let mut result: Vec<(String, f64)> = Vec::new();
+        for (member, scores) in union_scores {
+            let final_score = match aggregate.to_ascii_uppercase().as_str() {
+                "MIN" => scores.into_iter().fold(f64::INFINITY, f64::min),
+                "MAX" => scores.into_iter().fold(f64::NEG_INFINITY, f64::max),
+                _ => scores.iter().sum(),
+            };
+            result.push((member, final_score));
+        }
+        result.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        Ok(result)
+    }
+
+    /// 将范围查询结果存储到目标键
+    pub fn zrangestore(
+        &self,
+        dst: &str,
+        src: &str,
+        min: &str,
+        max: &str,
+        by_score: bool,
+        by_lex: bool,
+        rev: bool,
+        limit_offset: usize,
+        limit_count: usize,
+    ) -> Result<usize> {
+        let db = self.db();
+        let result = {
+            let map = db.inner.get_shard(src).read()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            match map.get(src) {
+                Some(v) => {
+                    if Self::is_expired(v) {
+                        vec![]
+                    } else {
+                        Self::check_zset_type(v)?;
+                        match v {
+                            StorageValue::ZSet(z) => {
+                                let mut pairs: Vec<(String, f64)> = if by_score {
+                                    let min_score: f64 = min.parse().map_err(|_| {
+                                        AppError::Command("ZRANGESTORE BYSCORE min 必须是数字".to_string())
+                                    })?;
+                                    let max_score: f64 = max.parse().map_err(|_| {
+                                        AppError::Command("ZRANGESTORE BYSCORE max 必须是数字".to_string())
+                                    })?;
+                                    if rev {
+                                        z.score_to_member
+                                            .range(..=(OrderedFloat(max_score), String::from("\u{10FFFF}")))
+                                            .rev()
+                                            .filter(|((s, _), _)| s.into_inner() >= min_score)
+                                            .map(|((s, m), _)| (m.clone(), s.into_inner()))
+                                            .collect()
+                                    } else {
+                                        z.range_by_score(min_score, max_score)
+                                    }
+                                } else if by_lex {
+                                    let lex_result = if rev {
+                                        z.rev_range_by_lex(min, max)
+                                    } else {
+                                        z.range_by_lex(min, max)
+                                    };
+                                    lex_result?
+                                        .into_iter()
+                                        .map(|m| {
+                                            let score = z.member_to_score.get(&m).copied().unwrap_or(0.0);
+                                            (m, score)
+                                        })
+                                        .collect()
+                                } else {
+                                    let start: isize = min.parse().map_err(|_| {
+                                        AppError::Command("ZRANGESTORE start 必须是整数".to_string())
+                                    })?;
+                                    let stop: isize = max.parse().map_err(|_| {
+                                        AppError::Command("ZRANGESTORE stop 必须是整数".to_string())
+                                    })?;
+                                    if rev {
+                                        z.rev_range_by_rank(start, stop)
+                                    } else {
+                                        z.range_by_rank(start, stop)
+                                    }
+                                };
+                                // 应用 LIMIT
+                                if limit_count > 0 {
+                                    pairs.into_iter().skip(limit_offset).take(limit_count).collect()
+                                } else {
+                                    pairs
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+                None => vec![],
+            }
+        };
+
+        let mut new_zset = ZSetData::new();
+        for (member, score) in &result {
+            new_zset.add(member.clone(), *score);
+        }
+        let count = new_zset.member_to_score.len();
+        let mut map = db.inner.get_shard(dst).write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        if count > 0 {
+            map.insert(dst.to_string(), StorageValue::ZSet(new_zset));
+            self.bump_version(dst);
+            self.touch(dst);
+        } else {
+            map.remove(dst);
+            self.bump_version(dst);
+        }
+        Ok(count)
+    }
+
+    /// 从多个有序集合中弹出成员
+    /// 返回 (键名, Vec<(成员, 分数)>)
+    pub fn zmpop(
+        &self,
+        keys: &[String],
+        min_or_max: bool,
+        count: usize,
+    ) -> Result<Option<(String, Vec<(String, f64)>)>> {
+        self.evict_if_needed()?;
+        let db = self.db();
+
+        for key in keys {
+            let mut map = db
+                .inner
+                .get_shard(key)
+                .write()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            if let Some(v) = map.get_mut(key) {
+                if Self::is_expired(v) {
+                    continue;
+                }
+                Self::check_zset_type(v)?;
+                match v {
+                    StorageValue::ZSet(z) => {
+                        let result = if min_or_max {
+                            z.pop_min(count)
+                        } else {
+                            z.pop_max(count)
+                        };
+                        if z.member_to_score.is_empty() {
+                            map.remove(key);
+                        }
+                        if !result.is_empty() {
+                            self.bump_version(key);
+                            self.touch(key);
+                            return Ok(Some((key.clone(), result)));
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// 阻塞版 ZMPOP
+    pub async fn bzmpop(
+        &self,
+        keys: &[String],
+        min_or_max: bool,
+        count: usize,
+        timeout: f64,
+    ) -> Result<Option<(String, Vec<(String, f64)>)>> {
+        // 先尝试非阻塞执行
+        if let Some(result) = self.zmpop(keys, min_or_max, count)? {
+            return Ok(Some(result));
+        }
+
+        let db = self.db();
+        let notify = Arc::new(tokio::sync::Notify::new());
+
+        // 注册等待者
+        {
+            let mut waiters_map = db.blocking_waiters.write().unwrap();
+            for key in keys {
+                waiters_map
+                    .entry(key.clone())
+                    .or_default()
+                    .push(notify.clone());
+            }
+        }
+
+        let deadline = if timeout > 0.0 {
+            Some(tokio::time::Instant::now() + tokio::time::Duration::from_secs_f64(timeout))
+        } else {
+            None
+        };
+
+        loop {
+            let wait_result = if let Some(deadline) = deadline {
+                match tokio::time::timeout(deadline - tokio::time::Instant::now(), notify.notified()).await {
+                    Ok(()) => true,
+                    Err(_) => false,
+                }
+            } else {
+                notify.notified().await;
+                true
+            };
+
+            if !wait_result {
+                break;
+            }
+
+            if let Some(result) = self.zmpop(keys, min_or_max, count)? {
+                // 清理等待者
+                let mut waiters_map = db.blocking_waiters.write().unwrap();
+                for key in keys {
+                    if let Some(list) = waiters_map.get_mut(key) {
+                        list.retain(|n| !Arc::ptr_eq(n, &notify));
+                        if list.is_empty() {
+                            waiters_map.remove(key);
+                        }
+                    }
+                }
+                return Ok(Some(result));
+            }
+        }
+
+        // 超时清理
+        let mut waiters_map = db.blocking_waiters.write().unwrap();
+        for key in keys {
+            if let Some(list) = waiters_map.get_mut(key) {
+                list.retain(|n| !Arc::ptr_eq(n, &notify));
+                if list.is_empty() {
+                    waiters_map.remove(key);
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// 阻塞弹出最小分数成员
+    pub async fn bzpopmin(
+        &self,
+        keys: &[String],
+        timeout: f64,
+    ) -> Result<Option<(String, String, f64)>> {
+        if let Some((key, mut pairs)) = self.zmpop(keys, true, 1)? {
+            if let Some((member, score)) = pairs.pop() {
+                return Ok(Some((key, member, score)));
+            }
+        }
+
+        let db = self.db();
+        let notify = Arc::new(tokio::sync::Notify::new());
+
+        {
+            let mut waiters_map = db.blocking_waiters.write().unwrap();
+            for key in keys {
+                waiters_map
+                    .entry(key.clone())
+                    .or_default()
+                    .push(notify.clone());
+            }
+        }
+
+        let deadline = if timeout > 0.0 {
+            Some(tokio::time::Instant::now() + tokio::time::Duration::from_secs_f64(timeout))
+        } else {
+            None
+        };
+
+        loop {
+            let wait_result = if let Some(deadline) = deadline {
+                match tokio::time::timeout(deadline - tokio::time::Instant::now(), notify.notified()).await {
+                    Ok(()) => true,
+                    Err(_) => false,
+                }
+            } else {
+                notify.notified().await;
+                true
+            };
+
+            if !wait_result {
+                break;
+            }
+
+            if let Some((key, mut pairs)) = self.zmpop(keys, true, 1)? {
+                if let Some((member, score)) = pairs.pop() {
+                    let mut waiters_map = db.blocking_waiters.write().unwrap();
+                    for key in keys {
+                        if let Some(list) = waiters_map.get_mut(key) {
+                            list.retain(|n| !Arc::ptr_eq(n, &notify));
+                            if list.is_empty() {
+                                waiters_map.remove(key);
+                            }
+                        }
+                    }
+                    return Ok(Some((key, member, score)));
+                }
+            }
+        }
+
+        let mut waiters_map = db.blocking_waiters.write().unwrap();
+        for key in keys {
+            if let Some(list) = waiters_map.get_mut(key) {
+                list.retain(|n| !Arc::ptr_eq(n, &notify));
+                if list.is_empty() {
+                    waiters_map.remove(key);
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// 阻塞弹出最大分数成员
+    pub async fn bzpopmax(
+        &self,
+        keys: &[String],
+        timeout: f64,
+    ) -> Result<Option<(String, String, f64)>> {
+        if let Some((key, mut pairs)) = self.zmpop(keys, false, 1)? {
+            if let Some((member, score)) = pairs.pop() {
+                return Ok(Some((key, member, score)));
+            }
+        }
+
+        let db = self.db();
+        let notify = Arc::new(tokio::sync::Notify::new());
+
+        {
+            let mut waiters_map = db.blocking_waiters.write().unwrap();
+            for key in keys {
+                waiters_map
+                    .entry(key.clone())
+                    .or_default()
+                    .push(notify.clone());
+            }
+        }
+
+        let deadline = if timeout > 0.0 {
+            Some(tokio::time::Instant::now() + tokio::time::Duration::from_secs_f64(timeout))
+        } else {
+            None
+        };
+
+        loop {
+            let wait_result = if let Some(deadline) = deadline {
+                match tokio::time::timeout(deadline - tokio::time::Instant::now(), notify.notified()).await {
+                    Ok(()) => true,
+                    Err(_) => false,
+                }
+            } else {
+                notify.notified().await;
+                true
+            };
+
+            if !wait_result {
+                break;
+            }
+
+            if let Some((key, mut pairs)) = self.zmpop(keys, false, 1)? {
+                if let Some((member, score)) = pairs.pop() {
+                    let mut waiters_map = db.blocking_waiters.write().unwrap();
+                    for key in keys {
+                        if let Some(list) = waiters_map.get_mut(key) {
+                            list.retain(|n| !Arc::ptr_eq(n, &notify));
+                            if list.is_empty() {
+                                waiters_map.remove(key);
+                            }
+                        }
+                    }
+                    return Ok(Some((key, member, score)));
+                }
+            }
+        }
+
+        let mut waiters_map = db.blocking_waiters.write().unwrap();
+        for key in keys {
+            if let Some(list) = waiters_map.get_mut(key) {
+                list.retain(|n| !Arc::ptr_eq(n, &notify));
+                if list.is_empty() {
+                    waiters_map.remove(key);
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// 按降序分数范围返回成员
+    pub fn zrevrangebyscore(
+        &self,
+        key: &str,
+        max: f64,
+        min: f64,
+        with_scores: bool,
+        limit_offset: usize,
+        limit_count: usize,
+    ) -> Result<Vec<(String, f64)>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(vec![])
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => {
+                            let max_key = (OrderedFloat(max), String::from("\u{10FFFF}"));
+                            let min_key = (OrderedFloat(min), String::new());
+                            let mut result: Vec<(String, f64)> = z
+                                .score_to_member
+                                .range(min_key..=max_key)
+                                .rev()
+                                .map(|((score, member), _)| (member.clone(), score.into_inner()))
+                                .collect();
+                            if limit_count > 0 {
+                                result = result.into_iter().skip(limit_offset).take(limit_count).collect();
+                            }
+                            Ok(result)
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(vec![]),
+        }
+    }
+
+    /// 按降序字典序范围返回成员
+    pub fn zrevrangebylex(
+        &self,
+        key: &str,
+        max: &str,
+        min: &str,
+        limit_offset: usize,
+        limit_count: usize,
+    ) -> Result<Vec<String>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(vec![])
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => {
+                            let mut result = z.rev_range_by_lex(min, max)?;
+                            if limit_count > 0 {
+                                result = result.into_iter().skip(limit_offset).take(limit_count).collect();
+                            }
+                            Ok(result)
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(vec![]),
+        }
+    }
+
+    /// 批量获取成员分数
+    pub fn zmscore(&self, key: &str, members: &[String]) -> Result<Vec<Option<f64>>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(vec![None; members.len()])
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => {
+                            Ok(members.iter().map(|m| z.score(m)).collect())
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(vec![None; members.len()]),
+        }
+    }
+
+    /// 字典序范围计数
+    pub fn zlexcount(&self, key: &str, min: &str, max: &str) -> Result<usize> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(0)
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => z.lex_count(min, max),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(0),
+        }
+    }
+
+    /// 修改后的 zrange 支持统一语法：
+    /// ZRANGE key min max [BYSCORE|BYLEX] [REV] [LIMIT offset count] [WITHSCORES]
+    pub fn zrange_unified(
+        &self,
+        key: &str,
+        min: &str,
+        max: &str,
+        by_score: bool,
+        by_lex: bool,
+        rev: bool,
+        with_scores: bool,
+        limit_offset: usize,
+        limit_count: usize,
+    ) -> Result<Vec<(String, f64)>> {
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(vec![])
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => {
+                            let mut result: Vec<(String, f64)> = if by_score {
+                                let min_score: f64 = min.parse().map_err(|_| {
+                                    AppError::Command("ZRANGE BYSCORE min 必须是数字".to_string())
+                                })?;
+                                let max_score: f64 = max.parse().map_err(|_| {
+                                    AppError::Command("ZRANGE BYSCORE max 必须是数字".to_string())
+                                })?;
+                                if rev {
+                                    z.score_to_member
+                                        .range(..=(OrderedFloat(max_score), String::from("\u{10FFFF}")))
+                                        .rev()
+                                        .filter(|((s, _), _)| s.into_inner() >= min_score)
+                                        .map(|((s, m), _)| (m.clone(), s.into_inner()))
+                                        .collect()
+                                } else {
+                                    z.range_by_score(min_score, max_score)
+                                }
+                            } else if by_lex {
+                                let lex_result = if rev {
+                                    z.rev_range_by_lex(min, max)
+                                } else {
+                                    z.range_by_lex(min, max)
+                                };
+                                lex_result?
+                                    .into_iter()
+                                    .map(|m| {
+                                        let score = z.member_to_score.get(&m).copied().unwrap_or(0.0);
+                                        (m, score)
+                                    })
+                                    .collect()
+                            } else {
+                                let start: isize = min.parse().map_err(|_| {
+                                    AppError::Command("ZRANGE start 必须是整数".to_string())
+                                })?;
+                                let stop: isize = max.parse().map_err(|_| {
+                                    AppError::Command("ZRANGE stop 必须是整数".to_string())
+                                })?;
+                                if rev {
+                                    z.rev_range_by_rank(start, stop)
+                                } else {
+                                    z.range_by_rank(start, stop)
+                                }
+                            };
+                            if limit_count > 0 {
+                                result = result.into_iter().skip(limit_offset).take(limit_count).collect();
+                            }
+                            Ok(result)
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(vec![]),
+        }
+    }
+}
+
