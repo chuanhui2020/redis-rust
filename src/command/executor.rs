@@ -14,7 +14,7 @@ use crate::storage::{EvictionPolicy, StorageEngine};
 
 pub struct CommandExecutor {
     /// 存储引擎引用
-    storage: StorageEngine,
+    pub(crate) storage: StorageEngine,
     /// AOF 写入器（可选），用于持久化写操作
     aof: Option<Arc<Mutex<AofWriter>>>,
     /// Lua 脚本引擎（可选）
