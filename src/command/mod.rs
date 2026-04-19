@@ -549,6 +549,15 @@ pub mod resp;
 pub mod parser;
 pub mod executor;
 pub mod info;
+pub mod parser_bitmap;
+pub mod parser_geo;
+pub mod parser_hash;
+pub mod parser_hll;
+pub mod parser_list;
+pub mod parser_set;
+pub mod parser_stream;
+pub mod parser_string;
+pub mod parser_zset;
 
 pub use executor::CommandExecutor;
 pub use parser::CommandParser;
