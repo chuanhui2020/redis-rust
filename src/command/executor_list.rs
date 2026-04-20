@@ -100,3 +100,51 @@ pub(crate) fn execute_l_pos(executor: &CommandExecutor, key: String, value: Byte
                 }
 }
 
+pub(crate) fn execute_b_l_pop(executor: &CommandExecutor, keys: Vec<String>, _timeout: f64) -> Result<RespValue> {
+                // 非阻塞版本：直接尝试弹出（用于事务和 AOF 重放）
+                for key in &keys {
+                    if let Ok(Some(value)) = executor.storage.lpop(key) {
+                        // 记录等效 LPOP 到 AOF
+                        let lpop_cmd = Command::LPop(key.clone());
+                        executor.append_to_aof(&lpop_cmd);
+                        return Ok(RespValue::Array(vec![
+                            RespValue::BulkString(Some(bytes::Bytes::from(key.clone()))),
+                            RespValue::BulkString(Some(value)),
+                        ]));
+                    }
+                }
+                Ok(RespValue::BulkString(None))
+}
+
+pub(crate) fn execute_b_r_pop(executor: &CommandExecutor, keys: Vec<String>, _timeout: f64) -> Result<RespValue> {
+                // 非阻塞版本：直接尝试弹出（用于事务和 AOF 重放）
+                for key in &keys {
+                    if let Ok(Some(value)) = executor.storage.rpop(key) {
+                        // 记录等效 RPOP 到 AOF
+                        let rpop_cmd = Command::RPop(key.clone());
+                        executor.append_to_aof(&rpop_cmd);
+                        return Ok(RespValue::Array(vec![
+                            RespValue::BulkString(Some(bytes::Bytes::from(key.clone()))),
+                            RespValue::BulkString(Some(value)),
+                        ]));
+                    }
+                }
+                Ok(RespValue::BulkString(None))
+}
+
+pub(crate) fn execute_b_lmpop(executor: &CommandExecutor, keys: Vec<String>, left: bool, count: usize, _timeout: f64) -> Result<RespValue> {
+                // 非阻塞版本：直接尝试弹出（用于事务和 AOF 重放）
+                if let Ok(Some((key, values))) = executor.storage.lmpop(&keys, left, count) {
+                    executor.append_to_aof(&Command::Lmpop(keys.clone(), left, count));
+                    let mut arr = Vec::new();
+                    arr.push(RespValue::BulkString(Some(bytes::Bytes::from(key))));
+                    let vals: Vec<RespValue> = values.into_iter()
+                        .map(|v| RespValue::BulkString(Some(v)))
+                        .collect();
+                    arr.push(RespValue::Array(vals));
+                    Ok(RespValue::Array(arr))
+                } else {
+                    Ok(RespValue::BulkString(None))
+                }
+}
+

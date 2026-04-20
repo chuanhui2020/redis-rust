@@ -16,19 +16,19 @@ pub struct CommandExecutor {
     /// 存储引擎引用
     pub(crate) storage: StorageEngine,
     /// AOF 写入器（可选），用于持久化写操作
-    aof: Option<Arc<Mutex<AofWriter>>>,
+    pub(crate) aof: Option<Arc<Mutex<AofWriter>>>,
     /// Lua 脚本引擎（可选）
-    script_engine: Option<ScriptEngine>,
+    pub(crate) script_engine: Option<ScriptEngine>,
     /// 慢查询日志（可选）
-    slowlog: Option<SlowLog>,
+    pub(crate) slowlog: Option<SlowLog>,
     /// ACL 管理器（可选）
     acl: Option<crate::acl::AclManager>,
     /// 延迟追踪器（可选）
-    latency: Option<crate::latency::LatencyTracker>,
+    pub(crate) latency: Option<crate::latency::LatencyTracker>,
     /// Keyspace 通知器（可选）
-    keyspace_notifier: Option<Arc<KeyspaceNotifier>>,
+    pub(crate) keyspace_notifier: Option<Arc<KeyspaceNotifier>>,
     /// 是否使用 AOF RDB preamble（混合持久化）
-    aof_use_rdb_preamble: Arc<AtomicBool>,
+    pub(crate) aof_use_rdb_preamble: Arc<AtomicBool>,
 }
 
 impl CommandExecutor {
@@ -114,7 +114,7 @@ impl CommandExecutor {
     }
 
     /// 构建 DEBUG OBJECT key 的返回信息
-    fn build_debug_object_info(&self, key: &str) -> Result<String> {
+    pub(crate) fn build_debug_object_info(&self, key: &str) -> Result<String> {
         let encoding = self.storage.object_encoding(key)?
             .unwrap_or_else(|| "none".to_string());
         let refcount = self.storage.object_refcount(key)?
@@ -133,7 +133,7 @@ impl CommandExecutor {
     }
 
     /// 将写操作追加到 AOF 文件
-    fn append_to_aof(&self, cmd: &Command) {
+    pub(crate) fn append_to_aof(&self, cmd: &Command) {
         if !cmd.is_write_command() {
             return;
         }
@@ -188,55 +188,13 @@ impl CommandExecutor {
     /// 内部执行命令（不包含计时）
     fn do_execute(&self, cmd: Command) -> Result<RespValue> {
         match cmd {
-            Command::Ping(message) => {
-                // PING 命令：有参数返回参数，否则返回 PONG
-                let reply = message.unwrap_or_else(|| "PONG".to_string());
-                Ok(RespValue::SimpleString(reply))
-            }
-            Command::Get(key) => {
-                match self.storage.get(&key)? {
-                    Some(value) => {
-                        Ok(RespValue::BulkString(Some(value)))
-                    }
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::Set(key, value, options) => {
-                let (ok, old_value) = self.storage.set_with_options(key, value, &options)?;
-                if options.get {
-                    Ok(RespValue::BulkString(old_value))
-                } else if ok {
-                    Ok(RespValue::SimpleString("OK".to_string()))
-                } else {
-                    Ok(RespValue::BulkString(None))
-                }
-            }
-            Command::SetEx(key, value, ttl_ms) => {
-                self.storage.set_with_ttl(key, value, ttl_ms)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::Del(keys) => {
-                let mut count = 0i64;
-                for key in keys {
-                    if self.storage.del(&key)? {
-                        count += 1;
-                    }
-                }
-                Ok(RespValue::Integer(count))
-            }
-            Command::Exists(keys) => {
-                let mut count = 0i64;
-                for key in keys {
-                    if self.storage.exists(&key)? {
-                        count += 1;
-                    }
-                }
-                Ok(RespValue::Integer(count))
-            }
-            Command::FlushAll => {
-                self.storage.flush()?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
+            Command::Ping(message) => executor_admin::execute_ping(self, message),
+            Command::Get(key) => executor_string::execute_get(self, key),
+            Command::Set(key, value, options) => executor_string::execute_set(self, key, value, options),
+            Command::SetEx(key, value, ttl_ms) => executor_string::execute_set_ex(self, key, value, ttl_ms),
+            Command::Del(keys) => executor_string::execute_del(self, keys),
+            Command::Exists(keys) => executor_string::execute_exists(self, keys),
+            Command::FlushAll => executor_string::execute_flush_all(self),
             Command::Expire(key, seconds) => {
                 let result = if self.storage.expire(&key, seconds)? {
                     1i64
@@ -257,514 +215,49 @@ impl CommandExecutor {
             }
             // redis-benchmark 兼容：CONFIG GET 返回空数组
             // 对 maxmemory 返回实际值
-            Command::ConfigGet(key) => {
-                let key_lower = key.to_ascii_lowercase();
-                if key_lower == "maxmemory" {
-                    let maxmem = self.storage.get_maxmemory();
-                    Ok(RespValue::Array(vec![
-                        RespValue::BulkString(Some(bytes::Bytes::from(key))),
-                        RespValue::BulkString(Some(bytes::Bytes::from(maxmem.to_string()))),
-                    ]))
-                } else if key_lower == "maxmemory-policy" {
-                    let policy = self.storage.get_eviction_policy();
-                    let policy_str = format!("{:?}", policy).to_ascii_lowercase();
-                    Ok(RespValue::Array(vec![
-                        RespValue::BulkString(Some(bytes::Bytes::from(key))),
-                        RespValue::BulkString(Some(bytes::Bytes::from(policy_str))),
-                    ]))
-                } else if key_lower == "notify-keyspace-events" {
-                    let raw = self.keyspace_notifier.as_ref()
-                        .map(|n| n.config().raw().to_string())
-                        .unwrap_or_default();
-                    Ok(RespValue::Array(vec![
-                        RespValue::BulkString(Some(bytes::Bytes::from(key))),
-                        RespValue::BulkString(Some(bytes::Bytes::from(raw))),
-                    ]))
-                } else if key_lower == "aof-use-rdb-preamble" {
-                    let val = if self.aof_use_rdb_preamble.load(Ordering::Relaxed) {
-                        "yes"
-                    } else {
-                        "no"
-                    };
-                    Ok(RespValue::Array(vec![
-                        RespValue::BulkString(Some(bytes::Bytes::from(key))),
-                        RespValue::BulkString(Some(bytes::Bytes::from(val))),
-                    ]))
-                } else {
-                    Ok(RespValue::Array(vec![]))
-                }
-            }
-            Command::ConfigSet(key, value) => {
-                let key_lower = key.to_ascii_lowercase();
-                if key_lower == "maxmemory" {
-                    match value.parse::<u64>() {
-                        Ok(bytes) => {
-                            self.storage.set_maxmemory(bytes);
-                            Ok(RespValue::SimpleString("OK".to_string()))
-                        }
-                        Err(_) => {
-                            Ok(RespValue::Error("ERR value is not an integer or out of range".to_string()))
-                        }
-                    }
-                } else if key_lower == "maxmemory-policy" {
-                    let policy = match value.to_ascii_lowercase().as_str() {
-                        "noeviction" => EvictionPolicy::NoEviction,
-                        "allkeys-lru" => EvictionPolicy::AllKeysLru,
-                        "allkeys-random" => EvictionPolicy::AllKeysRandom,
-                        "allkeys-lfu" => EvictionPolicy::AllKeysLfu,
-                        "volatile-lru" => EvictionPolicy::VolatileLru,
-                        "volatile-ttl" => EvictionPolicy::VolatileTtl,
-                        "volatile-random" => EvictionPolicy::VolatileRandom,
-                        "volatile-lfu" => EvictionPolicy::VolatileLfu,
-                        _ => {
-                            return Ok(RespValue::Error(format!(
-                                "ERR Invalid maxmemory-policy: {}", value
-                            )));
-                        }
-                    };
-                    self.storage.set_eviction_policy(policy);
-                    Ok(RespValue::SimpleString("OK".to_string()))
-                } else if key_lower == "notify-keyspace-events" {
-                    if let Some(ref notifier) = self.keyspace_notifier {
-                        notifier.set_config(crate::keyspace::NotifyKeyspaceEvents::from_str(&value));
-                        Ok(RespValue::SimpleString("OK".to_string()))
-                    } else {
-                        Ok(RespValue::Error("ERR Keyspace notifier not initialized".to_string()))
-                    }
-                } else if key_lower == "aof-use-rdb-preamble" {
-                    let enabled = match value.to_ascii_lowercase().as_str() {
-                        "yes" => true,
-                        "no" => false,
-                        _ => {
-                            return Ok(RespValue::Error(
-                                "ERR Invalid argument 'yes' or 'no' expected".to_string()
-                            ));
-                        }
-                    };
-                    self.aof_use_rdb_preamble.store(enabled, Ordering::Relaxed);
-                    Ok(RespValue::SimpleString("OK".to_string()))
-                } else {
-                    Ok(RespValue::Error(format!("ERR Unsupported CONFIG parameter: {}", key)))
-                }
-            }
+            Command::ConfigGet(key) => executor_admin::execute_config_get(self, key),
+            Command::ConfigSet(key, value) => executor_admin::execute_config_set(self, key, value),
             // redis-benchmark 兼容：COMMAND 返回空数组
-            Command::ConfigRewrite => {
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::ConfigResetStat => {
-                self.slowlog.as_ref().map(|s| s.reset());
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::MemoryUsage(key, _samples) => {
-                match self.storage.memory_key_usage(&key, _samples)? {
-                    Some(size) => Ok(RespValue::Integer(size as i64)),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::MemoryDoctor => {
-                let info = self.storage.memory_doctor()?;
-                Ok(RespValue::BulkString(Some(bytes::Bytes::from(info))))
-            }
-            Command::LatencyLatest => {
-                let tracker = self.latency.as_ref().ok_or_else(|| {
-                    AppError::Command("延迟追踪器未初始化".to_string())
-                })?;
-                let latest = tracker.latest()?;
-                let parts: Vec<RespValue> = latest.into_iter()
-                    .map(|(name, lat, ts, max)| {
-                        RespValue::Array(vec![
-                            RespValue::BulkString(Some(bytes::Bytes::from(name))),
-                            RespValue::Integer(ts as i64),
-                            RespValue::Integer(lat as i64),
-                            RespValue::Integer(max as i64),
-                        ])
-                    })
-                    .collect();
-                Ok(RespValue::Array(parts))
-            }
-            Command::LatencyHistory(event) => {
-                let tracker = self.latency.as_ref().ok_or_else(|| {
-                    AppError::Command("延迟追踪器未初始化".to_string())
-                })?;
-                let history = tracker.history(&event)?;
-                let parts: Vec<RespValue> = history.into_iter()
-                    .map(|(ts, lat)| {
-                        RespValue::Array(vec![
-                            RespValue::Integer(ts as i64),
-                            RespValue::Integer(lat as i64),
-                        ])
-                    })
-                    .collect();
-                Ok(RespValue::Array(parts))
-            }
-            Command::LatencyReset(events) => {
-                let tracker = self.latency.as_ref().ok_or_else(|| {
-                    AppError::Command("延迟追踪器未初始化".to_string())
-                })?;
-                let count = if events.is_empty() {
-                    tracker.reset_all()?
-                } else {
-                    let refs: Vec<&str> = events.iter().map(|s| s.as_str()).collect();
-                    tracker.reset(&refs)?
-                };
-                Ok(RespValue::Integer(count as i64))
-            }
-            Command::Reset => {
-                Err(AppError::Command("RESET 应在连接层处理".to_string()))
-            }
-            Command::Hello(_protover, _auth, _setname) => {
-                Err(AppError::Command("HELLO 应在连接层处理".to_string()))
-            }
-            Command::Monitor => {
-                Err(AppError::Command("MONITOR 应在连接层处理".to_string()))
-            }
-            Command::CommandInfo => {
-                Ok(RespValue::Array(vec![]))
-            }
-            Command::BgRewriteAof => {
-                // BGREWRITEAOF 在 server.rs 中处理，需要 AOF writer
-                Err(AppError::Command("BGREWRITEAOF 应在连接层处理".to_string()))
-            }
-            Command::SetBit(key, offset, value) => {
-                let old_val = self.storage.setbit(&key, offset, value)?;
-                Ok(RespValue::Integer(old_val))
-            }
-            Command::GetBit(key, offset) => {
-                let val = self.storage.getbit(&key, offset)?;
-                Ok(RespValue::Integer(val))
-            }
-            Command::BitCount(key, start, end, is_byte) => {
-                let count = self.storage.bitcount(&key, start, end, is_byte)?;
-                Ok(RespValue::Integer(count as i64))
-            }
-            Command::BitOp(op, destkey, keys) => {
-                let len = self.storage.bitop(&op, &destkey, &keys)?;
-                Ok(RespValue::Integer(len as i64))
-            }
-            Command::BitPos(key, bit, start, end, is_byte) => {
-                let pos = self.storage.bitpos(&key, bit, start, end, is_byte)?;
-                Ok(RespValue::Integer(pos))
-            }
-            Command::BitField(key, ops) => {
-                let results = self.storage.bitfield(&key, &ops)?;
-                let resp_values: Vec<RespValue> = results
-                    .into_iter()
-                    .map(|r| match r {
-                        crate::storage::BitFieldResult::Value(v) => RespValue::Integer(v),
-                        crate::storage::BitFieldResult::Nil => RespValue::BulkString(None),
-                    })
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::BitFieldRo(key, ops) => {
-                let results = self.storage.bitfield_ro(&key, &ops)?;
-                let resp_values: Vec<RespValue> = results
-                    .into_iter()
-                    .map(|r| match r {
-                        crate::storage::BitFieldResult::Value(v) => RespValue::Integer(v),
-                        crate::storage::BitFieldResult::Nil => RespValue::BulkString(None),
-                    })
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::XAdd(key, id, fields, nomkstream, max_len, min_id) => {
-                let min_id_parsed = match min_id {
-                    Some(s) => Some(crate::storage::StreamId::parse(s.as_str())?),
-                    None => None,
-                };
-                match self.storage.xadd(&key, &id, fields, nomkstream, max_len, min_id_parsed)? {
-                    Some(new_id) => Ok(RespValue::BulkString(Some(Bytes::from(new_id)))),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::XLen(key) => {
-                let len = self.storage.xlen(&key)?;
-                Ok(RespValue::Integer(len as i64))
-            }
-            Command::XRange(key, start, end, count) => {
-                let entries = self.storage.xrange(&key, &start, &end, count)?;
-                let mut resp_values = Vec::new();
-                for (id, fields) in entries {
-                    let mut field_values = Vec::new();
-                    for (f, v) in fields {
-                        field_values.push(RespValue::BulkString(Some(Bytes::from(f))));
-                        field_values.push(RespValue::BulkString(Some(Bytes::from(v))));
-                    }
-                    resp_values.push(RespValue::Array(vec![
-                        RespValue::BulkString(Some(Bytes::from(id.to_string()))),
-                        RespValue::Array(field_values),
-                    ]));
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::XRevRange(key, end, start, count) => {
-                let entries = self.storage.xrevrange(&key, &end, &start, count)?;
-                let mut resp_values = Vec::new();
-                for (id, fields) in entries {
-                    let mut field_values = Vec::new();
-                    for (f, v) in fields {
-                        field_values.push(RespValue::BulkString(Some(Bytes::from(f))));
-                        field_values.push(RespValue::BulkString(Some(Bytes::from(v))));
-                    }
-                    resp_values.push(RespValue::Array(vec![
-                        RespValue::BulkString(Some(Bytes::from(id.to_string()))),
-                        RespValue::Array(field_values),
-                    ]));
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::XTrim(key, strategy, threshold) => {
-                let removed = self.storage.xtrim(&key, &strategy, &threshold, false)?;
-                Ok(RespValue::Integer(removed as i64))
-            }
-            Command::XDel(key, ids) => {
-                let id_vec: Vec<crate::storage::StreamId> = ids
-                    .iter()
-                    .map(|s| crate::storage::StreamId::parse(s))
-                    .collect::<Result<Vec<_>>>()?;
-                let removed = self.storage.xdel(&key, &id_vec)?;
-                Ok(RespValue::Integer(removed as i64))
-            }
-            Command::XRead(keys, ids, count) => {
-                let result = self.storage.xread(&keys, &ids, count)?;
-                let mut resp_values = Vec::new();
-                for (key, entries) in result {
-                    let mut stream_entries = Vec::new();
-                    for (id, fields) in entries {
-                        let mut field_values = Vec::new();
-                        for (f, v) in fields {
-                            field_values.push(RespValue::BulkString(Some(Bytes::from(f))));
-                            field_values.push(RespValue::BulkString(Some(Bytes::from(v))));
-                        }
-                        stream_entries.push(RespValue::Array(vec![
-                            RespValue::BulkString(Some(Bytes::from(id.to_string()))),
-                            RespValue::Array(field_values),
-                        ]));
-                    }
-                    resp_values.push(RespValue::Array(vec![
-                        RespValue::BulkString(Some(Bytes::from(key))),
-                        RespValue::Array(stream_entries),
-                    ]));
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::XSetId(key, id) => {
-                let sid = crate::storage::StreamId::parse(&id)?;
-                let ok = self.storage.xsetid(&key, sid)?;
-                if ok {
-                    Ok(RespValue::SimpleString("OK".to_string()))
-                } else {
-                    Ok(RespValue::Error("ERR 键不存在".to_string()))
-                }
-            }
-            Command::XGroupCreate(key, group, id, mkstream) => {
-                self.storage.xgroup_create(&key, &group, &id, mkstream)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::XGroupDestroy(key, group) => {
-                let removed = self.storage.xgroup_destroy(&key, &group)?;
-                Ok(RespValue::Integer(if removed { 1 } else { 0 }))
-            }
-            Command::XGroupSetId(key, group, id) => {
-                self.storage.xgroup_setid(&key, &group, &id)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::XGroupDelConsumer(key, group, consumer) => {
-                let pending = self.storage.xgroup_delconsumer(&key, &group, &consumer)?;
-                Ok(RespValue::Integer(pending as i64))
-            }
-            Command::XGroupCreateConsumer(key, group, consumer) => {
-                let created = self.storage.xgroup_createconsumer(&key, &group, &consumer)?;
-                Ok(RespValue::Integer(if created { 1 } else { 0 }))
-            }
-            Command::XReadGroup(group, consumer, keys, ids, count, noack) => {
-                let result = self.storage.xreadgroup(&group, &consumer, &keys, &ids, count, noack)?;
-                let mut resp_values = Vec::new();
-                for (key, entries) in result {
-                    let mut stream_entries = Vec::new();
-                    for (id, fields) in entries {
-                        let mut field_values = Vec::new();
-                        for (f, v) in fields {
-                            field_values.push(RespValue::BulkString(Some(Bytes::from(f))));
-                            field_values.push(RespValue::BulkString(Some(Bytes::from(v))));
-                        }
-                        stream_entries.push(RespValue::Array(vec![
-                            RespValue::BulkString(Some(Bytes::from(id.to_string()))),
-                            RespValue::Array(field_values),
-                        ]));
-                    }
-                    resp_values.push(RespValue::Array(vec![
-                        RespValue::BulkString(Some(Bytes::from(key))),
-                        RespValue::Array(stream_entries),
-                    ]));
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::XAck(key, group, ids) => {
-                let id_vec: Vec<crate::storage::StreamId> = ids
-                    .iter()
-                    .map(|s| crate::storage::StreamId::parse(s))
-                    .collect::<Result<Vec<_>>>()?;
-                let acked = self.storage.xack(&key, &group, &id_vec)?;
-                Ok(RespValue::Integer(acked as i64))
-            }
-            Command::XClaim(key, group, consumer, min_idle, ids, justid) => {
-                let id_vec: Vec<crate::storage::StreamId> = ids
-                    .iter()
-                    .map(|s| crate::storage::StreamId::parse(s))
-                    .collect::<Result<Vec<_>>>()?;
-                let claimed = self.storage.xclaim(&key, &group, &consumer, min_idle, &id_vec, justid)?;
-                let mut resp = Vec::new();
-                for (id, fields) in claimed {
-                    if justid {
-                        resp.push(RespValue::BulkString(Some(Bytes::from(id.to_string()))));
-                    } else if let Some(flds) = fields {
-                        let mut fv = Vec::new();
-                        for (f, v) in flds {
-                            fv.push(RespValue::BulkString(Some(Bytes::from(f))));
-                            fv.push(RespValue::BulkString(Some(Bytes::from(v))));
-                        }
-                        resp.push(RespValue::Array(vec![
-                            RespValue::BulkString(Some(Bytes::from(id.to_string()))),
-                            RespValue::Array(fv),
-                        ]));
-                    }
-                }
-                Ok(RespValue::Array(resp))
-            }
-            Command::XAutoClaim(key, group, consumer, min_idle, start, count, justid) => {
-                let start_id = crate::storage::StreamId::parse(&start)?;
-                let (next_id, claimed) = self.storage.xautoclaim(&key, &group, &consumer, min_idle, start_id, count, justid)?;
-                let mut entries = Vec::new();
-                for (id, fields) in claimed {
-                    if justid {
-                        entries.push(RespValue::BulkString(Some(Bytes::from(id.to_string()))));
-                    } else if let Some(flds) = fields {
-                        let mut fv = Vec::new();
-                        for (f, v) in flds {
-                            fv.push(RespValue::BulkString(Some(Bytes::from(f))));
-                            fv.push(RespValue::BulkString(Some(Bytes::from(v))));
-                        }
-                        entries.push(RespValue::Array(vec![
-                            RespValue::BulkString(Some(Bytes::from(id.to_string()))),
-                            RespValue::Array(fv),
-                        ]));
-                    }
-                }
-                Ok(RespValue::Array(vec![
-                    RespValue::BulkString(Some(Bytes::from(next_id.to_string()))),
-                    RespValue::Array(entries),
-                    RespValue::Array(vec![]),
-                ]))
-            }
-            Command::XPending(key, group, start, end, count, consumer) => {
-                let start_id = match &start {
-                    Some(s) => {
-                        if s == "-" { Some(crate::storage::StreamId::new(0, 0)) }
-                        else { Some(crate::storage::StreamId::parse(s)?) }
-                    }
-                    None => None,
-                };
-                let end_id = match &end {
-                    Some(s) => {
-                        if s == "+" { Some(crate::storage::StreamId::new(u64::MAX, u64::MAX)) }
-                        else { Some(crate::storage::StreamId::parse(s)?) }
-                    }
-                    None => None,
-                };
-                let (total, min_id, max_id, consumers, details) = self.storage.xpending(
-                    &key, &group, start_id, end_id, count, consumer.as_deref(),
-                )?;
-                if start.is_none() {
-                    let mut resp = vec![RespValue::Integer(total as i64)];
-                    match min_id {
-                        Some(id) => resp.push(RespValue::BulkString(Some(Bytes::from(id.to_string())))),
-                        None => resp.push(RespValue::BulkString(None)),
-                    }
-                    match max_id {
-                        Some(id) => resp.push(RespValue::BulkString(Some(Bytes::from(id.to_string())))),
-                        None => resp.push(RespValue::BulkString(None)),
-                    }
-                    if consumers.is_empty() {
-                        resp.push(RespValue::BulkString(None));
-                    } else {
-                        let mut consumer_list = Vec::new();
-                        for (name, cnt) in consumers {
-                            consumer_list.push(RespValue::Array(vec![
-                                RespValue::BulkString(Some(Bytes::from(name))),
-                                RespValue::BulkString(Some(Bytes::from(cnt.to_string()))),
-                            ]));
-                        }
-                        resp.push(RespValue::Array(consumer_list));
-                    }
-                    Ok(RespValue::Array(resp))
-                } else {
-                    let mut resp = Vec::new();
-                    for (id, consumer_name, idle, delivery_count) in details {
-                        resp.push(RespValue::Array(vec![
-                            RespValue::BulkString(Some(Bytes::from(id.to_string()))),
-                            RespValue::BulkString(Some(Bytes::from(consumer_name))),
-                            RespValue::Integer(idle as i64),
-                            RespValue::Integer(delivery_count as i64),
-                        ]));
-                    }
-                    Ok(RespValue::Array(resp))
-                }
-            }
-            Command::XInfoStream(key, full) => {
-                match self.storage.xinfo_stream(&key, full)? {
-                    Some((length, groups, last_id, first_id, group_names)) => {
-                        let resp = vec![
-                            RespValue::BulkString(Some(Bytes::from("length"))),
-                            RespValue::Integer(length as i64),
-                            RespValue::BulkString(Some(Bytes::from("groups"))),
-                            RespValue::Integer(groups as i64),
-                            RespValue::BulkString(Some(Bytes::from("last-generated-id"))),
-                            RespValue::BulkString(Some(Bytes::from(last_id.to_string()))),
-                            RespValue::BulkString(Some(Bytes::from("first-entry"))),
-                            RespValue::BulkString(Some(Bytes::from(first_id.to_string()))),
-                        ];
-                        Ok(RespValue::Array(resp))
-                    }
-                    None => Ok(RespValue::Error("ERR no such key".to_string())),
-                }
-            }
-            Command::XInfoGroups(key) => {
-                let groups = self.storage.xinfo_groups(&key)?;
-                let mut resp = Vec::new();
-                for (name, consumers, pending, last_id, entries_read) in groups {
-                    resp.push(RespValue::Array(vec![
-                        RespValue::BulkString(Some(Bytes::from("name"))),
-                        RespValue::BulkString(Some(Bytes::from(name))),
-                        RespValue::BulkString(Some(Bytes::from("consumers"))),
-                        RespValue::Integer(consumers as i64),
-                        RespValue::BulkString(Some(Bytes::from("pending"))),
-                        RespValue::Integer(pending as i64),
-                        RespValue::BulkString(Some(Bytes::from("last-delivered-id"))),
-                        RespValue::BulkString(Some(Bytes::from(last_id.to_string()))),
-                        RespValue::BulkString(Some(Bytes::from("entries-read"))),
-                        RespValue::Integer(entries_read as i64),
-                    ]));
-                }
-                Ok(RespValue::Array(resp))
-            }
-            Command::XInfoConsumers(key, group) => {
-                let consumers = self.storage.xinfo_consumers(&key, &group)?;
-                let mut resp = Vec::new();
-                for (name, pending, idle, inactive) in consumers {
-                    resp.push(RespValue::Array(vec![
-                        RespValue::BulkString(Some(Bytes::from("name"))),
-                        RespValue::BulkString(Some(Bytes::from(name))),
-                        RespValue::BulkString(Some(Bytes::from("pending"))),
-                        RespValue::Integer(pending as i64),
-                        RespValue::BulkString(Some(Bytes::from("idle"))),
-                        RespValue::Integer(idle as i64),
-                        RespValue::BulkString(Some(Bytes::from("inactive"))),
-                        RespValue::Integer(inactive as i64),
-                    ]));
-                }
-                Ok(RespValue::Array(resp))
-            }
+            Command::ConfigRewrite => executor_admin::execute_config_rewrite(self),
+            Command::ConfigResetStat => executor_admin::execute_config_reset_stat(self),
+            Command::MemoryUsage(key, _samples) => executor_admin::execute_memory_usage(self, key, _samples),
+            Command::MemoryDoctor => executor_admin::execute_memory_doctor(self),
+            Command::LatencyLatest => executor_admin::execute_latency_latest(self),
+            Command::LatencyHistory(event) => executor_admin::execute_latency_history(self, event),
+            Command::LatencyReset(events) => executor_admin::execute_latency_reset(self, events),
+            Command::Reset => executor_admin::execute_reset(self),
+            Command::Hello(_protover, _auth, _setname) => executor_admin::execute_hello(self, _protover, _auth, _setname),
+            Command::Monitor => executor_admin::execute_monitor(self),
+            Command::CommandInfo => executor_admin::execute_command_info(self),
+            Command::BgRewriteAof => executor_admin::execute_bg_rewrite_aof(self),
+            Command::SetBit(key, offset, value) => executor_bitmap::execute_set_bit(self, key, offset, value),
+            Command::GetBit(key, offset) => executor_bitmap::execute_get_bit(self, key, offset),
+            Command::BitCount(key, start, end, is_byte) => executor_bitmap::execute_bit_count(self, key, start, end, is_byte),
+            Command::BitOp(op, destkey, keys) => executor_bitmap::execute_bit_op(self, op, destkey, keys),
+            Command::BitPos(key, bit, start, end, is_byte) => executor_bitmap::execute_bit_pos(self, key, bit, start, end, is_byte),
+            Command::BitField(key, ops) => executor_bitmap::execute_bit_field(self, key, ops),
+            Command::BitFieldRo(key, ops) => executor_bitmap::execute_bit_field_ro(self, key, ops),
+            Command::XAdd(key, id, fields, nomkstream, max_len, min_id) => executor_stream::execute_x_add(self, key, id, fields, nomkstream, max_len, min_id),
+            Command::XLen(key) => executor_stream::execute_x_len(self, key),
+            Command::XRange(key, start, end, count) => executor_stream::execute_x_range(self, key, start, end, count),
+            Command::XRevRange(key, end, start, count) => executor_stream::execute_x_rev_range(self, key, end, start, count),
+            Command::XTrim(key, strategy, threshold) => executor_stream::execute_x_trim(self, key, strategy, threshold),
+            Command::XDel(key, ids) => executor_stream::execute_x_del(self, key, ids),
+            Command::XRead(keys, ids, count) => executor_stream::execute_x_read(self, keys, ids, count),
+            Command::XSetId(key, id) => executor_stream::execute_x_set_id(self, key, id),
+            Command::XGroupCreate(key, group, id, mkstream) => executor_stream::execute_x_group_create(self, key, group, id, mkstream),
+            Command::XGroupDestroy(key, group) => executor_stream::execute_x_group_destroy(self, key, group),
+            Command::XGroupSetId(key, group, id) => executor_stream::execute_x_group_set_id(self, key, group, id),
+            Command::XGroupDelConsumer(key, group, consumer) => executor_stream::execute_x_group_del_consumer(self, key, group, consumer),
+            Command::XGroupCreateConsumer(key, group, consumer) => executor_stream::execute_x_group_create_consumer(self, key, group, consumer),
+            Command::XReadGroup(group, consumer, keys, ids, count, noack) => executor_stream::execute_x_read_group(self, group, consumer, keys, ids, count, noack),
+            Command::XAck(key, group, ids) => executor_stream::execute_x_ack(self, key, group, ids),
+            Command::XClaim(key, group, consumer, min_idle, ids, justid) => executor_stream::execute_x_claim(self, key, group, consumer, min_idle, ids, justid),
+            Command::XAutoClaim(key, group, consumer, min_idle, start, count, justid) => executor_stream::execute_x_auto_claim(self, key, group, consumer, min_idle, start, count, justid),
+            Command::XPending(key, group, start, end, count, consumer) => executor_stream::execute_x_pending(self, key, group, start, end, count, consumer),
+            Command::XInfoStream(key, full) => executor_stream::execute_x_info_stream(self, key, full),
+            Command::XInfoGroups(key) => executor_stream::execute_x_info_groups(self, key),
+            Command::XInfoConsumers(key, group) => executor_stream::execute_x_info_consumers(self, key, group),
             Command::PfAdd(key, elements) => {
                 let updated = self.storage.pfadd(&key, &elements)?;
                 Ok(RespValue::Integer(updated))
@@ -777,101 +270,13 @@ impl CommandExecutor {
                 self.storage.pfmerge(&destkey, &sourcekeys)?;
                 Ok(RespValue::SimpleString("OK".to_string()))
             }
-            Command::GeoAdd(key, items) => {
-                let count = self.storage.geoadd(&key, items)?;
-                Ok(RespValue::Integer(count))
-            }
-            Command::GeoDist(key, member1, member2, unit) => {
-                match self.storage.geodist(&key, &member1, &member2, &unit)? {
-                    Some(dist) => {
-                        let trimmed = format!("{:.17}", dist).trim_end_matches('0').trim_end_matches('.').to_string();
-                        Ok(RespValue::BulkString(Some(Bytes::from(trimmed))))
-                    }
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::GeoHash(key, members) => {
-                let hashes = self.storage.geohash(&key, &members)?;
-                let resp_values: Vec<RespValue> = hashes
-                    .into_iter()
-                    .map(|h| RespValue::BulkString(h.map(|s| Bytes::from(s))))
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::GeoPos(key, members) => {
-                let positions = self.storage.geopos(&key, &members)?;
-                let resp_values: Vec<RespValue> = positions
-                    .into_iter()
-                    .map(|opt| {
-                        match opt {
-                            Some((lon, lat)) => {
-                                let parts = vec![
-                                    RespValue::BulkString(Some(Bytes::from(
-                                        format!("{:.17}", lon).trim_end_matches('0').trim_end_matches('.').to_string()
-                                    ))),
-                                    RespValue::BulkString(Some(Bytes::from(
-                                        format!("{:.17}", lat).trim_end_matches('0').trim_end_matches('.').to_string()
-                                    ))),
-                                ];
-                                RespValue::Array(parts)
-                            }
-                            None => RespValue::BulkString(None),
-                        }
-                    })
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::GeoSearch(key, center_lon, center_lat, by_radius, by_box, order, count, withcoord, withdist, withhash) => {
-                let results = self.storage.geosearch(
-                    &key, center_lon, center_lat, by_radius, by_box,
-                    order.as_deref(), count,
-                )?;
-                let mut resp_values = Vec::new();
-                for (member, dist, lon, lat, hash) in results {
-                    let mut item_parts = Vec::new();
-                    // 成员名
-                    item_parts.push(RespValue::BulkString(Some(Bytes::from(member))));
-                    // 距离
-                    if withdist {
-                        let dist_s = format!("{:.17}", dist / 1000.0);
-                        let dist_str = dist_s.trim_end_matches('0').trim_end_matches('.').to_string();
-                        item_parts.push(RespValue::BulkString(Some(Bytes::from(dist_str))));
-                    }
-                    // hash
-                    if withhash {
-                        item_parts.push(RespValue::Integer(hash as i64));
-                    }
-                    // 坐标
-                    if withcoord {
-                        let coord_parts = vec![
-                            RespValue::BulkString(Some(Bytes::from(
-                                format!("{:.17}", lon).trim_end_matches('0').trim_end_matches('.').to_string()
-                            ))),
-                            RespValue::BulkString(Some(Bytes::from(
-                                format!("{:.17}", lat).trim_end_matches('0').trim_end_matches('.').to_string()
-                            ))),
-                        ];
-                        item_parts.push(RespValue::Array(coord_parts));
-                    }
-                    if item_parts.len() == 1 {
-                        resp_values.push(item_parts.into_iter().next().unwrap());
-                    } else {
-                        resp_values.push(RespValue::Array(item_parts));
-                    }
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::GeoSearchStore(destination, source, center_lon, center_lat, by_radius, by_box, order, count, storedist) => {
-                let count_result = self.storage.geosearchstore(
-                    &destination, &source, center_lon, center_lat, by_radius, by_box,
-                    order.as_deref(), count, storedist,
-                )?;
-                Ok(RespValue::Integer(count_result as i64))
-            }
-            Command::Select(index) => {
-                self.storage.select(index)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
+            Command::GeoAdd(key, items) => executor_geo::execute_geo_add(self, key, items),
+            Command::GeoDist(key, member1, member2, unit) => executor_geo::execute_geo_dist(self, key, member1, member2, unit),
+            Command::GeoHash(key, members) => executor_geo::execute_geo_hash(self, key, members),
+            Command::GeoPos(key, members) => executor_geo::execute_geo_pos(self, key, members),
+            Command::GeoSearch(key, center_lon, center_lat, by_radius, by_box, order, count, withcoord, withdist, withhash) => executor_geo::execute_geo_search(self, key, center_lon, center_lat, by_radius, by_box, order, count, withcoord, withdist, withhash),
+            Command::GeoSearchStore(destination, source, center_lon, center_lat, by_radius, by_box, order, count, storedist) => executor_geo::execute_geo_search_store(self, destination, source, center_lon, center_lat, by_radius, by_box, order, count, storedist),
+            Command::Select(index) => executor_admin::execute_select(self, index),
             Command::Auth(_, _) => {
                 Err(AppError::Command("AUTH 应在连接层处理".to_string()))
             }
@@ -993,214 +398,31 @@ impl CommandExecutor {
             Command::Quit => {
                 Err(AppError::Command("QUIT 应在连接层处理".to_string()))
             }
-            Command::Eval(script, keys, args) => {
-                match &self.script_engine {
-                    Some(engine) => engine.eval(&script, keys, args, self.storage.clone()),
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::EvalSha(sha1, keys, args) => {
-                match &self.script_engine {
-                    Some(engine) => engine.evalsha(&sha1, keys, args, self.storage.clone()),
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::ScriptLoad(script) => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        let sha1 = engine.script_load(&script)?;
-                        Ok(RespValue::BulkString(Some(Bytes::from(sha1))))
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::ScriptExists(sha1s) => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        let exists = engine.script_exists(&sha1s)?;
-                        let arr: Vec<RespValue> = exists.into_iter().map(|b| RespValue::Integer(if b { 1 } else { 0 })).collect();
-                        Ok(RespValue::Array(arr))
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::ScriptFlush => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        engine.script_flush()?;
-                        Ok(RespValue::SimpleString("OK".to_string()))
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::FunctionLoad(code, replace) => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        let name = engine.function_load(&code, replace)?;
-                        Ok(RespValue::SimpleString(name))
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::FunctionDelete(lib) => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        let ok = engine.function_delete(&lib)?;
-                        if ok {
-                            Ok(RespValue::Integer(1))
-                        } else {
-                            Ok(RespValue::Integer(0))
-                        }
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::FunctionList(pattern, withcode) => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        let list = engine.function_list(pattern.as_deref(), withcode)?;
-                        let mut parts = Vec::new();
-                        for (name, engine_name, code, funcs) in list {
-                            let mut lib_parts = Vec::new();
-                            lib_parts.push(RespValue::BulkString(Some(Bytes::from("library_name"))));
-                            lib_parts.push(RespValue::BulkString(Some(Bytes::from(name))));
-                            lib_parts.push(RespValue::BulkString(Some(Bytes::from("engine"))));
-                            lib_parts.push(RespValue::BulkString(Some(Bytes::from(engine_name))));
-                            if withcode {
-                                lib_parts.push(RespValue::BulkString(Some(Bytes::from("library_code"))));
-                                lib_parts.push(RespValue::BulkString(Some(Bytes::from(code))));
-                            }
-                            lib_parts.push(RespValue::BulkString(Some(Bytes::from("functions"))));
-                            let mut func_parts = Vec::new();
-                            for (fname, flags) in funcs {
-                                let mut f = Vec::new();
-                                f.push(RespValue::BulkString(Some(Bytes::from("name"))));
-                                f.push(RespValue::BulkString(Some(Bytes::from(fname))));
-                                f.push(RespValue::BulkString(Some(Bytes::from("flags"))));
-                                let flag_parts: Vec<RespValue> = flags.into_iter()
-                                    .map(|s| RespValue::BulkString(Some(Bytes::from(s))))
-                                    .collect();
-                                f.push(RespValue::Array(flag_parts));
-                                func_parts.push(RespValue::Array(f));
-                            }
-                            lib_parts.push(RespValue::Array(func_parts));
-                            parts.push(RespValue::Array(lib_parts));
-                        }
-                        Ok(RespValue::Array(parts))
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::FunctionDump => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        let dump = engine.function_dump()?;
-                        Ok(RespValue::BulkString(Some(Bytes::from(dump))))
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::FunctionRestore(data, policy) => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        engine.function_restore(&data, &policy)?;
-                        Ok(RespValue::SimpleString("OK".to_string()))
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::FunctionStats => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        let (libs, funcs) = engine.function_stats()?;
-                        let mut parts = Vec::new();
-                        parts.push(RespValue::BulkString(Some(Bytes::from("libraries_count"))));
-                        parts.push(RespValue::Integer(libs as i64));
-                        parts.push(RespValue::BulkString(Some(Bytes::from("functions_count"))));
-                        parts.push(RespValue::Integer(funcs as i64));
-                        Ok(RespValue::Array(parts))
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::FunctionFlush(async_mode) => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        engine.function_flush(async_mode)?;
-                        Ok(RespValue::SimpleString("OK".to_string()))
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::FCall(name, keys, args) => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        let resp = engine.fcall(&name, keys.clone(), args.clone(), self.storage.clone())?;
-                        Ok(resp)
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::FCallRO(name, keys, args) => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        let resp = engine.fcall_ro(&name, keys.clone(), args.clone(), self.storage.clone())?;
-                        Ok(resp)
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::EvalRO(script, keys, args) => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        let resp = engine.eval(&script, keys.clone(), args.clone(), self.storage.clone())?;
-                        Ok(resp)
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
-            Command::EvalShaRO(sha1, keys, args) => {
-                match &self.script_engine {
-                    Some(engine) => {
-                        let resp = engine.evalsha(&sha1, keys.clone(), args.clone(), self.storage.clone())?;
-                        Ok(resp)
-                    }
-                    None => Err(AppError::Command("脚本引擎未初始化".to_string())),
-                }
-            }
+            Command::Eval(script, keys, args) => executor_admin::execute_eval(self, script, keys, args),
+            Command::EvalSha(sha1, keys, args) => executor_admin::execute_eval_sha(self, sha1, keys, args),
+            Command::ScriptLoad(script) => executor_admin::execute_script_load(self, script),
+            Command::ScriptExists(sha1s) => executor_admin::execute_script_exists(self, sha1s),
+            Command::ScriptFlush => executor_admin::execute_script_flush(self),
+            Command::FunctionLoad(code, replace) => executor_admin::execute_function_load(self, code, replace),
+            Command::FunctionDelete(lib) => executor_admin::execute_function_delete(self, lib),
+            Command::FunctionList(pattern, withcode) => executor_admin::execute_function_list(self, pattern, withcode),
+            Command::FunctionDump => executor_admin::execute_function_dump(self),
+            Command::FunctionRestore(data, policy) => executor_admin::execute_function_restore(self, data, policy),
+            Command::FunctionStats => executor_admin::execute_function_stats(self),
+            Command::FunctionFlush(async_mode) => executor_admin::execute_function_flush(self, async_mode),
+            Command::FCall(name, keys, args) => executor_admin::execute_f_call(self, name, keys, args),
+            Command::FCallRO(name, keys, args) => executor_admin::execute_f_call_r_o(self, name, keys, args),
+            Command::EvalRO(script, keys, args) => executor_admin::execute_eval_r_o(self, script, keys, args),
+            Command::EvalShaRO(sha1, keys, args) => executor_admin::execute_eval_sha_r_o(self, sha1, keys, args),
             Command::Save => {
                 Err(AppError::Command("SAVE 应在连接层处理".to_string()))
             }
             Command::BgSave => {
                 Err(AppError::Command("BGSAVE 应在连接层处理".to_string()))
             }
-            Command::SlowLogGet(count) => {
-                match &self.slowlog {
-                    Some(log) => {
-                        let entries = log.get(count);
-                        let arr: Vec<RespValue> = entries.iter()
-                            .map(|e| SlowLog::entry_to_resp(e))
-                            .collect();
-                        Ok(RespValue::Array(arr))
-                    }
-                    None => Ok(RespValue::Array(vec![])),
-                }
-            }
-            Command::SlowLogLen => {
-                match &self.slowlog {
-                    Some(log) => Ok(RespValue::Integer(log.len() as i64)),
-                    None => Ok(RespValue::Integer(0)),
-                }
-            }
-            Command::SlowLogReset => {
-                match &self.slowlog {
-                    Some(log) => {
-                        log.reset();
-                        Ok(RespValue::SimpleString("OK".to_string()))
-                    }
-                    None => Ok(RespValue::SimpleString("OK".to_string())),
-                }
-            }
+            Command::SlowLogGet(count) => executor_admin::execute_slow_log_get(self, count),
+            Command::SlowLogLen => executor_admin::execute_slow_log_len(self),
+            Command::SlowLogReset => executor_admin::execute_slow_log_reset(self),
             Command::ObjectEncoding(key) => {
                 match self.storage.object_encoding(&key)? {
                     Some(enc) => Ok(RespValue::BulkString(Some(Bytes::from(enc)))),
@@ -1235,10 +457,7 @@ impl CommandExecutor {
                 std::thread::sleep(std::time::Duration::from_secs_f64(seconds));
                 Ok(RespValue::SimpleString("OK".to_string()))
             }
-            Command::DebugObject(key) => {
-                let info = self.build_debug_object_info(&key)?;
-                Ok(RespValue::SimpleString(info))
-            }
+            Command::DebugObject(key) => executor_admin::execute_debug_object(self, key),
             Command::Echo(msg) => {
                 Ok(RespValue::BulkString(Some(Bytes::from(msg))))
             }
@@ -1259,36 +478,14 @@ impl CommandExecutor {
                     None => Ok(RespValue::BulkString(None)),
                 }
             }
-            Command::Touch(keys) => {
-                let count = self.storage.touch_keys(&keys)?;
-                Ok(RespValue::Integer(count as i64))
-            }
-            Command::ExpireAt(key, timestamp) => {
-                let ok = self.storage.expire_at(&key, timestamp)?;
-                Ok(RespValue::Integer(if ok { 1 } else { 0 }))
-            }
-            Command::PExpireAt(key, timestamp) => {
-                let ok = self.storage.pexpire_at(&key, timestamp)?;
-                Ok(RespValue::Integer(if ok { 1 } else { 0 }))
-            }
-            Command::ExpireTime(key) => {
-                Ok(RespValue::Integer(self.storage.expire_time(&key)?))
-            }
-            Command::PExpireTime(key) => {
-                Ok(RespValue::Integer(self.storage.pexpire_time(&key)?))
-            }
-            Command::RenameNx(key, newkey) => {
-                let ok = self.storage.renamenx(&key, &newkey)?;
-                Ok(RespValue::Integer(if ok { 1 } else { 0 }))
-            }
-            Command::SwapDb(idx1, idx2) => {
-                self.storage.swap_db(idx1, idx2)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::FlushDb => {
-                self.storage.flush_db(self.storage.current_db())?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
+            Command::Touch(keys) => executor_admin::execute_touch(self, keys),
+            Command::ExpireAt(key, timestamp) => executor_admin::execute_expire_at(self, key, timestamp),
+            Command::PExpireAt(key, timestamp) => executor_admin::execute_p_expire_at(self, key, timestamp),
+            Command::ExpireTime(key) => executor_admin::execute_expire_time(self, key),
+            Command::PExpireTime(key) => executor_admin::execute_p_expire_time(self, key),
+            Command::RenameNx(key, newkey) => executor_admin::execute_rename_nx(self, key, newkey),
+            Command::SwapDb(idx1, idx2) => executor_admin::execute_swap_db(self, idx1, idx2),
+            Command::FlushDb => executor_admin::execute_flush_db(self),
             Command::Shutdown(_) => {
                 Ok(RespValue::SimpleString("OK".to_string()))
             }
@@ -1302,60 +499,7 @@ impl CommandExecutor {
                     None => Ok(RespValue::BulkString(None)),
                 }
             }
-            Command::Lcs(key1, key2, len, idx, _minmatchlen, withmatchlen) => {
-                let lcs_str = self.storage.lcs(&key1, &key2)?;
-                if len {
-                    // LEN 模式：只返回长度
-                    let length = lcs_str.as_ref().map(|s| s.len()).unwrap_or(0);
-                    Ok(RespValue::Integer(length as i64))
-                } else if idx {
-                    // IDX 模式：返回匹配位置
-                    // 简化实现：返回整个匹配的起点和终点
-                    let mut arr = Vec::new();
-                    if let Some(s) = lcs_str {
-                        let v1 = match self.storage.get(&key1)? {
-                            Some(b) => String::from_utf8_lossy(&b).to_string(),
-                            None => String::new(),
-                        };
-                        let v2 = match self.storage.get(&key2)? {
-                            Some(b) => String::from_utf8_lossy(&b).to_string(),
-                            None => String::new(),
-                        };
-                        // 找到 LCS 在 v1 和 v2 中的位置
-                        if !s.is_empty() && !v1.is_empty() && !v2.is_empty() {
-                            let pos1 = v1.find(&s).unwrap_or(0) as i64;
-                            let pos2 = v2.find(&s).unwrap_or(0) as i64;
-                            let match_len = s.len() as i64;
-                            let mut match_arr = Vec::new();
-                            let mut m1 = Vec::new();
-                            m1.push(RespValue::Integer(pos1));
-                            m1.push(RespValue::Integer(pos1 + match_len - 1));
-                            let mut m2 = Vec::new();
-                            m2.push(RespValue::Integer(pos2));
-                            m2.push(RespValue::Integer(pos2 + match_len - 1));
-                            match_arr.push(RespValue::Array(m1));
-                            match_arr.push(RespValue::Array(m2));
-                            if withmatchlen {
-                                match_arr.push(RespValue::Integer(match_len));
-                            }
-                            arr.push(RespValue::Array(match_arr));
-                        }
-                        arr.push(RespValue::Integer(v1.len() as i64));
-                        arr.push(RespValue::Integer(v2.len() as i64));
-                    } else {
-                        arr.push(RespValue::Array(vec![]));
-                        arr.push(RespValue::Integer(0));
-                        arr.push(RespValue::Integer(0));
-                    }
-                    Ok(RespValue::Array(arr))
-                } else {
-                    // 默认模式：返回最长公共子串
-                    match lcs_str {
-                        Some(s) => Ok(RespValue::BulkString(Some(Bytes::from(s)))),
-                        None => Ok(RespValue::BulkString(None)),
-                    }
-                }
-            }
+            Command::Lcs(key1, key2, len, idx, _minmatchlen, withmatchlen) => executor_string::execute_lcs(self, key1, key2, len, idx, _minmatchlen, withmatchlen),
             Command::Lmove(source, dest, left_from, left_to) => {
                 match self.storage.lmove(&source, &dest, left_from, left_to)? {
                     Some(value) => Ok(RespValue::BulkString(Some(value))),
@@ -1368,241 +512,44 @@ impl CommandExecutor {
                     None => Ok(RespValue::BulkString(None)),
                 }
             }
-            Command::Lmpop(keys, left, count) => {
-                match self.storage.lmpop(&keys, left, count)? {
-                    Some((key, values)) => {
-                        let mut arr = Vec::new();
-                        arr.push(RespValue::BulkString(Some(Bytes::from(key))));
-                        let vals: Vec<RespValue> = values.into_iter()
-                            .map(|v| RespValue::BulkString(Some(v)))
-                            .collect();
-                        arr.push(RespValue::Array(vals));
-                        Ok(RespValue::Array(arr))
-                    }
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::Sort(key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha, store_key) => {
-                let result = self.storage.sort(
-                    &key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha, store_key.clone(),
-                )?;
-                if let Some(dest) = store_key {
-                    // 有 STORE 时返回存入的元素数量
-                    let count = self.storage.llen(&dest)?;
-                    Ok(RespValue::Integer(count as i64))
-                } else {
-                    let resp_values: Vec<RespValue> = result
-                        .into_iter()
-                        .map(|s| RespValue::BulkString(Some(Bytes::from(s))))
-                        .collect();
-                    Ok(RespValue::Array(resp_values))
-                }
-            }
-            Command::Unlink(keys) => {
-                let count = self.storage.unlink(&keys)?;
-                Ok(RespValue::Integer(count as i64))
-            }
-            Command::Copy(source, destination, replace) => {
-                let ok = self.storage.copy(&source, &destination, replace)?;
-                Ok(RespValue::Integer(if ok { 1 } else { 0 }))
-            }
-            Command::Dump(key) => {
-                match self.storage.dump(&key)? {
-                    Some(data) => Ok(RespValue::BulkString(Some(Bytes::from(data)))),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::Restore(key, ttl_ms, serialized, replace) => {
-                self.storage.restore(&key, ttl_ms, &serialized, replace)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::MGet(keys) => {
-                let values = self.storage.mget(&keys)?;
-                let resp_values: Vec<RespValue> = values
-                    .into_iter()
-                    .map(|v| RespValue::BulkString(v))
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::MSet(pairs) => {
-                self.storage.mset(&pairs)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::Incr(key) => {
-                let new_val = self.storage.incr(&key)?;
-                Ok(RespValue::Integer(new_val))
-            }
-            Command::Decr(key) => {
-                let new_val = self.storage.decr(&key)?;
-                Ok(RespValue::Integer(new_val))
-            }
-            Command::IncrBy(key, delta) => {
-                let new_val = self.storage.incrby(&key, delta)?;
-                Ok(RespValue::Integer(new_val))
-            }
-            Command::DecrBy(key, delta) => {
-                let new_val = self.storage.decrby(&key, delta)?;
-                Ok(RespValue::Integer(new_val))
-            }
-            Command::Append(key, value) => {
-                let new_len = self.storage.append(&key, value)?;
-                Ok(RespValue::Integer(new_len as i64))
-            }
-            Command::SetNx(key, value) => {
-                let result = if self.storage.setnx(key, value)? {
-                    1i64
-                } else {
-                    0i64
-                };
-                Ok(RespValue::Integer(result))
-            }
-            Command::SetExCmd(key, value, seconds) => {
-                self.storage.setex(key, seconds, value)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::PSetEx(key, value, ms) => {
-                self.storage.psetex(key, ms, value)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::GetSet(key, value) => {
-                match self.storage.getset(&key, value)? {
-                    Some(data) => Ok(RespValue::BulkString(Some(data))),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::GetDel(key) => {
-                match self.storage.getdel(&key)? {
-                    Some(data) => Ok(RespValue::BulkString(Some(data))),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::GetEx(key, opt) => {
-                match self.storage.getex(&key, opt)? {
-                    Some(data) => Ok(RespValue::BulkString(Some(data))),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::MSetNx(pairs) => {
-                let result = self.storage.msetnx(&pairs)?;
-                Ok(RespValue::Integer(result))
-            }
-            Command::IncrByFloat(key, delta) => {
-                let new_val = self.storage.incrbyfloat(&key, delta)?;
-                Ok(RespValue::BulkString(Some(Bytes::from(new_val))))
-            }
-            Command::SetRange(key, offset, value) => {
-                let new_len = self.storage.setrange(&key, offset, value)?;
-                Ok(RespValue::Integer(new_len as i64))
-            }
-            Command::GetRange(key, start, end) => {
-                match self.storage.getrange(&key, start, end)? {
-                    Some(data) => Ok(RespValue::BulkString(Some(data))),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::StrLen(key) => {
-                let len = self.storage.strlen(&key)?;
-                Ok(RespValue::Integer(len as i64))
-            }
-            Command::LPush(key, values) => {
-                let len = self.storage.lpush(&key, values)?;
-                Ok(RespValue::Integer(len as i64))
-            }
-            Command::RPush(key, values) => {
-                let len = self.storage.rpush(&key, values)?;
-                Ok(RespValue::Integer(len as i64))
-            }
-            Command::LPop(key) => {
-                match self.storage.lpop(&key)? {
-                    Some(value) => Ok(RespValue::BulkString(Some(value))),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::RPop(key) => {
-                match self.storage.rpop(&key)? {
-                    Some(value) => Ok(RespValue::BulkString(Some(value))),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::LLen(key) => {
-                let len = self.storage.llen(&key)?;
-                Ok(RespValue::Integer(len as i64))
-            }
-            Command::LRange(key, start, stop) => {
-                let values = self.storage.lrange(&key, start, stop)?;
-                let resp_values: Vec<RespValue> = values
-                    .into_iter()
-                    .map(|v| RespValue::BulkString(Some(v)))
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::LIndex(key, index) => {
-                match self.storage.lindex(&key, index)? {
-                    Some(value) => Ok(RespValue::BulkString(Some(value))),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::LSet(key, index, value) => {
-                self.storage.lset(&key, index, value)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::LInsert(key, pos, pivot, value) => {
-                let result = self.storage.linsert(&key, pos, pivot, value)?;
-                Ok(RespValue::Integer(result))
-            }
-            Command::LRem(key, count, value) => {
-                let removed = self.storage.lrem(&key, count, value)?;
-                Ok(RespValue::Integer(removed))
-            }
-            Command::LTrim(key, start, stop) => {
-                self.storage.ltrim(&key, start, stop)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::LPos(key, value, rank, count, maxlen) => {
-                let positions = self.storage.lpos(&key, value, rank, count, maxlen)?;
-                if count == 0 {
-                    // 不指定 COUNT，返回第一个匹配位置或 nil
-                    if let Some(&pos) = positions.first() {
-                        Ok(RespValue::Integer(pos))
-                    } else {
-                        Ok(RespValue::BulkString(None))
-                    }
-                } else {
-                    // 指定了 COUNT，返回位置数组
-                    let arr: Vec<RespValue> = positions.into_iter().map(|p| RespValue::Integer(p)).collect();
-                    Ok(RespValue::Array(arr))
-                }
-            }
-            Command::BLPop(keys, _timeout) => {
-                // 非阻塞版本：直接尝试弹出（用于事务和 AOF 重放）
-                for key in &keys {
-                    if let Ok(Some(value)) = self.storage.lpop(key) {
-                        // 记录等效 LPOP 到 AOF
-                        let lpop_cmd = Command::LPop(key.clone());
-                        self.append_to_aof(&lpop_cmd);
-                        return Ok(RespValue::Array(vec![
-                            RespValue::BulkString(Some(bytes::Bytes::from(key.clone()))),
-                            RespValue::BulkString(Some(value)),
-                        ]));
-                    }
-                }
-                Ok(RespValue::BulkString(None))
-            }
-            Command::BRPop(keys, _timeout) => {
-                // 非阻塞版本：直接尝试弹出（用于事务和 AOF 重放）
-                for key in &keys {
-                    if let Ok(Some(value)) = self.storage.rpop(key) {
-                        // 记录等效 RPOP 到 AOF
-                        let rpop_cmd = Command::RPop(key.clone());
-                        self.append_to_aof(&rpop_cmd);
-                        return Ok(RespValue::Array(vec![
-                            RespValue::BulkString(Some(bytes::Bytes::from(key.clone()))),
-                            RespValue::BulkString(Some(value)),
-                        ]));
-                    }
-                }
-                Ok(RespValue::BulkString(None))
-            }
+            Command::Lmpop(keys, left, count) => executor_list::execute_lmpop(self, keys, left, count),
+            Command::Sort(key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha, store_key) => executor_admin::execute_sort(self, key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha, store_key),
+            Command::Unlink(keys) => executor_admin::execute_unlink(self, keys),
+            Command::Copy(source, destination, replace) => executor_admin::execute_copy(self, source, destination, replace),
+            Command::Dump(key) => executor_admin::execute_dump(self, key),
+            Command::Restore(key, ttl_ms, serialized, replace) => executor_admin::execute_restore(self, key, ttl_ms, serialized, replace),
+            Command::MGet(keys) => executor_string::execute_m_get(self, keys),
+            Command::MSet(pairs) => executor_string::execute_m_set(self, pairs),
+            Command::Incr(key) => executor_string::execute_incr(self, key),
+            Command::Decr(key) => executor_string::execute_decr(self, key),
+            Command::IncrBy(key, delta) => executor_string::execute_incr_by(self, key, delta),
+            Command::DecrBy(key, delta) => executor_string::execute_decr_by(self, key, delta),
+            Command::Append(key, value) => executor_string::execute_append(self, key, value),
+            Command::SetNx(key, value) => executor_string::execute_set_nx(self, key, value),
+            Command::SetExCmd(key, value, seconds) => executor_string::execute_set_ex_cmd(self, key, value, seconds),
+            Command::PSetEx(key, value, ms) => executor_string::execute_p_set_ex(self, key, value, ms),
+            Command::GetSet(key, value) => executor_string::execute_get_set(self, key, value),
+            Command::GetDel(key) => executor_string::execute_get_del(self, key),
+            Command::GetEx(key, opt) => executor_string::execute_get_ex(self, key, opt),
+            Command::MSetNx(pairs) => executor_string::execute_m_set_nx(self, pairs),
+            Command::IncrByFloat(key, delta) => executor_string::execute_incr_by_float(self, key, delta),
+            Command::SetRange(key, offset, value) => executor_string::execute_set_range(self, key, offset, value),
+            Command::GetRange(key, start, end) => executor_string::execute_get_range(self, key, start, end),
+            Command::StrLen(key) => executor_string::execute_str_len(self, key),
+            Command::LPush(key, values) => executor_list::execute_l_push(self, key, values),
+            Command::RPush(key, values) => executor_list::execute_r_push(self, key, values),
+            Command::LPop(key) => executor_list::execute_l_pop(self, key),
+            Command::RPop(key) => executor_list::execute_r_pop(self, key),
+            Command::LLen(key) => executor_list::execute_l_len(self, key),
+            Command::LRange(key, start, stop) => executor_list::execute_l_range(self, key, start, stop),
+            Command::LIndex(key, index) => executor_list::execute_l_index(self, key, index),
+            Command::LSet(key, index, value) => executor_list::execute_l_set(self, key, index, value),
+            Command::LInsert(key, pos, pivot, value) => executor_list::execute_l_insert(self, key, pos, pivot, value),
+            Command::LRem(key, count, value) => executor_list::execute_l_rem(self, key, count, value),
+            Command::LTrim(key, start, stop) => executor_list::execute_l_trim(self, key, start, stop),
+            Command::LPos(key, value, rank, count, maxlen) => executor_list::execute_l_pos(self, key, value, rank, count, maxlen),
+            Command::BLPop(keys, _timeout) => executor_list::execute_b_l_pop(self, keys, _timeout),
+            Command::BRPop(keys, _timeout) => executor_list::execute_b_r_pop(self, keys, _timeout),
             Command::BLmove(source, dest, left_from, left_to, _timeout) => {
                 // 非阻塞版本：直接尝试移动（用于事务和 AOF 重放）
                 if let Ok(Some(value)) = self.storage.lmove(&source, &dest, left_from, left_to) {
@@ -1612,21 +559,7 @@ impl CommandExecutor {
                     Ok(RespValue::BulkString(None))
                 }
             }
-            Command::BLmpop(keys, left, count, _timeout) => {
-                // 非阻塞版本：直接尝试弹出（用于事务和 AOF 重放）
-                if let Ok(Some((key, values))) = self.storage.lmpop(&keys, left, count) {
-                    self.append_to_aof(&Command::Lmpop(keys.clone(), left, count));
-                    let mut arr = Vec::new();
-                    arr.push(RespValue::BulkString(Some(bytes::Bytes::from(key))));
-                    let vals: Vec<RespValue> = values.into_iter()
-                        .map(|v| RespValue::BulkString(Some(v)))
-                        .collect();
-                    arr.push(RespValue::Array(vals));
-                    Ok(RespValue::Array(arr))
-                } else {
-                    Ok(RespValue::BulkString(None))
-                }
-            }
+            Command::BLmpop(keys, left, count, _timeout) => executor_list::execute_b_lmpop(self, keys, left, count, _timeout),
             Command::BRpoplpush(source, dest, _timeout) => {
                 // 非阻塞版本：直接尝试移动（用于事务和 AOF 重放）
                 if let Ok(Some(value)) = self.storage.rpoplpush(&source, &dest) {
@@ -1636,440 +569,62 @@ impl CommandExecutor {
                     Ok(RespValue::BulkString(None))
                 }
             }
-            Command::HSet(key, pairs) => {
-                let mut count = 0i64;
-                for (field, value) in pairs {
-                    count += self.storage.hset(&key, field, value)?;
-                }
-                Ok(RespValue::Integer(count))
-            }
-            Command::HGet(key, field) => {
-                match self.storage.hget(&key, &field)? {
-                    Some(value) => Ok(RespValue::BulkString(Some(value))),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::HDel(key, fields) => {
-                let count = self.storage.hdel(&key, &fields)?;
-                Ok(RespValue::Integer(count))
-            }
-            Command::HExists(key, field) => {
-                let result = if self.storage.hexists(&key, &field)? {
-                    1i64
-                } else {
-                    0i64
-                };
-                Ok(RespValue::Integer(result))
-            }
-            Command::HGetAll(key) => {
-                let pairs = self.storage.hgetall(&key)?;
-                let mut resp_values = Vec::new();
-                for (field, value) in pairs {
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(field))));
-                    resp_values.push(RespValue::BulkString(Some(value)));
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::HLen(key) => {
-                let len = self.storage.hlen(&key)?;
-                Ok(RespValue::Integer(len as i64))
-            }
-            Command::HMSet(key, pairs) => {
-                self.storage.hmset(&key, &pairs)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::HMGet(key, fields) => {
-                let values = self.storage.hmget(&key, &fields)?;
-                let resp_values: Vec<RespValue> = values
-                    .into_iter()
-                    .map(|v| RespValue::BulkString(v))
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::HIncrBy(key, field, delta) => {
-                let new_val = self.storage.hincrby(&key, field, delta)?;
-                Ok(RespValue::Integer(new_val))
-            }
-            Command::HIncrByFloat(key, field, delta) => {
-                let new_val = self.storage.hincrbyfloat(&key, field, delta)?;
-                Ok(RespValue::BulkString(Some(Bytes::from(new_val))))
-            }
-            Command::HKeys(key) => {
-                let keys = self.storage.hkeys(&key)?;
-                let resp_values: Vec<RespValue> = keys.into_iter().map(|k| RespValue::BulkString(Some(Bytes::from(k)))).collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::HVals(key) => {
-                let vals = self.storage.hvals(&key)?;
-                let resp_values: Vec<RespValue> = vals.into_iter().map(|v| RespValue::BulkString(Some(v))).collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::HSetNx(key, field, value) => {
-                let result = self.storage.hsetnx(&key, field, value)?;
-                Ok(RespValue::Integer(result))
-            }
-            Command::HRandField(key, count, with_values) => {
-                let result = self.storage.hrandfield(&key, count, with_values)?;
-                if count == 1 && !with_values {
-                    // 单字段不带值，返回单个 BulkString
-                    if let Some((field, _)) = result.first() {
-                        Ok(RespValue::BulkString(Some(Bytes::from(field.clone()))))
-                    } else {
-                        Ok(RespValue::BulkString(None))
-                    }
-                } else {
-                    let mut parts = Vec::new();
-                    for (field, value) in result {
-                        parts.push(RespValue::BulkString(Some(Bytes::from(field))));
-                        if let Some(v) = value {
-                            parts.push(RespValue::BulkString(Some(v)));
-                        }
-                    }
-                    Ok(RespValue::Array(parts))
-                }
-            }
-            Command::HScan(key, cursor, pattern, count) => {
-                let (new_cursor, fields) = self.storage.hscan(&key, cursor, &pattern, count)?;
-                let mut parts: Vec<RespValue> = vec![
-                    RespValue::BulkString(Some(Bytes::from(new_cursor.to_string()))),
-                ];
-                let field_values: Vec<RespValue> = fields
-                    .into_iter()
-                    .flat_map(|(f, v)| {
-                        vec![
-                            RespValue::BulkString(Some(Bytes::from(f))),
-                            RespValue::BulkString(Some(v)),
-                        ]
-                    })
-                    .collect();
-                parts.push(RespValue::Array(field_values));
-                Ok(RespValue::Array(parts))
-            }
-            Command::HExpire(key, fields, seconds) => {
-                let result = self.storage.hexpire(&key, &fields, seconds)?;
-                let arr: Vec<RespValue> = result
-                    .into_iter()
-                    .map(|v| RespValue::Integer(v))
-                    .collect();
-                Ok(RespValue::Array(arr))
-            }
-            Command::HPExpire(key, fields, ms) => {
-                let result = self.storage.hpexpire(&key, &fields, ms)?;
-                let arr: Vec<RespValue> = result
-                    .into_iter()
-                    .map(|v| RespValue::Integer(v))
-                    .collect();
-                Ok(RespValue::Array(arr))
-            }
-            Command::HExpireAt(key, fields, ts) => {
-                let result = self.storage.hexpireat(&key, &fields, ts)?;
-                let arr: Vec<RespValue> = result
-                    .into_iter()
-                    .map(|v| RespValue::Integer(v))
-                    .collect();
-                Ok(RespValue::Array(arr))
-            }
-            Command::HPExpireAt(key, fields, ts) => {
-                let result = self.storage.hpexpireat(&key, &fields, ts)?;
-                let arr: Vec<RespValue> = result
-                    .into_iter()
-                    .map(|v| RespValue::Integer(v))
-                    .collect();
-                Ok(RespValue::Array(arr))
-            }
-            Command::HTtl(key, fields) => {
-                let result = self.storage.httl(&key, &fields)?;
-                let arr: Vec<RespValue> = result
-                    .into_iter()
-                    .map(|v| RespValue::Integer(v))
-                    .collect();
-                Ok(RespValue::Array(arr))
-            }
-            Command::HPTtl(key, fields) => {
-                let result = self.storage.hpttl(&key, &fields)?;
-                let arr: Vec<RespValue> = result
-                    .into_iter()
-                    .map(|v| RespValue::Integer(v))
-                    .collect();
-                Ok(RespValue::Array(arr))
-            }
-            Command::HExpireTime(key, fields) => {
-                let result = self.storage.hexpiretime(&key, &fields)?;
-                let arr: Vec<RespValue> = result
-                    .into_iter()
-                    .map(|v| RespValue::Integer(v))
-                    .collect();
-                Ok(RespValue::Array(arr))
-            }
-            Command::HPExpireTime(key, fields) => {
-                let result = self.storage.hpexpiretime(&key, &fields)?;
-                let arr: Vec<RespValue> = result
-                    .into_iter()
-                    .map(|v| RespValue::Integer(v))
-                    .collect();
-                Ok(RespValue::Array(arr))
-            }
-            Command::HPersist(key, fields) => {
-                let result = self.storage.hpersist(&key, &fields)?;
-                let arr: Vec<RespValue> = result
-                    .into_iter()
-                    .map(|v| RespValue::Integer(v))
-                    .collect();
-                Ok(RespValue::Array(arr))
-            }
-            Command::SAdd(key, members) => {
-                let count = self.storage.sadd(&key, members)?;
-                Ok(RespValue::Integer(count))
-            }
-            Command::SRem(key, members) => {
-                let count = self.storage.srem(&key, &members)?;
-                Ok(RespValue::Integer(count))
-            }
-            Command::SMembers(key) => {
-                let members = self.storage.smembers(&key)?;
-                let resp_values: Vec<RespValue> = members
-                    .into_iter()
-                    .map(|m| RespValue::BulkString(Some(m)))
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::SIsMember(key, member) => {
-                let result = if self.storage.sismember(&key, &member)? {
-                    1i64
-                } else {
-                    0i64
-                };
-                Ok(RespValue::Integer(result))
-            }
-            Command::SCard(key) => {
-                let len = self.storage.scard(&key)?;
-                Ok(RespValue::Integer(len as i64))
-            }
-            Command::SInter(keys) => {
-                let members = self.storage.sinter(&keys)?;
-                let resp_values: Vec<RespValue> = members
-                    .into_iter()
-                    .map(|m| RespValue::BulkString(Some(m)))
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::SUnion(keys) => {
-                let members = self.storage.sunion(&keys)?;
-                let resp_values: Vec<RespValue> = members
-                    .into_iter()
-                    .map(|m| RespValue::BulkString(Some(m)))
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::SDiff(keys) => {
-                let members = self.storage.sdiff(&keys)?;
-                let resp_values: Vec<RespValue> = members
-                    .into_iter()
-                    .map(|m| RespValue::BulkString(Some(m)))
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::SPop(key, count) => {
-                let members = self.storage.spop(&key, count)?;
-                if count == 1 {
-                    if let Some(m) = members.into_iter().next() {
-                        Ok(RespValue::BulkString(Some(m)))
-                    } else {
-                        Ok(RespValue::BulkString(None))
-                    }
-                } else {
-                    let resp_values: Vec<RespValue> = members
-                        .into_iter()
-                        .map(|m| RespValue::BulkString(Some(m)))
-                        .collect();
-                    Ok(RespValue::Array(resp_values))
-                }
-            }
-            Command::SRandMember(key, count) => {
-                let members = self.storage.srandmember(&key, count)?;
-                if count == 1 {
-                    if let Some(m) = members.into_iter().next() {
-                        Ok(RespValue::BulkString(Some(m)))
-                    } else {
-                        Ok(RespValue::BulkString(None))
-                    }
-                } else {
-                    let resp_values: Vec<RespValue> = members
-                        .into_iter()
-                        .map(|m| RespValue::BulkString(Some(m)))
-                        .collect();
-                    Ok(RespValue::Array(resp_values))
-                }
-            }
-            Command::SMove(source, destination, member) => {
-                let result = if self.storage.smove(&source, &destination, member)? {
-                    1i64
-                } else {
-                    0i64
-                };
-                Ok(RespValue::Integer(result))
-            }
-            Command::SInterStore(destination, keys) => {
-                let count = self.storage.sinterstore(&destination, &keys)?;
-                Ok(RespValue::Integer(count as i64))
-            }
-            Command::SUnionStore(destination, keys) => {
-                let count = self.storage.sunionstore(&destination, &keys)?;
-                Ok(RespValue::Integer(count as i64))
-            }
-            Command::SDiffStore(destination, keys) => {
-                let count = self.storage.sdiffstore(&destination, &keys)?;
-                Ok(RespValue::Integer(count as i64))
-            }
-            Command::SScan(key, cursor, pattern, count) => {
-                let (new_cursor, members) = self.storage.sscan(&key, cursor, &pattern, count)?;
-                let mut parts: Vec<RespValue> = vec![
-                    RespValue::BulkString(Some(Bytes::from(new_cursor.to_string()))),
-                ];
-                let member_values: Vec<RespValue> = members
-                    .into_iter()
-                    .map(|m| RespValue::BulkString(Some(m)))
-                    .collect();
-                parts.push(RespValue::Array(member_values));
-                Ok(RespValue::Array(parts))
-            }
-            Command::ZAdd(key, pairs) => {
-                let count = self.storage.zadd(&key, pairs)?;
-                Ok(RespValue::Integer(count))
-            }
-            Command::ZRem(key, members) => {
-                let count = self.storage.zrem(&key, &members)?;
-                Ok(RespValue::Integer(count))
-            }
-            Command::ZScore(key, member) => {
-                match self.storage.zscore(&key, &member)? {
-                    Some(score) => {
-                        Ok(RespValue::BulkString(Some(Bytes::from(
-                            format!("{}", score),
-                        ))))
-                    }
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::ZRank(key, member) => {
-                match self.storage.zrank(&key, &member)? {
-                    Some(rank) => Ok(RespValue::Integer(rank as i64)),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::ZRange(key, start, stop, with_scores) => {
-                let pairs = self.storage.zrange(&key, start, stop, with_scores)?;
-                let mut resp_values = Vec::new();
-                for (member, score) in pairs {
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(member))));
-                    if with_scores {
-                        resp_values.push(RespValue::BulkString(Some(Bytes::from(
-                            format!("{}", score),
-                        ))));
-                    }
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZRangeByScore(key, min, max, with_scores) => {
-                let pairs = self.storage.zrangebyscore(&key, min, max, with_scores)?;
-                let mut resp_values = Vec::new();
-                for (member, score) in pairs {
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(member))));
-                    if with_scores {
-                        resp_values.push(RespValue::BulkString(Some(Bytes::from(
-                            format!("{}", score),
-                        ))));
-                    }
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZCard(key) => {
-                let len = self.storage.zcard(&key)?;
-                Ok(RespValue::Integer(len as i64))
-            }
-            Command::ZRevRange(key, start, stop, with_scores) => {
-                let pairs = self.storage.zrevrange(&key, start, stop, with_scores)?;
-                let mut resp_values = Vec::new();
-                for (member, score) in pairs {
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(member))));
-                    if with_scores {
-                        resp_values.push(RespValue::BulkString(Some(Bytes::from(
-                            format!("{}", score),
-                        ))));
-                    }
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZRevRank(key, member) => {
-                match self.storage.zrevrank(&key, &member)? {
-                    Some(rank) => Ok(RespValue::Integer(rank as i64)),
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::ZIncrBy(key, increment, member) => {
-                let new_score = self.storage.zincrby(&key, increment, member)?;
-                Ok(RespValue::BulkString(Some(Bytes::from(new_score))))
-            }
-            Command::ZCount(key, min, max) => {
-                let count = self.storage.zcount(&key, min, max)?;
-                Ok(RespValue::Integer(count as i64))
-            }
-            Command::ZPopMin(key, count) => {
-                let pairs = self.storage.zpopmin(&key, count)?;
-                let mut resp_values = Vec::new();
-                for (member, score) in pairs {
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(member))));
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(
-                        format!("{}", score),
-                    ))));
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZPopMax(key, count) => {
-                let pairs = self.storage.zpopmax(&key, count)?;
-                let mut resp_values = Vec::new();
-                for (member, score) in pairs {
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(member))));
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(
-                        format!("{}", score),
-                    ))));
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZUnionStore(destination, keys, weights, aggregate) => {
-                let weights_slice = if weights.is_empty() { None } else { Some(weights.as_slice()) };
-                let count = self.storage.zunionstore(&destination, &keys, weights_slice, &aggregate)?;
-                Ok(RespValue::Integer(count as i64))
-            }
-            Command::ZInterStore(destination, keys, weights, aggregate) => {
-                let weights_slice = if weights.is_empty() { None } else { Some(weights.as_slice()) };
-                let count = self.storage.zinterstore(&destination, &keys, weights_slice, &aggregate)?;
-                Ok(RespValue::Integer(count as i64))
-            }
-            Command::ZScan(key, cursor, pattern, count) => {
-                let (next_cursor, items) = self.storage.zscan(&key, cursor, &pattern, count)?;
-                let mut resp_values = Vec::new();
-                resp_values.push(RespValue::BulkString(Some(Bytes::from(
-                    next_cursor.to_string(),
-                ))));
-                let mut item_values = Vec::new();
-                for (member, score) in items {
-                    item_values.push(RespValue::BulkString(Some(Bytes::from(member))));
-                    item_values.push(RespValue::BulkString(Some(Bytes::from(
-                        format!("{}", score),
-                    ))));
-                }
-                resp_values.push(RespValue::Array(item_values));
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZRangeByLex(key, min, max) => {
-                let members = self.storage.zrangebylex(&key, &min, &max)?;
-                let resp_values: Vec<RespValue> = members
-                    .into_iter()
-                    .map(|m| RespValue::BulkString(Some(Bytes::from(m))))
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
+            Command::HSet(key, pairs) => executor_hash::execute_h_set(self, key, pairs),
+            Command::HGet(key, field) => executor_hash::execute_h_get(self, key, field),
+            Command::HDel(key, fields) => executor_hash::execute_h_del(self, key, fields),
+            Command::HExists(key, field) => executor_hash::execute_h_exists(self, key, field),
+            Command::HGetAll(key) => executor_hash::execute_h_get_all(self, key),
+            Command::HLen(key) => executor_hash::execute_h_len(self, key),
+            Command::HMSet(key, pairs) => executor_hash::execute_h_m_set(self, key, pairs),
+            Command::HMGet(key, fields) => executor_hash::execute_h_m_get(self, key, fields),
+            Command::HIncrBy(key, field, delta) => executor_hash::execute_h_incr_by(self, key, field, delta),
+            Command::HIncrByFloat(key, field, delta) => executor_hash::execute_h_incr_by_float(self, key, field, delta),
+            Command::HKeys(key) => executor_hash::execute_h_keys(self, key),
+            Command::HVals(key) => executor_hash::execute_h_vals(self, key),
+            Command::HSetNx(key, field, value) => executor_hash::execute_h_set_nx(self, key, field, value),
+            Command::HRandField(key, count, with_values) => executor_hash::execute_h_rand_field(self, key, count, with_values),
+            Command::HScan(key, cursor, pattern, count) => executor_hash::execute_h_scan(self, key, cursor, pattern, count),
+            Command::HExpire(key, fields, seconds) => executor_hash::execute_h_expire(self, key, fields, seconds),
+            Command::HPExpire(key, fields, ms) => executor_hash::execute_h_p_expire(self, key, fields, ms),
+            Command::HExpireAt(key, fields, ts) => executor_hash::execute_h_expire_at(self, key, fields, ts),
+            Command::HPExpireAt(key, fields, ts) => executor_hash::execute_h_p_expire_at(self, key, fields, ts),
+            Command::HTtl(key, fields) => executor_hash::execute_h_ttl(self, key, fields),
+            Command::HPTtl(key, fields) => executor_hash::execute_h_p_ttl(self, key, fields),
+            Command::HExpireTime(key, fields) => executor_hash::execute_h_expire_time(self, key, fields),
+            Command::HPExpireTime(key, fields) => executor_hash::execute_h_p_expire_time(self, key, fields),
+            Command::HPersist(key, fields) => executor_hash::execute_h_persist(self, key, fields),
+            Command::SAdd(key, members) => executor_set::execute_s_add(self, key, members),
+            Command::SRem(key, members) => executor_set::execute_s_rem(self, key, members),
+            Command::SMembers(key) => executor_set::execute_s_members(self, key),
+            Command::SIsMember(key, member) => executor_set::execute_s_is_member(self, key, member),
+            Command::SCard(key) => executor_set::execute_s_card(self, key),
+            Command::SInter(keys) => executor_set::execute_s_inter(self, keys),
+            Command::SUnion(keys) => executor_set::execute_s_union(self, keys),
+            Command::SDiff(keys) => executor_set::execute_s_diff(self, keys),
+            Command::SPop(key, count) => executor_set::execute_s_pop(self, key, count),
+            Command::SRandMember(key, count) => executor_set::execute_s_rand_member(self, key, count),
+            Command::SMove(source, destination, member) => executor_set::execute_s_move(self, source, destination, member),
+            Command::SInterStore(destination, keys) => executor_set::execute_s_inter_store(self, destination, keys),
+            Command::SUnionStore(destination, keys) => executor_set::execute_s_union_store(self, destination, keys),
+            Command::SDiffStore(destination, keys) => executor_set::execute_s_diff_store(self, destination, keys),
+            Command::SScan(key, cursor, pattern, count) => executor_set::execute_s_scan(self, key, cursor, pattern, count),
+            Command::ZAdd(key, pairs) => executor_zset::execute_z_add(self, key, pairs),
+            Command::ZRem(key, members) => executor_zset::execute_z_rem(self, key, members),
+            Command::ZScore(key, member) => executor_zset::execute_z_score(self, key, member),
+            Command::ZRank(key, member) => executor_zset::execute_z_rank(self, key, member),
+            Command::ZRange(key, start, stop, with_scores) => executor_zset::execute_z_range(self, key, start, stop, with_scores),
+            Command::ZRangeByScore(key, min, max, with_scores) => executor_zset::execute_z_range_by_score(self, key, min, max, with_scores),
+            Command::ZCard(key) => executor_zset::execute_z_card(self, key),
+            Command::ZRevRange(key, start, stop, with_scores) => executor_zset::execute_z_rev_range(self, key, start, stop, with_scores),
+            Command::ZRevRank(key, member) => executor_zset::execute_z_rev_rank(self, key, member),
+            Command::ZIncrBy(key, increment, member) => executor_zset::execute_z_incr_by(self, key, increment, member),
+            Command::ZCount(key, min, max) => executor_zset::execute_z_count(self, key, min, max),
+            Command::ZPopMin(key, count) => executor_zset::execute_z_pop_min(self, key, count),
+            Command::ZPopMax(key, count) => executor_zset::execute_z_pop_max(self, key, count),
+            Command::ZUnionStore(destination, keys, weights, aggregate) => executor_zset::execute_z_union_store(self, destination, keys, weights, aggregate),
+            Command::ZInterStore(destination, keys, weights, aggregate) => executor_zset::execute_z_inter_store(self, destination, keys, weights, aggregate),
+            Command::ZScan(key, cursor, pattern, count) => executor_zset::execute_z_scan(self, key, cursor, pattern, count),
+            Command::ZRangeByLex(key, min, max) => executor_zset::execute_z_range_by_lex(self, key, min, max),
             Command::SInterCard(keys, limit) => {
                 let count = self.storage.sintercard(&keys, limit)?;
                 Ok(RespValue::Integer(count as i64))
@@ -2079,111 +634,17 @@ impl CommandExecutor {
                 let arr: Vec<RespValue> = result.into_iter().map(|v| RespValue::Integer(v)).collect();
                 Ok(RespValue::Array(arr))
             }
-            Command::ZRandMember(key, count, with_scores) => {
-                let pairs = self.storage.zrandmember(&key, count, with_scores)?;
-                let mut resp_values = Vec::new();
-                for (member, score) in pairs {
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(member))));
-                    if with_scores {
-                        resp_values.push(RespValue::BulkString(Some(Bytes::from(format!("{}", score)))));
-                    }
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZDiff(keys, with_scores) => {
-                let pairs = self.storage.zdiff(&keys, with_scores)?;
-                let mut resp_values = Vec::new();
-                for (member, score) in pairs {
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(member))));
-                    if with_scores {
-                        resp_values.push(RespValue::BulkString(Some(Bytes::from(format!("{}", score)))));
-                    }
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZDiffStore(destination, keys) => {
-                let count = self.storage.zdiffstore(&destination, &keys)?;
-                Ok(RespValue::Integer(count as i64))
-            }
-            Command::ZInter(keys, weights, aggregate, with_scores) => {
-                let weights_slice = if weights.is_empty() { None } else { Some(weights.as_slice()) };
-                let pairs = self.storage.zinter(&keys, weights_slice, &aggregate, with_scores)?;
-                let mut resp_values = Vec::new();
-                for (member, score) in pairs {
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(member))));
-                    if with_scores {
-                        resp_values.push(RespValue::BulkString(Some(Bytes::from(format!("{}", score)))));
-                    }
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZUnion(keys, weights, aggregate, with_scores) => {
-                let weights_slice = if weights.is_empty() { None } else { Some(weights.as_slice()) };
-                let pairs = self.storage.zunion(&keys, weights_slice, &aggregate, with_scores)?;
-                let mut resp_values = Vec::new();
-                for (member, score) in pairs {
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(member))));
-                    if with_scores {
-                        resp_values.push(RespValue::BulkString(Some(Bytes::from(format!("{}", score)))));
-                    }
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZRangeStore(dst, src, min, max, by_score, by_lex, rev, limit_offset, limit_count) => {
-                let count = self.storage.zrangestore(&dst, &src, &min, &max, by_score, by_lex, rev, limit_offset, limit_count)?;
-                Ok(RespValue::Integer(count as i64))
-            }
-            Command::ZMpop(keys, min_or_max, count) => {
-                match self.storage.zmpop(&keys, min_or_max, count)? {
-                    Some((key, pairs)) => {
-                        let mut pair_values = Vec::new();
-                        for (member, score) in pairs {
-                            pair_values.push(RespValue::BulkString(Some(Bytes::from(member))));
-                            pair_values.push(RespValue::BulkString(Some(Bytes::from(format!("{}", score)))));
-                        }
-                        let resp = RespValue::Array(vec![
-                            RespValue::BulkString(Some(Bytes::from(key))),
-                            RespValue::Array(pair_values),
-                        ]);
-                        Ok(resp)
-                    }
-                    None => Ok(RespValue::BulkString(None)),
-                }
-            }
-            Command::ZRevRangeByScore(key, max, min, with_scores, limit_offset, limit_count) => {
-                let pairs = self.storage.zrevrangebyscore(&key, max, min, with_scores, limit_offset, limit_count)?;
-                let mut resp_values = Vec::new();
-                for (member, score) in pairs {
-                    resp_values.push(RespValue::BulkString(Some(Bytes::from(member))));
-                    if with_scores {
-                        resp_values.push(RespValue::BulkString(Some(Bytes::from(format!("{}", score)))));
-                    }
-                }
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZRevRangeByLex(key, max, min, limit_offset, limit_count) => {
-                let members = self.storage.zrevrangebylex(&key, &max, &min, limit_offset, limit_count)?;
-                let resp_values: Vec<RespValue> = members
-                    .into_iter()
-                    .map(|m| RespValue::BulkString(Some(Bytes::from(m))))
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZMScore(key, members) => {
-                let scores = self.storage.zmscore(&key, &members)?;
-                let resp_values: Vec<RespValue> = scores
-                    .into_iter()
-                    .map(|s| match s {
-                        Some(score) => RespValue::BulkString(Some(Bytes::from(format!("{}", score)))),
-                        None => RespValue::BulkString(None),
-                    })
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::ZLexCount(key, min, max) => {
-                let count = self.storage.zlexcount(&key, &min, &max)?;
-                Ok(RespValue::Integer(count as i64))
-            }
+            Command::ZRandMember(key, count, with_scores) => executor_zset::execute_z_rand_member(self, key, count, with_scores),
+            Command::ZDiff(keys, with_scores) => executor_zset::execute_z_diff(self, keys, with_scores),
+            Command::ZDiffStore(destination, keys) => executor_zset::execute_z_diff_store(self, destination, keys),
+            Command::ZInter(keys, weights, aggregate, with_scores) => executor_zset::execute_z_inter(self, keys, weights, aggregate, with_scores),
+            Command::ZUnion(keys, weights, aggregate, with_scores) => executor_zset::execute_z_union(self, keys, weights, aggregate, with_scores),
+            Command::ZRangeStore(dst, src, min, max, by_score, by_lex, rev, limit_offset, limit_count) => executor_zset::execute_z_range_store(self, dst, src, min, max, by_score, by_lex, rev, limit_offset, limit_count),
+            Command::ZMpop(keys, min_or_max, count) => executor_zset::execute_z_mpop(self, keys, min_or_max, count),
+            Command::ZRevRangeByScore(key, max, min, with_scores, limit_offset, limit_count) => executor_zset::execute_z_rev_range_by_score(self, key, max, min, with_scores, limit_offset, limit_count),
+            Command::ZRevRangeByLex(key, max, min, limit_offset, limit_count) => executor_zset::execute_z_rev_range_by_lex(self, key, max, min, limit_offset, limit_count),
+            Command::ZMScore(key, members) => executor_zset::execute_z_m_score(self, key, members),
+            Command::ZLexCount(key, min, max) => executor_zset::execute_z_lex_count(self, key, min, max),
             Command::ZRangeUnified(key, min, max, by_score, by_lex, rev, with_scores, limit_offset, limit_count) => {
                 let pairs = self.storage.zrange_unified(&key, &min, &max, by_score, by_lex, rev, with_scores, limit_offset, limit_count)?;
                 let mut resp_values = Vec::new();
@@ -2199,55 +660,18 @@ impl CommandExecutor {
             Command::BZMpop(_, _, _, _) | Command::BZPopMin(_, _) | Command::BZPopMax(_, _) => {
                 Ok(RespValue::BulkString(None))
             }
-            Command::Keys(pattern) => {
-                let keys = self.storage.keys(&pattern)?;
-                let resp_values: Vec<RespValue> = keys
-                    .into_iter()
-                    .map(|k| RespValue::BulkString(Some(Bytes::from(k))))
-                    .collect();
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::Scan(cursor, pattern, count) => {
-                let (next_cursor, keys) = self.storage.scan(cursor, &pattern, count)?;
-                let mut resp_values = Vec::new();
-                resp_values.push(RespValue::BulkString(Some(Bytes::from(
-                    next_cursor.to_string(),
-                ))));
-                let key_values: Vec<RespValue> = keys
-                    .into_iter()
-                    .map(|k| RespValue::BulkString(Some(Bytes::from(k))))
-                    .collect();
-                resp_values.push(RespValue::Array(key_values));
-                Ok(RespValue::Array(resp_values))
-            }
-            Command::Rename(key, newkey) => {
-                self.storage.rename(&key, &newkey)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
-            }
-            Command::Type(key) => {
-                let key_type = self.storage.key_type(&key)?;
-                Ok(RespValue::SimpleString(key_type))
-            }
-            Command::Persist(key) => {
-                let removed = self.storage.persist(&key)?;
-                Ok(RespValue::Integer(if removed { 1 } else { 0 }))
-            }
-            Command::PExpire(key, ms) => {
-                let success = self.storage.pexpire(&key, ms)?;
-                Ok(RespValue::Integer(if success { 1 } else { 0 }))
-            }
-            Command::PTtl(key) => {
-                let ttl_ms = self.storage.pttl(&key)?;
-                Ok(RespValue::Integer(ttl_ms))
-            }
+            Command::Keys(pattern) => executor_admin::execute_keys(self, pattern),
+            Command::Scan(cursor, pattern, count) => executor_admin::execute_scan(self, cursor, pattern, count),
+            Command::Rename(key, newkey) => executor_admin::execute_rename(self, key, newkey),
+            Command::Type(key) => executor_admin::execute_type(self, key),
+            Command::Persist(key) => executor_admin::execute_persist(self, key),
+            Command::PExpire(key, ms) => executor_admin::execute_p_expire(self, key, ms),
+            Command::PTtl(key) => executor_admin::execute_p_ttl(self, key),
             Command::DbSize => {
                 let size = self.storage.dbsize()?;
                 Ok(RespValue::Integer(size as i64))
             }
-            Command::Info(section) => {
-                let info = self.storage.info(section.as_deref())?;
-                Ok(RespValue::BulkString(Some(Bytes::from(info))))
-            }
+            Command::Info(section) => executor_admin::execute_info(self, section),
             Command::Subscribe(_) | Command::Unsubscribe(_) | Command::PSubscribe(_) | Command::PUnsubscribe(_) => {
                 // Pub/Sub 命令在 server.rs 中直接处理，不应到达此处
                 Err(AppError::Command("pub/sub 命令应在连接层处理".to_string()))

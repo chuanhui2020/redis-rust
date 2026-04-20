@@ -7,77 +7,13 @@ impl Command {
     /// 将命令转换为 RESP 值，用于 AOF 持久化
     pub fn to_resp_value(&self) -> RespValue {
         match self {
-            Command::Ping(msg) => {
-                let mut parts = vec![bulk("PING")];
-                if let Some(m) = msg {
-                    parts.push(bulk(m));
-                }
-                RespValue::Array(parts)
-            }
-            Command::Get(key) => {
-                RespValue::Array(vec![bulk("GET"), bulk(key)])
-            }
-            Command::Set(key, value, options) => {
-                let mut parts = vec![bulk("SET"), bulk(key), bulk_bytes(value)];
-                if options.nx {
-                    parts.push(bulk("NX"));
-                }
-                if options.xx {
-                    parts.push(bulk("XX"));
-                }
-                if options.get {
-                    parts.push(bulk("GET"));
-                }
-                if options.keepttl {
-                    parts.push(bulk("KEEPTTL"));
-                }
-                match &options.expire {
-                    Some(crate::storage::SetExpireOption::Ex(s)) => {
-                        parts.push(bulk("EX"));
-                        parts.push(bulk(&s.to_string()));
-                    }
-                    Some(crate::storage::SetExpireOption::Px(ms)) => {
-                        parts.push(bulk("PX"));
-                        parts.push(bulk(&ms.to_string()));
-                    }
-                    Some(crate::storage::SetExpireOption::ExAt(ts)) => {
-                        parts.push(bulk("EXAT"));
-                        parts.push(bulk(&ts.to_string()));
-                    }
-                    Some(crate::storage::SetExpireOption::PxAt(ts)) => {
-                        parts.push(bulk("PXAT"));
-                        parts.push(bulk(&ts.to_string()));
-                    }
-                    None => {}
-                }
-                RespValue::Array(parts)
-            }
-            Command::SetEx(key, value, ttl_ms) => {
-                RespValue::Array(vec![
-                    bulk("SET"),
-                    bulk(key),
-                    bulk_bytes(value),
-                    bulk("PX"),
-                    bulk(&ttl_ms.to_string()),
-                ])
-            }
-            Command::Del(keys) => {
-                let mut parts = vec![bulk("DEL")];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                RespValue::Array(parts)
-            }
-            Command::Exists(keys) => {
-                let mut parts = vec![bulk("EXISTS")];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                RespValue::Array(parts)
-            }
-            Command::FlushAll => {
-                RespValue::Array(vec![bulk("FLUSHALL")])
-            }
+            Command::Ping(..) => resp_admin::to_resp_ping(self),
+            Command::Get(..) => resp_string::to_resp_get(self),
+            Command::Set(..) => resp_string::to_resp_set(self),
+            Command::SetEx(..) => resp_string::to_resp_set_ex(self),
+            Command::Del(..) => resp_string::to_resp_del(self),
+            Command::Exists(..) => resp_string::to_resp_exists(self),
+            Command::FlushAll => resp_string::to_resp_flush_all(self),
             Command::Expire(key, seconds) => {
                 RespValue::Array(vec![
                     bulk("EXPIRE"),
@@ -88,733 +24,107 @@ impl Command {
             Command::Ttl(key) => {
                 RespValue::Array(vec![bulk("TTL"), bulk(key)])
             }
-            Command::ConfigGet(key) => {
-                RespValue::Array(vec![bulk("CONFIG"), bulk("GET"), bulk(key)])
-            }
-            Command::ConfigSet(key, value) => {
-                RespValue::Array(vec![bulk("CONFIG"), bulk("SET"), bulk(key), bulk(value)])
-            }
-            Command::ConfigRewrite => {
-                RespValue::Array(vec![bulk("CONFIG"), bulk("REWRITE")])
-            }
-            Command::ConfigResetStat => {
-                RespValue::Array(vec![bulk("CONFIG"), bulk("RESETSTAT")])
-            }
-            Command::MemoryUsage(key, samples) => {
-                let mut parts = vec![bulk("MEMORY"), bulk("USAGE"), bulk(key)];
-                if let Some(s) = samples {
-                    parts.push(bulk("SAMPLES"));
-                    parts.push(bulk(&s.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::MemoryDoctor => {
-                RespValue::Array(vec![bulk("MEMORY"), bulk("DOCTOR")])
-            }
-            Command::LatencyLatest => {
-                RespValue::Array(vec![bulk("LATENCY"), bulk("LATEST")])
-            }
-            Command::LatencyHistory(event) => {
-                RespValue::Array(vec![bulk("LATENCY"), bulk("HISTORY"), bulk(event)])
-            }
-            Command::LatencyReset(events) => {
-                let mut parts = vec![bulk("LATENCY"), bulk("RESET")];
-                for e in events {
-                    parts.push(bulk(e));
-                }
-                RespValue::Array(parts)
-            }
-            Command::Reset => {
-                RespValue::Array(vec![bulk("RESET")])
-            }
-            Command::Hello(protover, auth, setname) => {
-                let mut parts = vec![bulk("HELLO"), bulk(&protover.to_string())];
-                if let Some((user, pass)) = auth {
-                    parts.push(bulk("AUTH"));
-                    parts.push(bulk(user));
-                    parts.push(bulk(pass));
-                }
-                if let Some(name) = setname {
-                    parts.push(bulk("SETNAME"));
-                    parts.push(bulk(name));
-                }
-                RespValue::Array(parts)
-            }
-            Command::Monitor => {
-                RespValue::Array(vec![bulk("MONITOR")])
-            }
-            Command::CommandInfo => {
-                RespValue::Array(vec![bulk("COMMAND")])
-            }
-            Command::MGet(keys) => {
-                let mut parts = vec![bulk("MGET")];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                RespValue::Array(parts)
-            }
-            Command::MSet(pairs) => {
-                let mut parts = vec![bulk("MSET")];
-                for (key, value) in pairs {
-                    parts.push(bulk(key));
-                    parts.push(bulk_bytes(value));
-                }
-                RespValue::Array(parts)
-            }
-            Command::Incr(key) => {
-                RespValue::Array(vec![bulk("INCR"), bulk(key)])
-            }
-            Command::Decr(key) => {
-                RespValue::Array(vec![bulk("DECR"), bulk(key)])
-            }
-            Command::IncrBy(key, delta) => {
-                RespValue::Array(vec![
-                    bulk("INCRBY"),
-                    bulk(key),
-                    bulk(&delta.to_string()),
-                ])
-            }
-            Command::DecrBy(key, delta) => {
-                RespValue::Array(vec![
-                    bulk("DECRBY"),
-                    bulk(key),
-                    bulk(&delta.to_string()),
-                ])
-            }
-            Command::Append(key, value) => {
-                RespValue::Array(vec![
-                    bulk("APPEND"),
-                    bulk(key),
-                    bulk_bytes(value),
-                ])
-            }
-            Command::SetNx(key, value) => {
-                RespValue::Array(vec![
-                    bulk("SETNX"),
-                    bulk(key),
-                    bulk_bytes(value),
-                ])
-            }
-            Command::SetExCmd(key, value, seconds) => {
-                RespValue::Array(vec![
-                    bulk("SETEX"),
-                    bulk(key),
-                    bulk(&seconds.to_string()),
-                    bulk_bytes(value),
-                ])
-            }
-            Command::PSetEx(key, value, ms) => {
-                RespValue::Array(vec![
-                    bulk("PSETEX"),
-                    bulk(key),
-                    bulk(&ms.to_string()),
-                    bulk_bytes(value),
-                ])
-            }
-            Command::GetSet(key, value) => {
-                RespValue::Array(vec![
-                    bulk("GETSET"),
-                    bulk(key),
-                    bulk_bytes(value),
-                ])
-            }
-            Command::GetDel(key) => {
-                RespValue::Array(vec![bulk("GETDEL"), bulk(key)])
-            }
-            Command::GetEx(key, opt) => {
-                let mut parts = vec![bulk("GETEX"), bulk(key)];
-                match opt {
-                    GetExOption::Persist => parts.push(bulk("PERSIST")),
-                    GetExOption::Ex(s) => {
-                        parts.push(bulk("EX"));
-                        parts.push(bulk(&s.to_string()));
-                    }
-                    GetExOption::Px(ms) => {
-                        parts.push(bulk("PX"));
-                        parts.push(bulk(&ms.to_string()));
-                    }
-                    GetExOption::ExAt(ts) => {
-                        parts.push(bulk("EXAT"));
-                        parts.push(bulk(&ts.to_string()));
-                    }
-                    GetExOption::PxAt(ts) => {
-                        parts.push(bulk("PXAT"));
-                        parts.push(bulk(&ts.to_string()));
-                    }
-                }
-                RespValue::Array(parts)
-            }
-            Command::MSetNx(pairs) => {
-                let mut parts = vec![bulk("MSETNX")];
-                for (key, value) in pairs {
-                    parts.push(bulk(key));
-                    parts.push(bulk_bytes(value));
-                }
-                RespValue::Array(parts)
-            }
-            Command::IncrByFloat(key, delta) => {
-                RespValue::Array(vec![
-                    bulk("INCRBYFLOAT"),
-                    bulk(key),
-                    bulk(&format!("{}", delta)),
-                ])
-            }
-            Command::SetRange(key, offset, value) => {
-                RespValue::Array(vec![
-                    bulk("SETRANGE"),
-                    bulk(key),
-                    bulk(&offset.to_string()),
-                    bulk_bytes(value),
-                ])
-            }
-            Command::GetRange(key, start, end) => {
-                RespValue::Array(vec![
-                    bulk("GETRANGE"),
-                    bulk(key),
-                    bulk(&start.to_string()),
-                    bulk(&end.to_string()),
-                ])
-            }
-            Command::StrLen(key) => {
-                RespValue::Array(vec![bulk("STRLEN"), bulk(key)])
-            }
-            Command::LPush(key, values) => {
-                let mut parts = vec![bulk("LPUSH"), bulk(key)];
-                for v in values {
-                    parts.push(bulk_bytes(&v));
-                }
-                RespValue::Array(parts)
-            }
-            Command::RPush(key, values) => {
-                let mut parts = vec![bulk("RPUSH"), bulk(key)];
-                for v in values {
-                    parts.push(bulk_bytes(&v));
-                }
-                RespValue::Array(parts)
-            }
-            Command::LPop(key) => {
-                RespValue::Array(vec![bulk("LPOP"), bulk(key)])
-            }
-            Command::RPop(key) => {
-                RespValue::Array(vec![bulk("RPOP"), bulk(key)])
-            }
-            Command::LLen(key) => {
-                RespValue::Array(vec![bulk("LLEN"), bulk(key)])
-            }
-            Command::LRange(key, start, stop) => {
-                RespValue::Array(vec![
-                    bulk("LRANGE"),
-                    bulk(key),
-                    bulk(&start.to_string()),
-                    bulk(&stop.to_string()),
-                ])
-            }
-            Command::LIndex(key, index) => {
-                RespValue::Array(vec![
-                    bulk("LINDEX"),
-                    bulk(key),
-                    bulk(&index.to_string()),
-                ])
-            }
-            Command::LSet(key, index, value) => {
-                RespValue::Array(vec![
-                    bulk("LSET"),
-                    bulk(key),
-                    bulk(&index.to_string()),
-                    bulk_bytes(value),
-                ])
-            }
-            Command::LInsert(key, pos, pivot, value) => {
-                let pos_str = match pos {
-                    crate::storage::LInsertPosition::Before => "BEFORE",
-                    crate::storage::LInsertPosition::After => "AFTER",
-                };
-                RespValue::Array(vec![
-                    bulk("LINSERT"),
-                    bulk(key),
-                    bulk(pos_str),
-                    bulk_bytes(pivot),
-                    bulk_bytes(value),
-                ])
-            }
-            Command::LRem(key, count, value) => {
-                RespValue::Array(vec![
-                    bulk("LREM"),
-                    bulk(key),
-                    bulk(&count.to_string()),
-                    bulk_bytes(value),
-                ])
-            }
-            Command::LTrim(key, start, stop) => {
-                RespValue::Array(vec![
-                    bulk("LTRIM"),
-                    bulk(key),
-                    bulk(&start.to_string()),
-                    bulk(&stop.to_string()),
-                ])
-            }
-            Command::LPos(key, value, rank, count, maxlen) => {
-                let mut parts = vec![
-                    bulk("LPOS"),
-                    bulk(key),
-                    bulk_bytes(value),
-                ];
-                if *rank != 1 {
-                    parts.push(bulk("RANK"));
-                    parts.push(bulk(&rank.to_string()));
-                }
-                if *count != 0 {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&count.to_string()));
-                }
-                if *maxlen != 0 {
-                    parts.push(bulk("MAXLEN"));
-                    parts.push(bulk(&maxlen.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::BLPop(keys, timeout) => {
-                let mut parts = vec![bulk("BLPOP")];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                parts.push(bulk(&timeout.to_string()));
-                RespValue::Array(parts)
-            }
-            Command::BRPop(keys, timeout) => {
-                let mut parts = vec![bulk("BRPOP")];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                parts.push(bulk(&timeout.to_string()));
-                RespValue::Array(parts)
-            }
-            Command::HSet(key, pairs) => {
-                let mut parts = vec![bulk("HSET"), bulk(key)];
-                for (field, value) in pairs {
-                    parts.push(bulk(field));
-                    parts.push(bulk_bytes(value));
-                }
-                RespValue::Array(parts)
-            }
-            Command::HGet(key, field) => {
-                RespValue::Array(vec![bulk("HGET"), bulk(key), bulk(field)])
-            }
-            Command::HDel(key, fields) => {
-                let mut parts = vec![bulk("HDEL"), bulk(key)];
-                for field in fields {
-                    parts.push(bulk(field));
-                }
-                RespValue::Array(parts)
-            }
-            Command::HExists(key, field) => {
-                RespValue::Array(vec![bulk("HEXISTS"), bulk(key), bulk(field)])
-            }
-            Command::HGetAll(key) => {
-                RespValue::Array(vec![bulk("HGETALL"), bulk(key)])
-            }
-            Command::HLen(key) => {
-                RespValue::Array(vec![bulk("HLEN"), bulk(key)])
-            }
-            Command::HMSet(key, pairs) => {
-                let mut parts = vec![bulk("HMSET"), bulk(key)];
-                for (field, value) in pairs {
-                    parts.push(bulk(field));
-                    parts.push(bulk_bytes(value));
-                }
-                RespValue::Array(parts)
-            }
-            Command::HMGet(key, fields) => {
-                let mut parts = vec![bulk("HMGET"), bulk(key)];
-                for field in fields {
-                    parts.push(bulk(field));
-                }
-                RespValue::Array(parts)
-            }
-            Command::HIncrBy(key, field, delta) => {
-                RespValue::Array(vec![
-                    bulk("HINCRBY"),
-                    bulk(key),
-                    bulk(field),
-                    bulk(&delta.to_string()),
-                ])
-            }
-            Command::HIncrByFloat(key, field, delta) => {
-                RespValue::Array(vec![
-                    bulk("HINCRBYFLOAT"),
-                    bulk(key),
-                    bulk(field),
-                    bulk(&format!("{}", delta)),
-                ])
-            }
-            Command::HKeys(key) => {
-                RespValue::Array(vec![bulk("HKEYS"), bulk(key)])
-            }
-            Command::HVals(key) => {
-                RespValue::Array(vec![bulk("HVALS"), bulk(key)])
-            }
-            Command::HSetNx(key, field, value) => {
-                RespValue::Array(vec![
-                    bulk("HSETNX"),
-                    bulk(key),
-                    bulk(field),
-                    bulk_bytes(value),
-                ])
-            }
-            Command::HRandField(key, count, with_values) => {
-                let mut parts = vec![bulk("HRANDFIELD"), bulk(key)];
-                if *count != 1 || *with_values {
-                    parts.push(bulk(&count.to_string()));
-                    if *with_values {
-                        parts.push(bulk("WITHVALUES"));
-                    }
-                }
-                RespValue::Array(parts)
-            }
-            Command::HScan(key, cursor, pattern, count) => {
-                let mut parts = vec![
-                    bulk("HSCAN"),
-                    bulk(key),
-                    bulk(&cursor.to_string()),
-                ];
-                if !pattern.is_empty() && pattern != "*" {
-                    parts.push(bulk("MATCH"));
-                    parts.push(bulk(pattern));
-                }
-                if *count != 0 {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::HExpire(key, fields, seconds) => {
-                let mut parts = vec![bulk("HEXPIRE"), bulk(key)];
-                for f in fields {
-                    parts.push(bulk(f));
-                }
-                parts.push(bulk(&seconds.to_string()));
-                RespValue::Array(parts)
-            }
-            Command::HPExpire(key, fields, ms) => {
-                let mut parts = vec![bulk("HPEXPIRE"), bulk(key)];
-                for f in fields {
-                    parts.push(bulk(f));
-                }
-                parts.push(bulk(&ms.to_string()));
-                RespValue::Array(parts)
-            }
-            Command::HExpireAt(key, fields, ts) => {
-                let mut parts = vec![bulk("HEXPIREAT"), bulk(key)];
-                for f in fields {
-                    parts.push(bulk(f));
-                }
-                parts.push(bulk(&ts.to_string()));
-                RespValue::Array(parts)
-            }
-            Command::HPExpireAt(key, fields, ts) => {
-                let mut parts = vec![bulk("HPEXPIREAT"), bulk(key)];
-                for f in fields {
-                    parts.push(bulk(f));
-                }
-                parts.push(bulk(&ts.to_string()));
-                RespValue::Array(parts)
-            }
-            Command::HTtl(key, fields) => {
-                let mut parts = vec![bulk("HTTL"), bulk(key)];
-                for f in fields {
-                    parts.push(bulk(f));
-                }
-                RespValue::Array(parts)
-            }
-            Command::HPTtl(key, fields) => {
-                let mut parts = vec![bulk("HPTTL"), bulk(key)];
-                for f in fields {
-                    parts.push(bulk(f));
-                }
-                RespValue::Array(parts)
-            }
-            Command::HExpireTime(key, fields) => {
-                let mut parts = vec![bulk("HEXPIRETIME"), bulk(key)];
-                for f in fields {
-                    parts.push(bulk(f));
-                }
-                RespValue::Array(parts)
-            }
-            Command::HPExpireTime(key, fields) => {
-                let mut parts = vec![bulk("HPEXPIRETIME"), bulk(key)];
-                for f in fields {
-                    parts.push(bulk(f));
-                }
-                RespValue::Array(parts)
-            }
-            Command::HPersist(key, fields) => {
-                let mut parts = vec![bulk("HPERSIST"), bulk(key)];
-                for f in fields {
-                    parts.push(bulk(f));
-                }
-                RespValue::Array(parts)
-            }
-            Command::SAdd(key, members) => {
-                let mut parts = vec![bulk("SADD"), bulk(key)];
-                for m in members {
-                    parts.push(bulk_bytes(&m));
-                }
-                RespValue::Array(parts)
-            }
-            Command::SRem(key, members) => {
-                let mut parts = vec![bulk("SREM"), bulk(key)];
-                for m in members {
-                    parts.push(bulk_bytes(&m));
-                }
-                RespValue::Array(parts)
-            }
-            Command::SMembers(key) => {
-                RespValue::Array(vec![bulk("SMEMBERS"), bulk(key)])
-            }
-            Command::SIsMember(key, member) => {
-                RespValue::Array(vec![
-                    bulk("SISMEMBER"),
-                    bulk(key),
-                    bulk_bytes(member),
-                ])
-            }
-            Command::SCard(key) => {
-                RespValue::Array(vec![bulk("SCARD"), bulk(key)])
-            }
-            Command::SInter(keys) => {
-                let mut parts = vec![bulk("SINTER")];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                RespValue::Array(parts)
-            }
-            Command::SUnion(keys) => {
-                let mut parts = vec![bulk("SUNION")];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                RespValue::Array(parts)
-            }
-            Command::SDiff(keys) => {
-                let mut parts = vec![bulk("SDIFF")];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                RespValue::Array(parts)
-            }
-            Command::SPop(key, count) => {
-                let mut parts = vec![bulk("SPOP"), bulk(key)];
-                if *count != 1 {
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::SRandMember(key, count) => {
-                let mut parts = vec![bulk("SRANDMEMBER"), bulk(key)];
-                if *count != 1 {
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::SMove(source, destination, member) => {
-                RespValue::Array(vec![
-                    bulk("SMOVE"),
-                    bulk(source),
-                    bulk(destination),
-                    bulk_bytes(member),
-                ])
-            }
-            Command::SInterStore(destination, keys) => {
-                let mut parts = vec![bulk("SINTERSTORE"), bulk(destination)];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                RespValue::Array(parts)
-            }
-            Command::SUnionStore(destination, keys) => {
-                let mut parts = vec![bulk("SUNIONSTORE"), bulk(destination)];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                RespValue::Array(parts)
-            }
-            Command::SDiffStore(destination, keys) => {
-                let mut parts = vec![bulk("SDIFFSTORE"), bulk(destination)];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                RespValue::Array(parts)
-            }
-            Command::SScan(key, cursor, pattern, count) => {
-                let mut parts = vec![
-                    bulk("SSCAN"),
-                    bulk(key),
-                    bulk(&cursor.to_string()),
-                ];
-                if !pattern.is_empty() && pattern != "*" {
-                    parts.push(bulk("MATCH"));
-                    parts.push(bulk(pattern));
-                }
-                if *count != 0 {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZAdd(key, pairs) => {
-                let mut parts = vec![bulk("ZADD"), bulk(key)];
-                for (score, member) in pairs {
-                    parts.push(bulk(&score.to_string()));
-                    parts.push(bulk(member));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZRem(key, members) => {
-                let mut parts = vec![bulk("ZREM"), bulk(key)];
-                for member in members {
-                    parts.push(bulk(member));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZScore(key, member) => {
-                RespValue::Array(vec![bulk("ZSCORE"), bulk(key), bulk(member)])
-            }
-            Command::ZRank(key, member) => {
-                RespValue::Array(vec![bulk("ZRANK"), bulk(key), bulk(member)])
-            }
-            Command::ZRange(key, start, stop, with_scores) => {
-                let mut parts = vec![
-                    bulk("ZRANGE"),
-                    bulk(key),
-                    bulk(&start.to_string()),
-                    bulk(&stop.to_string()),
-                ];
-                if *with_scores {
-                    parts.push(bulk("WITHSCORES"));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZRangeByScore(key, min, max, with_scores) => {
-                let mut parts = vec![
-                    bulk("ZRANGEBYSCORE"),
-                    bulk(key),
-                    bulk(&min.to_string()),
-                    bulk(&max.to_string()),
-                ];
-                if *with_scores {
-                    parts.push(bulk("WITHSCORES"));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZCard(key) => {
-                RespValue::Array(vec![bulk("ZCARD"), bulk(key)])
-            }
-            Command::ZRevRange(key, start, stop, with_scores) => {
-                let mut parts = vec![
-                    bulk("ZREVRANGE"),
-                    bulk(key),
-                    bulk(&start.to_string()),
-                    bulk(&stop.to_string()),
-                ];
-                if *with_scores {
-                    parts.push(bulk("WITHSCORES"));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZRevRank(key, member) => {
-                RespValue::Array(vec![bulk("ZREVRANK"), bulk(key), bulk(member)])
-            }
-            Command::ZIncrBy(key, increment, member) => {
-                RespValue::Array(vec![
-                    bulk("ZINCRBY"),
-                    bulk(key),
-                    bulk(&increment.to_string()),
-                    bulk(member),
-                ])
-            }
-            Command::ZCount(key, min, max) => {
-                RespValue::Array(vec![
-                    bulk("ZCOUNT"),
-                    bulk(key),
-                    bulk(&min.to_string()),
-                    bulk(&max.to_string()),
-                ])
-            }
-            Command::ZPopMin(key, count) => {
-                let mut parts = vec![bulk("ZPOPMIN"), bulk(key)];
-                if *count > 1 {
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZPopMax(key, count) => {
-                let mut parts = vec![bulk("ZPOPMAX"), bulk(key)];
-                if *count > 1 {
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZUnionStore(destination, keys, weights, aggregate) => {
-                let mut parts = vec![
-                    bulk("ZUNIONSTORE"),
-                    bulk(destination),
-                    bulk(&keys.len().to_string()),
-                ];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                if !weights.is_empty() {
-                    parts.push(bulk("WEIGHTS"));
-                    for w in weights {
-                        parts.push(bulk(&w.to_string()));
-                    }
-                }
-                if aggregate != "SUM" {
-                    parts.push(bulk("AGGREGATE"));
-                    parts.push(bulk(aggregate));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZInterStore(destination, keys, weights, aggregate) => {
-                let mut parts = vec![
-                    bulk("ZINTERSTORE"),
-                    bulk(destination),
-                    bulk(&keys.len().to_string()),
-                ];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                if !weights.is_empty() {
-                    parts.push(bulk("WEIGHTS"));
-                    for w in weights {
-                        parts.push(bulk(&w.to_string()));
-                    }
-                }
-                if aggregate != "SUM" {
-                    parts.push(bulk("AGGREGATE"));
-                    parts.push(bulk(aggregate));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZScan(key, cursor, pattern, count) => {
-                let mut parts = vec![
-                    bulk("ZSCAN"),
-                    bulk(key),
-                    bulk(&cursor.to_string()),
-                ];
-                if !pattern.is_empty() && pattern != "*" {
-                    parts.push(bulk("MATCH"));
-                    parts.push(bulk(pattern));
-                }
-                if *count > 0 {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZRangeByLex(key, min, max) => {
-                RespValue::Array(vec![bulk("ZRANGEBYLEX"), bulk(key), bulk(min), bulk(max)])
-            }
+            Command::ConfigGet(..) => resp_admin::to_resp_config_get(self),
+            Command::ConfigSet(..) => resp_admin::to_resp_config_set(self),
+            Command::ConfigRewrite => resp_admin::to_resp_config_rewrite(self),
+            Command::ConfigResetStat => resp_admin::to_resp_config_reset_stat(self),
+            Command::MemoryUsage(..) => resp_admin::to_resp_memory_usage(self),
+            Command::MemoryDoctor => resp_admin::to_resp_memory_doctor(self),
+            Command::LatencyLatest => resp_admin::to_resp_latency_latest(self),
+            Command::LatencyHistory(..) => resp_admin::to_resp_latency_history(self),
+            Command::LatencyReset(..) => resp_admin::to_resp_latency_reset(self),
+            Command::Reset => resp_admin::to_resp_reset(self),
+            Command::Hello(..) => resp_admin::to_resp_hello(self),
+            Command::Monitor => resp_admin::to_resp_monitor(self),
+            Command::CommandInfo => resp_admin::to_resp_command_info(self),
+            Command::MGet(..) => resp_string::to_resp_m_get(self),
+            Command::MSet(..) => resp_string::to_resp_m_set(self),
+            Command::Incr(..) => resp_string::to_resp_incr(self),
+            Command::Decr(..) => resp_string::to_resp_decr(self),
+            Command::IncrBy(..) => resp_string::to_resp_incr_by(self),
+            Command::DecrBy(..) => resp_string::to_resp_decr_by(self),
+            Command::Append(..) => resp_string::to_resp_append(self),
+            Command::SetNx(..) => resp_string::to_resp_set_nx(self),
+            Command::SetExCmd(..) => resp_string::to_resp_set_ex_cmd(self),
+            Command::PSetEx(..) => resp_string::to_resp_p_set_ex(self),
+            Command::GetSet(..) => resp_string::to_resp_get_set(self),
+            Command::GetDel(..) => resp_string::to_resp_get_del(self),
+            Command::GetEx(..) => resp_string::to_resp_get_ex(self),
+            Command::MSetNx(..) => resp_string::to_resp_m_set_nx(self),
+            Command::IncrByFloat(..) => resp_string::to_resp_incr_by_float(self),
+            Command::SetRange(..) => resp_string::to_resp_set_range(self),
+            Command::GetRange(..) => resp_string::to_resp_get_range(self),
+            Command::StrLen(..) => resp_string::to_resp_str_len(self),
+            Command::LPush(..) => resp_list::to_resp_l_push(self),
+            Command::RPush(..) => resp_list::to_resp_r_push(self),
+            Command::LPop(..) => resp_list::to_resp_l_pop(self),
+            Command::RPop(..) => resp_list::to_resp_r_pop(self),
+            Command::LLen(..) => resp_list::to_resp_l_len(self),
+            Command::LRange(..) => resp_list::to_resp_l_range(self),
+            Command::LIndex(..) => resp_list::to_resp_l_index(self),
+            Command::LSet(..) => resp_list::to_resp_l_set(self),
+            Command::LInsert(..) => resp_list::to_resp_l_insert(self),
+            Command::LRem(..) => resp_list::to_resp_l_rem(self),
+            Command::LTrim(..) => resp_list::to_resp_l_trim(self),
+            Command::LPos(..) => resp_list::to_resp_l_pos(self),
+            Command::BLPop(..) => resp_list::to_resp_b_l_pop(self),
+            Command::BRPop(..) => resp_list::to_resp_b_r_pop(self),
+            Command::HSet(..) => resp_hash::to_resp_h_set(self),
+            Command::HGet(..) => resp_hash::to_resp_h_get(self),
+            Command::HDel(..) => resp_hash::to_resp_h_del(self),
+            Command::HExists(..) => resp_hash::to_resp_h_exists(self),
+            Command::HGetAll(..) => resp_hash::to_resp_h_get_all(self),
+            Command::HLen(..) => resp_hash::to_resp_h_len(self),
+            Command::HMSet(..) => resp_hash::to_resp_h_m_set(self),
+            Command::HMGet(..) => resp_hash::to_resp_h_m_get(self),
+            Command::HIncrBy(..) => resp_hash::to_resp_h_incr_by(self),
+            Command::HIncrByFloat(..) => resp_hash::to_resp_h_incr_by_float(self),
+            Command::HKeys(..) => resp_hash::to_resp_h_keys(self),
+            Command::HVals(..) => resp_hash::to_resp_h_vals(self),
+            Command::HSetNx(..) => resp_hash::to_resp_h_set_nx(self),
+            Command::HRandField(..) => resp_hash::to_resp_h_rand_field(self),
+            Command::HScan(..) => resp_hash::to_resp_h_scan(self),
+            Command::HExpire(..) => resp_hash::to_resp_h_expire(self),
+            Command::HPExpire(..) => resp_hash::to_resp_h_p_expire(self),
+            Command::HExpireAt(..) => resp_hash::to_resp_h_expire_at(self),
+            Command::HPExpireAt(..) => resp_hash::to_resp_h_p_expire_at(self),
+            Command::HTtl(..) => resp_hash::to_resp_h_ttl(self),
+            Command::HPTtl(..) => resp_hash::to_resp_h_p_ttl(self),
+            Command::HExpireTime(..) => resp_hash::to_resp_h_expire_time(self),
+            Command::HPExpireTime(..) => resp_hash::to_resp_h_p_expire_time(self),
+            Command::HPersist(..) => resp_hash::to_resp_h_persist(self),
+            Command::SAdd(..) => resp_set::to_resp_s_add(self),
+            Command::SRem(..) => resp_set::to_resp_s_rem(self),
+            Command::SMembers(..) => resp_set::to_resp_s_members(self),
+            Command::SIsMember(..) => resp_set::to_resp_s_is_member(self),
+            Command::SCard(..) => resp_set::to_resp_s_card(self),
+            Command::SInter(..) => resp_set::to_resp_s_inter(self),
+            Command::SUnion(..) => resp_set::to_resp_s_union(self),
+            Command::SDiff(..) => resp_set::to_resp_s_diff(self),
+            Command::SPop(..) => resp_set::to_resp_s_pop(self),
+            Command::SRandMember(..) => resp_set::to_resp_s_rand_member(self),
+            Command::SMove(..) => resp_set::to_resp_s_move(self),
+            Command::SInterStore(..) => resp_set::to_resp_s_inter_store(self),
+            Command::SUnionStore(..) => resp_set::to_resp_s_union_store(self),
+            Command::SDiffStore(..) => resp_set::to_resp_s_diff_store(self),
+            Command::SScan(..) => resp_set::to_resp_s_scan(self),
+            Command::ZAdd(..) => resp_zset::to_resp_z_add(self),
+            Command::ZRem(..) => resp_zset::to_resp_z_rem(self),
+            Command::ZScore(..) => resp_zset::to_resp_z_score(self),
+            Command::ZRank(..) => resp_zset::to_resp_z_rank(self),
+            Command::ZRange(..) => resp_zset::to_resp_z_range(self),
+            Command::ZRangeByScore(..) => resp_zset::to_resp_z_range_by_score(self),
+            Command::ZCard(..) => resp_zset::to_resp_z_card(self),
+            Command::ZRevRange(..) => resp_zset::to_resp_z_rev_range(self),
+            Command::ZRevRank(..) => resp_zset::to_resp_z_rev_rank(self),
+            Command::ZIncrBy(..) => resp_zset::to_resp_z_incr_by(self),
+            Command::ZCount(..) => resp_zset::to_resp_z_count(self),
+            Command::ZPopMin(..) => resp_zset::to_resp_z_pop_min(self),
+            Command::ZPopMax(..) => resp_zset::to_resp_z_pop_max(self),
+            Command::ZUnionStore(..) => resp_zset::to_resp_z_union_store(self),
+            Command::ZInterStore(..) => resp_zset::to_resp_z_inter_store(self),
+            Command::ZScan(..) => resp_zset::to_resp_z_scan(self),
+            Command::ZRangeByLex(..) => resp_zset::to_resp_z_range_by_lex(self),
             Command::SInterCard(keys, limit) => {
                 let mut parts = vec![bulk("SINTERCARD"), bulk(&keys.len().to_string())];
                 for key in keys {
@@ -833,162 +143,20 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::ZRandMember(key, count, with_scores) => {
-                let mut parts = vec![bulk("ZRANDMEMBER"), bulk(key)];
-                if *count != 1 || *with_scores {
-                    parts.push(bulk(&count.to_string()));
-                }
-                if *with_scores {
-                    parts.push(bulk("WITHSCORES"));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZDiff(keys, with_scores) => {
-                let mut parts = vec![bulk("ZDIFF"), bulk(&keys.len().to_string())];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                if *with_scores {
-                    parts.push(bulk("WITHSCORES"));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZDiffStore(destination, keys) => {
-                let mut parts = vec![bulk("ZDIFFSTORE"), bulk(destination), bulk(&keys.len().to_string())];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZInter(keys, weights, aggregate, with_scores) => {
-                let mut parts = vec![bulk("ZINTER"), bulk(&keys.len().to_string())];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                if !weights.is_empty() {
-                    parts.push(bulk("WEIGHTS"));
-                    for w in weights {
-                        parts.push(bulk(&w.to_string()));
-                    }
-                }
-                if aggregate != "SUM" {
-                    parts.push(bulk("AGGREGATE"));
-                    parts.push(bulk(aggregate));
-                }
-                if *with_scores {
-                    parts.push(bulk("WITHSCORES"));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZUnion(keys, weights, aggregate, with_scores) => {
-                let mut parts = vec![bulk("ZUNION"), bulk(&keys.len().to_string())];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                if !weights.is_empty() {
-                    parts.push(bulk("WEIGHTS"));
-                    for w in weights {
-                        parts.push(bulk(&w.to_string()));
-                    }
-                }
-                if aggregate != "SUM" {
-                    parts.push(bulk("AGGREGATE"));
-                    parts.push(bulk(aggregate));
-                }
-                if *with_scores {
-                    parts.push(bulk("WITHSCORES"));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZRangeStore(dst, src, min, max, by_score, by_lex, rev, limit_offset, limit_count) => {
-                let mut parts = vec![bulk("ZRANGESTORE"), bulk(dst), bulk(src), bulk(min), bulk(max)];
-                if *by_score {
-                    parts.push(bulk("BYSCORE"));
-                }
-                if *by_lex {
-                    parts.push(bulk("BYLEX"));
-                }
-                if *rev {
-                    parts.push(bulk("REV"));
-                }
-                if *limit_count > 0 {
-                    parts.push(bulk("LIMIT"));
-                    parts.push(bulk(&limit_offset.to_string()));
-                    parts.push(bulk(&limit_count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZMpop(keys, min_or_max, count) => {
-                let mut parts = vec![bulk("ZMPOP"), bulk(&keys.len().to_string())];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                parts.push(bulk(if *min_or_max { "MIN" } else { "MAX" }));
-                if *count > 1 {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::BZMpop(timeout, keys, min_or_max, count) => {
-                let mut parts = vec![bulk("BZMPOP"), bulk(&timeout.to_string()), bulk(&keys.len().to_string())];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                parts.push(bulk(if *min_or_max { "MIN" } else { "MAX" }));
-                if *count > 1 {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::BZPopMin(keys, timeout) => {
-                let mut parts = vec![bulk("BZPOPMIN")];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                parts.push(bulk(&timeout.to_string()));
-                RespValue::Array(parts)
-            }
-            Command::BZPopMax(keys, timeout) => {
-                let mut parts = vec![bulk("BZPOPMAX")];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                parts.push(bulk(&timeout.to_string()));
-                RespValue::Array(parts)
-            }
-            Command::ZRevRangeByScore(key, max, min, with_scores, limit_offset, limit_count) => {
-                let mut parts = vec![bulk("ZREVRANGEBYSCORE"), bulk(key), bulk(&max.to_string()), bulk(&min.to_string())];
-                if *with_scores {
-                    parts.push(bulk("WITHSCORES"));
-                }
-                if *limit_count > 0 {
-                    parts.push(bulk("LIMIT"));
-                    parts.push(bulk(&limit_offset.to_string()));
-                    parts.push(bulk(&limit_count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZRevRangeByLex(key, max, min, limit_offset, limit_count) => {
-                let mut parts = vec![bulk("ZREVRANGEBYLEX"), bulk(key), bulk(max), bulk(min)];
-                if *limit_count > 0 {
-                    parts.push(bulk("LIMIT"));
-                    parts.push(bulk(&limit_offset.to_string()));
-                    parts.push(bulk(&limit_count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZMScore(key, members) => {
-                let mut parts = vec![bulk("ZMSCORE"), bulk(key)];
-                for m in members {
-                    parts.push(bulk(m));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ZLexCount(key, min, max) => {
-                RespValue::Array(vec![bulk("ZLEXCOUNT"), bulk(key), bulk(min), bulk(max)])
-            }
+            Command::ZRandMember(..) => resp_zset::to_resp_z_rand_member(self),
+            Command::ZDiff(..) => resp_zset::to_resp_z_diff(self),
+            Command::ZDiffStore(..) => resp_zset::to_resp_z_diff_store(self),
+            Command::ZInter(..) => resp_zset::to_resp_z_inter(self),
+            Command::ZUnion(..) => resp_zset::to_resp_z_union(self),
+            Command::ZRangeStore(..) => resp_zset::to_resp_z_range_store(self),
+            Command::ZMpop(..) => resp_zset::to_resp_z_mpop(self),
+            Command::BZMpop(..) => resp_zset::to_resp_b_z_mpop(self),
+            Command::BZPopMin(..) => resp_zset::to_resp_b_z_pop_min(self),
+            Command::BZPopMax(..) => resp_zset::to_resp_b_z_pop_max(self),
+            Command::ZRevRangeByScore(..) => resp_zset::to_resp_z_rev_range_by_score(self),
+            Command::ZRevRangeByLex(..) => resp_zset::to_resp_z_rev_range_by_lex(self),
+            Command::ZMScore(..) => resp_zset::to_resp_z_m_score(self),
+            Command::ZLexCount(..) => resp_zset::to_resp_z_lex_count(self),
             Command::ZRangeUnified(key, min, max, by_score, by_lex, rev, with_scores, limit_offset, limit_count) => {
                 let mut parts = vec![bulk("ZRANGE"), bulk(key), bulk(min), bulk(max)];
                 if *by_score {
@@ -1010,45 +178,17 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::Keys(pattern) => {
-                RespValue::Array(vec![bulk("KEYS"), bulk(pattern)])
-            }
-            Command::Scan(cursor, pattern, count) => {
-                let mut parts = vec![bulk("SCAN"), bulk(&cursor.to_string())];
-                if !pattern.is_empty() {
-                    parts.push(bulk("MATCH"));
-                    parts.push(bulk(pattern));
-                }
-                if *count > 0 {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::Rename(key, newkey) => {
-                RespValue::Array(vec![bulk("RENAME"), bulk(key), bulk(newkey)])
-            }
-            Command::Type(key) => {
-                RespValue::Array(vec![bulk("TYPE"), bulk(key)])
-            }
-            Command::Persist(key) => {
-                RespValue::Array(vec![bulk("PERSIST"), bulk(key)])
-            }
-            Command::PExpire(key, ms) => {
-                RespValue::Array(vec![bulk("PEXPIRE"), bulk(key), bulk(&ms.to_string())])
-            }
-            Command::PTtl(key) => {
-                RespValue::Array(vec![bulk("PTTL"), bulk(key)])
-            }
+            Command::Keys(..) => resp_admin::to_resp_keys(self),
+            Command::Scan(..) => resp_admin::to_resp_scan(self),
+            Command::Rename(..) => resp_admin::to_resp_rename(self),
+            Command::Type(..) => resp_admin::to_resp_type(self),
+            Command::Persist(..) => resp_admin::to_resp_persist(self),
+            Command::PExpire(..) => resp_admin::to_resp_p_expire(self),
+            Command::PTtl(..) => resp_admin::to_resp_p_ttl(self),
             Command::DbSize => {
                 RespValue::Array(vec![bulk("DBSIZE")])
             }
-            Command::Info(section) => {
-                match section {
-                    Some(s) => RespValue::Array(vec![bulk("INFO"), bulk(s)]),
-                    None => RespValue::Array(vec![bulk("INFO")]),
-                }
-            }
+            Command::Info(..) => resp_admin::to_resp_info(self),
             Command::Subscribe(channels) => {
                 let mut parts = vec![bulk("SUBSCRIBE")];
                 for ch in channels {
@@ -1100,248 +240,35 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::BgRewriteAof => {
-                RespValue::Array(vec![bulk("BGREWRITEAOF")])
-            }
-            Command::SetBit(key, offset, value) => {
-                RespValue::Array(vec![
-                    bulk("SETBIT"),
-                    bulk(key),
-                    bulk(&offset.to_string()),
-                    bulk(if *value { "1" } else { "0" }),
-                ])
-            }
-            Command::GetBit(key, offset) => {
-                RespValue::Array(vec![
-                    bulk("GETBIT"),
-                    bulk(key),
-                    bulk(&offset.to_string()),
-                ])
-            }
-            Command::BitCount(key, start, end, is_byte) => {
-                let mut parts = vec![bulk("BITCOUNT"), bulk(key)];
-                parts.push(bulk(&start.to_string()));
-                parts.push(bulk(&end.to_string()));
-                parts.push(bulk(if *is_byte { "BYTE" } else { "BIT" }));
-                RespValue::Array(parts)
-            }
-            Command::BitOp(op, destkey, keys) => {
-                let mut parts = vec![bulk("BITOP"), bulk(op), bulk(destkey)];
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                RespValue::Array(parts)
-            }
-            Command::BitPos(key, bit, start, end, is_byte) => {
-                let mut parts = vec![
-                    bulk("BITPOS"),
-                    bulk(key),
-                    bulk(&bit.to_string()),
-                    bulk(&start.to_string()),
-                    bulk(&end.to_string()),
-                ];
-                parts.push(bulk(if *is_byte { "BYTE" } else { "BIT" }));
-                RespValue::Array(parts)
-            }
-            Command::BitField(key, ops) => {
-                let mut parts = vec![bulk("BITFIELD"), bulk(key)];
-                for op in ops {
-                    match op {
-                        crate::storage::BitFieldOp::Get(enc, off) => {
-                            parts.push(bulk("GET"));
-                            let type_str = format!("{}{}", if enc.signed { "i" } else { "u" }, enc.bits);
-                            parts.push(bulk(&type_str));
-                            let off_str = match off {
-                                crate::storage::BitFieldOffset::Num(n) => n.to_string(),
-                                crate::storage::BitFieldOffset::Hash(n) => format!("#{}", n),
-                            };
-                            parts.push(bulk(&off_str));
-                        }
-                        crate::storage::BitFieldOp::Set(enc, off, value) => {
-                            parts.push(bulk("SET"));
-                            let type_str = format!("{}{}", if enc.signed { "i" } else { "u" }, enc.bits);
-                            parts.push(bulk(&type_str));
-                            let off_str = match off {
-                                crate::storage::BitFieldOffset::Num(n) => n.to_string(),
-                                crate::storage::BitFieldOffset::Hash(n) => format!("#{}", n),
-                            };
-                            parts.push(bulk(&off_str));
-                            parts.push(bulk(&value.to_string()));
-                        }
-                        crate::storage::BitFieldOp::IncrBy(enc, off, inc) => {
-                            parts.push(bulk("INCRBY"));
-                            let type_str = format!("{}{}", if enc.signed { "i" } else { "u" }, enc.bits);
-                            parts.push(bulk(&type_str));
-                            let off_str = match off {
-                                crate::storage::BitFieldOffset::Num(n) => n.to_string(),
-                                crate::storage::BitFieldOffset::Hash(n) => format!("#{}", n),
-                            };
-                            parts.push(bulk(&off_str));
-                            parts.push(bulk(&inc.to_string()));
-                        }
-                        crate::storage::BitFieldOp::Overflow(o) => {
-                            parts.push(bulk("OVERFLOW"));
-                            let strategy = match o {
-                                crate::storage::BitFieldOverflow::Wrap => "WRAP",
-                                crate::storage::BitFieldOverflow::Sat => "SAT",
-                                crate::storage::BitFieldOverflow::Fail => "FAIL",
-                            };
-                            parts.push(bulk(strategy));
-                        }
-                    }
-                }
-                RespValue::Array(parts)
-            }
-            Command::BitFieldRo(key, ops) => {
-                let mut parts = vec![bulk("BITFIELD_RO"), bulk(key)];
-                for op in ops {
-                    if let crate::storage::BitFieldOp::Get(enc, off) = op {
-                        parts.push(bulk("GET"));
-                        let type_str = format!("{}{}", if enc.signed { "i" } else { "u" }, enc.bits);
-                        parts.push(bulk(&type_str));
-                        let off_str = match off {
-                            crate::storage::BitFieldOffset::Num(n) => n.to_string(),
-                            crate::storage::BitFieldOffset::Hash(n) => format!("#{}", n),
-                        };
-                        parts.push(bulk(&off_str));
-                    }
-                }
-                RespValue::Array(parts)
-            }
-            Command::XAdd(key, id, fields, nomkstream, max_len, min_id) => {
-                let mut parts = vec![bulk("XADD"), bulk(key)];
-                if *nomkstream {
-                    parts.push(bulk("NOMKSTREAM"));
-                }
-                if let Some(max) = max_len {
-                    parts.push(bulk("MAXLEN"));
-                    parts.push(bulk(&max.to_string()));
-                }
-                if let Some(min) = min_id {
-                    parts.push(bulk("MINID"));
-                    parts.push(bulk(min));
-                }
-                parts.push(bulk(id));
-                for (f, v) in fields {
-                    parts.push(bulk(f));
-                    parts.push(bulk(v));
-                }
-                RespValue::Array(parts)
-            }
-            Command::XLen(key) => {
-                RespValue::Array(vec![bulk("XLEN"), bulk(key)])
-            }
-            Command::XRange(key, start, end, count) => {
-                let mut parts = vec![bulk("XRANGE"), bulk(key), bulk(start), bulk(end)];
-                if let Some(c) = count {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&c.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::XRevRange(key, end, start, count) => {
-                let mut parts = vec![bulk("XREVRANGE"), bulk(key), bulk(end), bulk(start)];
-                if let Some(c) = count {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&c.to_string()));
-                }
-                RespValue::Array(parts)
-            }
-            Command::XTrim(key, strategy, threshold) => {
-                RespValue::Array(vec![
-                    bulk("XTRIM"),
-                    bulk(key),
-                    bulk(strategy),
-                    bulk(threshold),
-                ])
-            }
-            Command::XDel(key, ids) => {
-                let mut parts = vec![bulk("XDEL"), bulk(key)];
-                for id in ids {
-                    parts.push(bulk(id));
-                }
-                RespValue::Array(parts)
-            }
-            Command::XRead(keys, ids, count) => {
-                let mut parts = vec![bulk("XREAD")];
-                if let Some(c) = count {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&c.to_string()));
-                }
-                parts.push(bulk("STREAMS"));
-                for key in keys {
-                    parts.push(bulk(key));
-                }
-                for id in ids {
-                    parts.push(bulk(id));
-                }
-                RespValue::Array(parts)
-            }
-            Command::XSetId(key, id) => {
-                RespValue::Array(vec![bulk("XSETID"), bulk(key), bulk(id)])
-            }
-            Command::XGroupCreate(key, group, id, mkstream) => {
-                let mut parts = vec![bulk("XGROUP"), bulk("CREATE"), bulk(key), bulk(group), bulk(id)];
-                if *mkstream { parts.push(bulk("MKSTREAM")); }
-                RespValue::Array(parts)
-            }
-            Command::XGroupDestroy(key, group) => {
-                RespValue::Array(vec![bulk("XGROUP"), bulk("DESTROY"), bulk(key), bulk(group)])
-            }
-            Command::XGroupSetId(key, group, id) => {
-                RespValue::Array(vec![bulk("XGROUP"), bulk("SETID"), bulk(key), bulk(group), bulk(id)])
-            }
-            Command::XGroupDelConsumer(key, group, consumer) => {
-                RespValue::Array(vec![bulk("XGROUP"), bulk("DELCONSUMER"), bulk(key), bulk(group), bulk(consumer)])
-            }
-            Command::XGroupCreateConsumer(key, group, consumer) => {
-                RespValue::Array(vec![bulk("XGROUP"), bulk("CREATECONSUMER"), bulk(key), bulk(group), bulk(consumer)])
-            }
-            Command::XReadGroup(group, consumer, keys, ids, count, noack) => {
-                let mut parts = vec![bulk("XREADGROUP"), bulk("GROUP"), bulk(group), bulk(consumer)];
-                if let Some(c) = count { parts.push(bulk("COUNT")); parts.push(bulk(&c.to_string())); }
-                if *noack { parts.push(bulk("NOACK")); }
-                parts.push(bulk("STREAMS"));
-                for k in keys { parts.push(bulk(k)); }
-                for id in ids { parts.push(bulk(id)); }
-                RespValue::Array(parts)
-            }
-            Command::XAck(key, group, ids) => {
-                let mut parts = vec![bulk("XACK"), bulk(key), bulk(group)];
-                for id in ids { parts.push(bulk(id)); }
-                RespValue::Array(parts)
-            }
-            Command::XClaim(key, group, consumer, min_idle, ids, justid) => {
-                let mut parts = vec![bulk("XCLAIM"), bulk(key), bulk(group), bulk(consumer), bulk(&min_idle.to_string())];
-                for id in ids { parts.push(bulk(id)); }
-                if *justid { parts.push(bulk("JUSTID")); }
-                RespValue::Array(parts)
-            }
-            Command::XAutoClaim(key, group, consumer, min_idle, start, count, justid) => {
-                let mut parts = vec![bulk("XAUTOCLAIM"), bulk(key), bulk(group), bulk(consumer), bulk(&min_idle.to_string()), bulk(start)];
-                parts.push(bulk("COUNT")); parts.push(bulk(&count.to_string()));
-                if *justid { parts.push(bulk("JUSTID")); }
-                RespValue::Array(parts)
-            }
-            Command::XPending(key, group, start, end, count, consumer) => {
-                let mut parts = vec![bulk("XPENDING"), bulk(key), bulk(group)];
-                if let Some(s) = start { parts.push(bulk(s)); }
-                if let Some(e) = end { parts.push(bulk(e)); }
-                if let Some(c) = count { parts.push(bulk(&c.to_string())); }
-                if let Some(cn) = consumer { parts.push(bulk(cn)); }
-                RespValue::Array(parts)
-            }
-            Command::XInfoStream(key, full) => {
-                let mut parts = vec![bulk("XINFO"), bulk("STREAM"), bulk(key)];
-                if *full { parts.push(bulk("FULL")); }
-                RespValue::Array(parts)
-            }
-            Command::XInfoGroups(key) => {
-                RespValue::Array(vec![bulk("XINFO"), bulk("GROUPS"), bulk(key)])
-            }
-            Command::XInfoConsumers(key, group) => {
-                RespValue::Array(vec![bulk("XINFO"), bulk("CONSUMERS"), bulk(key), bulk(group)])
-            }
+            Command::BgRewriteAof => resp_admin::to_resp_bg_rewrite_aof(self),
+            Command::SetBit(..) => resp_bitmap::to_resp_set_bit(self),
+            Command::GetBit(..) => resp_bitmap::to_resp_get_bit(self),
+            Command::BitCount(..) => resp_bitmap::to_resp_bit_count(self),
+            Command::BitOp(..) => resp_bitmap::to_resp_bit_op(self),
+            Command::BitPos(..) => resp_bitmap::to_resp_bit_pos(self),
+            Command::BitField(..) => resp_bitmap::to_resp_bit_field(self),
+            Command::BitFieldRo(..) => resp_bitmap::to_resp_bit_field_ro(self),
+            Command::XAdd(..) => resp_stream::to_resp_x_add(self),
+            Command::XLen(..) => resp_stream::to_resp_x_len(self),
+            Command::XRange(..) => resp_stream::to_resp_x_range(self),
+            Command::XRevRange(..) => resp_stream::to_resp_x_rev_range(self),
+            Command::XTrim(..) => resp_stream::to_resp_x_trim(self),
+            Command::XDel(..) => resp_stream::to_resp_x_del(self),
+            Command::XRead(..) => resp_stream::to_resp_x_read(self),
+            Command::XSetId(..) => resp_stream::to_resp_x_set_id(self),
+            Command::XGroupCreate(..) => resp_stream::to_resp_x_group_create(self),
+            Command::XGroupDestroy(..) => resp_stream::to_resp_x_group_destroy(self),
+            Command::XGroupSetId(..) => resp_stream::to_resp_x_group_set_id(self),
+            Command::XGroupDelConsumer(..) => resp_stream::to_resp_x_group_del_consumer(self),
+            Command::XGroupCreateConsumer(..) => resp_stream::to_resp_x_group_create_consumer(self),
+            Command::XReadGroup(..) => resp_stream::to_resp_x_read_group(self),
+            Command::XAck(..) => resp_stream::to_resp_x_ack(self),
+            Command::XClaim(..) => resp_stream::to_resp_x_claim(self),
+            Command::XAutoClaim(..) => resp_stream::to_resp_x_auto_claim(self),
+            Command::XPending(..) => resp_stream::to_resp_x_pending(self),
+            Command::XInfoStream(..) => resp_stream::to_resp_x_info_stream(self),
+            Command::XInfoGroups(..) => resp_stream::to_resp_x_info_groups(self),
+            Command::XInfoConsumers(..) => resp_stream::to_resp_x_info_consumers(self),
             Command::PfAdd(key, elements) => {
                 let mut parts = vec![bulk("PFADD"), bulk(key)];
                 for element in elements {
@@ -1363,41 +290,10 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::GeoAdd(key, items) => {
-                let mut parts = vec![bulk("GEOADD"), bulk(key)];
-                for (lon, lat, member) in items {
-                    parts.push(bulk(&lon.to_string()));
-                    parts.push(bulk(&lat.to_string()));
-                    parts.push(bulk(member));
-                }
-                RespValue::Array(parts)
-            }
-            Command::GeoDist(key, m1, m2, unit) => {
-                let mut parts = vec![
-                    bulk("GEODIST"),
-                    bulk(key),
-                    bulk(m1),
-                    bulk(m2),
-                ];
-                if !unit.is_empty() && unit != "m" {
-                    parts.push(bulk(unit));
-                }
-                RespValue::Array(parts)
-            }
-            Command::GeoHash(key, members) => {
-                let mut parts = vec![bulk("GEOHASH"), bulk(key)];
-                for member in members {
-                    parts.push(bulk(member));
-                }
-                RespValue::Array(parts)
-            }
-            Command::GeoPos(key, members) => {
-                let mut parts = vec![bulk("GEOPOS"), bulk(key)];
-                for member in members {
-                    parts.push(bulk(member));
-                }
-                RespValue::Array(parts)
-            }
+            Command::GeoAdd(..) => resp_geo::to_resp_geo_add(self),
+            Command::GeoDist(..) => resp_geo::to_resp_geo_dist(self),
+            Command::GeoHash(..) => resp_geo::to_resp_geo_hash(self),
+            Command::GeoPos(..) => resp_geo::to_resp_geo_pos(self),
             Command::GeoSearch(_, _, _, _, _, _, _, _, _, _) => {
                 // GEOSEARCH 命令较复杂，简化序列化
                 RespValue::Array(vec![bulk("GEOSEARCH")])
@@ -1405,16 +301,8 @@ impl Command {
             Command::GeoSearchStore(_, _, _, _, _, _, _, _, _) => {
                 RespValue::Array(vec![bulk("GEOSEARCHSTORE")])
             }
-            Command::Select(index) => {
-                RespValue::Array(vec![bulk("SELECT"), bulk(&index.to_string())])
-            }
-            Command::Auth(username, password) => {
-                if username == "default" {
-                    RespValue::Array(vec![bulk("AUTH"), bulk(password)])
-                } else {
-                    RespValue::Array(vec![bulk("AUTH"), bulk(username), bulk(password)])
-                }
-            }
+            Command::Select(..) => resp_admin::to_resp_select(self),
+            Command::Auth(..) => resp_admin::to_resp_auth(self),
             Command::ClientSetName(name) => {
                 RespValue::Array(vec![bulk("CLIENT"), bulk("SETNAME"), bulk(name)])
             }
@@ -1530,153 +418,39 @@ impl Command {
                 parts.push(bulk("ASC"));
                 RespValue::Array(parts)
             }
-            Command::Unlink(keys) => {
-                let mut parts = vec![bulk("UNLINK")];
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                RespValue::Array(parts)
-            }
+            Command::Unlink(..) => resp_admin::to_resp_unlink(self),
             Command::Copy(source, destination, _) => {
                 RespValue::Array(vec![bulk("COPY"), bulk(source), bulk(destination)])
             }
-            Command::Dump(key) => {
-                RespValue::Array(vec![bulk("DUMP"), bulk(key)])
-            }
+            Command::Dump(..) => resp_admin::to_resp_dump(self),
             Command::Restore(key, ttl, _, _) => {
                 RespValue::Array(vec![bulk("RESTORE"), bulk(key), bulk(&ttl.to_string())])
             }
-            Command::Eval(script, keys, args) => {
-                let mut parts = vec![bulk("EVAL"), bulk(script)];
-                parts.push(bulk(&keys.len().to_string()));
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                for a in args {
-                    parts.push(bulk(a));
-                }
-                RespValue::Array(parts)
-            }
-            Command::EvalSha(sha1, keys, args) => {
-                let mut parts = vec![bulk("EVALSHA"), bulk(sha1)];
-                parts.push(bulk(&keys.len().to_string()));
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                for a in args {
-                    parts.push(bulk(a));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ScriptLoad(script) => {
-                RespValue::Array(vec![bulk("SCRIPT"), bulk("LOAD"), bulk(script)])
-            }
-            Command::ScriptExists(sha1s) => {
-                let mut parts = vec![bulk("SCRIPT"), bulk("EXISTS")];
-                for s in sha1s {
-                    parts.push(bulk(s));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ScriptFlush => {
-                RespValue::Array(vec![bulk("SCRIPT"), bulk("FLUSH")])
-            }
-            Command::FunctionLoad(code, replace) => {
-                if *replace {
-                    RespValue::Array(vec![bulk("FUNCTION"), bulk("LOAD"), bulk("REPLACE"), bulk(code)])
-                } else {
-                    RespValue::Array(vec![bulk("FUNCTION"), bulk("LOAD"), bulk(code)])
-                }
-            }
-            Command::FunctionDelete(lib) => {
-                RespValue::Array(vec![bulk("FUNCTION"), bulk("DELETE"), bulk(lib)])
-            }
-            Command::FunctionList(pattern, withcode) => {
-                let mut parts = vec![bulk("FUNCTION"), bulk("LIST")];
-                if let Some(p) = pattern {
-                    parts.push(bulk("LIBRARYNAME"));
-                    parts.push(bulk(p));
-                }
-                if *withcode {
-                    parts.push(bulk("WITHCODE"));
-                }
-                RespValue::Array(parts)
-            }
-            Command::FunctionDump => {
-                RespValue::Array(vec![bulk("FUNCTION"), bulk("DUMP")])
-            }
-            Command::FunctionRestore(data, policy) => {
-                RespValue::Array(vec![
-                    bulk("FUNCTION"), bulk("RESTORE"), bulk(data), bulk(policy),
-                ])
-            }
-            Command::FunctionStats => {
-                RespValue::Array(vec![bulk("FUNCTION"), bulk("STATS")])
-            }
-            Command::FunctionFlush(async_mode) => {
-                if *async_mode {
-                    RespValue::Array(vec![bulk("FUNCTION"), bulk("FLUSH"), bulk("ASYNC")])
-                } else {
-                    RespValue::Array(vec![bulk("FUNCTION"), bulk("FLUSH")])
-                }
-            }
-            Command::FCall(name, keys, args) => {
-                let mut parts = vec![bulk("FCALL"), bulk(name), bulk(&keys.len().to_string())];
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                for a in args {
-                    parts.push(bulk(a));
-                }
-                RespValue::Array(parts)
-            }
-            Command::FCallRO(name, keys, args) => {
-                let mut parts = vec![bulk("FCALL_RO"), bulk(name), bulk(&keys.len().to_string())];
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                for a in args {
-                    parts.push(bulk(a));
-                }
-                RespValue::Array(parts)
-            }
-            Command::EvalRO(script, keys, args) => {
-                let mut parts = vec![bulk("EVAL_RO"), bulk(script)];
-                parts.push(bulk(&keys.len().to_string()));
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                for a in args {
-                    parts.push(bulk(a));
-                }
-                RespValue::Array(parts)
-            }
-            Command::EvalShaRO(sha1, keys, args) => {
-                let mut parts = vec![bulk("EVALSHA_RO"), bulk(sha1)];
-                parts.push(bulk(&keys.len().to_string()));
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                for a in args {
-                    parts.push(bulk(a));
-                }
-                RespValue::Array(parts)
-            }
+            Command::Eval(..) => resp_admin::to_resp_eval(self),
+            Command::EvalSha(..) => resp_admin::to_resp_eval_sha(self),
+            Command::ScriptLoad(..) => resp_admin::to_resp_script_load(self),
+            Command::ScriptExists(..) => resp_admin::to_resp_script_exists(self),
+            Command::ScriptFlush => resp_admin::to_resp_script_flush(self),
+            Command::FunctionLoad(..) => resp_admin::to_resp_function_load(self),
+            Command::FunctionDelete(..) => resp_admin::to_resp_function_delete(self),
+            Command::FunctionList(..) => resp_admin::to_resp_function_list(self),
+            Command::FunctionDump => resp_admin::to_resp_function_dump(self),
+            Command::FunctionRestore(..) => resp_admin::to_resp_function_restore(self),
+            Command::FunctionStats => resp_admin::to_resp_function_stats(self),
+            Command::FunctionFlush(..) => resp_admin::to_resp_function_flush(self),
+            Command::FCall(..) => resp_admin::to_resp_f_call(self),
+            Command::FCallRO(..) => resp_admin::to_resp_f_call_r_o(self),
+            Command::EvalRO(..) => resp_admin::to_resp_eval_r_o(self),
+            Command::EvalShaRO(..) => resp_admin::to_resp_eval_sha_r_o(self),
             Command::Save => {
                 RespValue::Array(vec![bulk("SAVE")])
             }
             Command::BgSave => {
                 RespValue::Array(vec![bulk("BGSAVE")])
             }
-            Command::SlowLogGet(count) => {
-                RespValue::Array(vec![bulk("SLOWLOG"), bulk("GET"), bulk(&count.to_string())])
-            }
-            Command::SlowLogLen => {
-                RespValue::Array(vec![bulk("SLOWLOG"), bulk("LEN")])
-            }
-            Command::SlowLogReset => {
-                RespValue::Array(vec![bulk("SLOWLOG"), bulk("RESET")])
-            }
+            Command::SlowLogGet(..) => resp_admin::to_resp_slow_log_get(self),
+            Command::SlowLogLen => resp_admin::to_resp_slow_log_len(self),
+            Command::SlowLogReset => resp_admin::to_resp_slow_log_reset(self),
             Command::ObjectEncoding(key) => {
                 RespValue::Array(vec![bulk("OBJECT"), bulk("ENCODING"), bulk(key)])
             }
@@ -1695,9 +469,7 @@ impl Command {
             Command::DebugSleep(seconds) => {
                 RespValue::Array(vec![bulk("DEBUG"), bulk("SLEEP"), bulk(&seconds.to_string())])
             }
-            Command::DebugObject(key) => {
-                RespValue::Array(vec![bulk("DEBUG"), bulk("OBJECT"), bulk(key)])
-            }
+            Command::DebugObject(..) => resp_admin::to_resp_debug_object(self),
             Command::Echo(msg) => {
                 RespValue::Array(vec![bulk("ECHO"), bulk(msg)])
             }
@@ -1707,64 +479,22 @@ impl Command {
             Command::RandomKey => {
                 RespValue::Array(vec![bulk("RANDOMKEY")])
             }
-            Command::Touch(keys) => {
-                let mut parts = vec![bulk("TOUCH")];
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                RespValue::Array(parts)
-            }
-            Command::ExpireAt(key, ts) => {
-                RespValue::Array(vec![bulk("EXPIREAT"), bulk(key), bulk(&ts.to_string())])
-            }
-            Command::PExpireAt(key, ts) => {
-                RespValue::Array(vec![bulk("PEXPIREAT"), bulk(key), bulk(&ts.to_string())])
-            }
-            Command::ExpireTime(key) => {
-                RespValue::Array(vec![bulk("EXPIRETIME"), bulk(key)])
-            }
-            Command::PExpireTime(key) => {
-                RespValue::Array(vec![bulk("PEXPIRETIME"), bulk(key)])
-            }
-            Command::RenameNx(key, newkey) => {
-                RespValue::Array(vec![bulk("RENAMENX"), bulk(key), bulk(newkey)])
-            }
-            Command::SwapDb(idx1, idx2) => {
-                RespValue::Array(vec![bulk("SWAPDB"), bulk(&idx1.to_string()), bulk(&idx2.to_string())])
-            }
-            Command::FlushDb => {
-                RespValue::Array(vec![bulk("FLUSHDB")])
-            }
-            Command::Shutdown(opt) => {
-                let mut parts = vec![bulk("SHUTDOWN")];
-                if let Some(s) = opt {
-                    parts.push(bulk(s));
-                }
-                RespValue::Array(parts)
-            }
+            Command::Touch(..) => resp_admin::to_resp_touch(self),
+            Command::ExpireAt(..) => resp_admin::to_resp_expire_at(self),
+            Command::PExpireAt(..) => resp_admin::to_resp_p_expire_at(self),
+            Command::ExpireTime(..) => resp_admin::to_resp_expire_time(self),
+            Command::PExpireTime(..) => resp_admin::to_resp_p_expire_time(self),
+            Command::RenameNx(..) => resp_admin::to_resp_rename_nx(self),
+            Command::SwapDb(..) => resp_admin::to_resp_swap_db(self),
+            Command::FlushDb => resp_admin::to_resp_flush_db(self),
+            Command::Shutdown(..) => resp_admin::to_resp_shutdown(self),
             Command::LastSave => {
                 RespValue::Array(vec![bulk("LASTSAVE")])
             }
             Command::SubStr(key, start, end) => {
                 RespValue::Array(vec![bulk("SUBSTR"), bulk(key), bulk(&start.to_string()), bulk(&end.to_string())])
             }
-            Command::Lcs(key1, key2, len, idx, minmatchlen, withmatchlen) => {
-                let mut parts = vec![bulk("LCS"), bulk(key1), bulk(key2)];
-                if *len {
-                    parts.push(bulk("LEN"));
-                }
-                if *idx {
-                    parts.push(bulk("IDX"));
-                }
-                if *minmatchlen > 0 {
-                    parts.push(bulk("MINMATCHLEN"));
-                    parts.push(bulk(&minmatchlen.to_string()));
-                }
-                if *withmatchlen {
-                    parts.push(bulk("WITHMATCHLEN"));
-                }
-                RespValue::Array(parts)
-            }
+            Command::Lcs(..) => resp_string::to_resp_lcs(self),
             Command::Lmove(source, dest, left_from, left_to) => {
                 RespValue::Array(vec![
                     bulk("LMOVE"),
@@ -1777,18 +507,7 @@ impl Command {
             Command::Rpoplpush(source, dest) => {
                 RespValue::Array(vec![bulk("RPOPLPUSH"), bulk(source), bulk(dest)])
             }
-            Command::Lmpop(keys, left, count) => {
-                let mut parts = vec![bulk("LMPOP"), bulk(&keys.len().to_string())];
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                parts.push(bulk(if *left { "LEFT" } else { "RIGHT" }));
-                if *count > 1 {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
+            Command::Lmpop(..) => resp_list::to_resp_lmpop(self),
             Command::BLmove(source, dest, left_from, left_to, timeout) => {
                 RespValue::Array(vec![
                     bulk("BLMOVE"),
@@ -1799,18 +518,7 @@ impl Command {
                     bulk(&timeout.to_string()),
                 ])
             }
-            Command::BLmpop(keys, left, count, timeout) => {
-                let mut parts = vec![bulk("BLMPOP"), bulk(&timeout.to_string()), bulk(&keys.len().to_string())];
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                parts.push(bulk(if *left { "LEFT" } else { "RIGHT" }));
-                if *count > 1 {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
-            }
+            Command::BLmpop(..) => resp_list::to_resp_b_lmpop(self),
             Command::BRpoplpush(source, dest, timeout) => {
                 RespValue::Array(vec![bulk("BRPOPLPUSH"), bulk(source), bulk(dest), bulk(&timeout.to_string())])
             }

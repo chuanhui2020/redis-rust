@@ -546,8 +546,19 @@ pub enum Command {
 }
 
 pub mod resp;
+pub mod resp_admin;
+pub mod resp_bitmap;
+pub mod resp_geo;
+pub mod resp_hash;
+pub mod resp_hll;
+pub mod resp_list;
+pub mod resp_set;
+pub mod resp_stream;
+pub mod resp_string;
+pub mod resp_zset;
 pub mod parser;
 pub mod executor;
+pub mod executor_admin;
 pub mod executor_bitmap;
 pub mod executor_geo;
 pub mod executor_hash;
