@@ -15,7 +15,7 @@ use crate::pubsub::PubSubManager;
 use crate::scripting::ScriptEngine;
 use crate::slowlog::SlowLog;
 use crate::storage::StorageEngine;
-use super::{ClientMessage, ClientInfo, ReplyMode, SubscriptionState};
+use super::{bulk, bulk_bytes, ClientMessage, ClientInfo, ReplyMode, SubscriptionState};
 use super::handler::{ConnectionHandler, write_resp, send_reply};
 
 /// 客户端连接守卫，连接断开时自动从注册表中移除
@@ -28,17 +28,6 @@ impl Drop for ClientGuard {
     fn drop(&mut self) {
         let _ = self.clients.write().unwrap().remove(&self.client_id);
     }
-}
-
-
-/// 辅助函数：创建 BulkString
-fn bulk(s: &str) -> RespValue {
-    RespValue::BulkString(Some(Bytes::copy_from_slice(s.as_bytes())))
-}
-
-/// 辅助函数：从 Bytes 创建 BulkString
-fn bulk_bytes(b: &Bytes) -> RespValue {
-    RespValue::BulkString(Some(b.clone()))
 }
 
 
@@ -170,102 +159,20 @@ pub(crate) async fn handle_connection(
 
                         // ---------- 事务模式处理 ----------
                         if in_transaction {
-                            match cmd {
-                                Command::Exec => {
-                                    in_transaction = false;
-                                    // 检查 WATCH 的 key 版本是否变化
-                                    let check_passed = if watched.is_empty() {
-                                        true
-                                    } else {
-                                        match tx_storage.watch_check(&watched) {
-                                            Ok(true) => true,
-                                            Ok(false) => false,
-                                            Err(e) => {
-                                                let resp = RespValue::Error(format!("ERR {}", e));
-                                                let _ = write_resp(&mut stream, &handler, &resp).await;
-                                                watched.clear();
-                                                tx_queue.clear();
-                                                continue;
-                                            }
-                                        }
-                                    };
-                                    watched.clear();
-                                    if !check_passed {
-                                        tx_queue.clear();
-                                        let resp = RespValue::BulkString(None);
-                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                            log::error!("写入响应失败: {}", e);
-                                            return Ok(());
-                                        }
-                                        continue;
-                                    }
-                                    // 依次执行队列中的命令
-                                    let mut results = Vec::new();
-                                    for queued_cmd in tx_queue.drain(..) {
-                                        let result = match queued_cmd {
-                                            Command::Publish(channel, message) => {
-                                                match pubsub.publish(&channel, message) {
-                                                    Ok(count) => RespValue::Integer(count as i64),
-                                                    Err(e) => RespValue::Error(format!("ERR {}", e)),
-                                                }
-                                            }
-                                            other => {
-                                                match handler.executor.execute(other) {
-                                                    Ok(resp) => resp,
-                                                    Err(e) => RespValue::Error(format!("ERR {}", e)),
-                                                }
-                                            }
-                                        };
-                                        results.push(result);
-                                    }
-                                    let resp = RespValue::Array(results);
-                                    if let Err(e) = send_reply(&mut stream, &handler, &resp, &mut reply_mode).await {
-                                        log::error!("写入响应失败: {}", e);
-                                        return Ok(());
-                                    }
-                                    continue;
-                                }
-                                Command::Discard => {
-                                    in_transaction = false;
-                                    tx_queue.clear();
-                                    watched.clear();
-                                    let resp = RespValue::SimpleString("OK".to_string());
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                        log::error!("写入响应失败: {}", e);
-                                        return Ok(());
-                                    }
-                                    continue;
-                                }
-                                Command::Multi => {
-                                    let resp = RespValue::Error(
-                                        "ERR MULTI calls can not be nested".to_string()
-                                    );
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                        log::error!("写入响应失败: {}", e);
-                                        return Ok(());
-                                    }
-                                    continue;
-                                }
-                                Command::Watch(_) => {
-                                    let resp = RespValue::Error(
-                                        "ERR WATCH inside MULTI is not allowed".to_string()
-                                    );
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                        log::error!("写入响应失败: {}", e);
-                                        return Ok(());
-                                    }
-                                    continue;
-                                }
-                                other => {
-                                    tx_queue.push(other);
-                                    let resp = RespValue::SimpleString("QUEUED".to_string());
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                        log::error!("写入响应失败: {}", e);
-                                        return Ok(());
-                                    }
-                                    continue;
-                                }
+                            if !super::transaction::handle_in_transaction(
+                                cmd,
+                                &mut in_transaction,
+                                &mut tx_queue,
+                                &mut watched,
+                                &tx_storage,
+                                &mut stream,
+                                &handler,
+                                &mut reply_mode,
+                                &pubsub,
+                            ).await? {
+                                return Ok(());
                             }
+                            continue;
                         }
 
                         // ---------- 非事务模式命令处理 ----------
@@ -338,48 +245,16 @@ pub(crate) async fn handle_connection(
                         }
 
                         match cmd {
-                            Command::Multi => {
-                                in_transaction = true;
-                                tx_queue.clear();
-                                let resp = RespValue::SimpleString("OK".to_string());
-                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                    log::error!("写入响应失败: {}", e);
-                                    return Ok(());
-                                }
-                            }
-                            Command::Watch(keys) => {
-                                watched.clear();
-                                for key in keys {
-                                    match tx_storage.get_version(&key) {
-                                        Ok(ver) => {
-                                            watched.insert(key, ver);
-                                        }
-                                        Err(e) => {
-                                            log::warn!("获取 key {} 版本号失败: {}", key, e);
-                                        }
-                                    }
-                                }
-                                let resp = RespValue::SimpleString("OK".to_string());
-                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                    log::error!("写入响应失败: {}", e);
-                                    return Ok(());
-                                }
-                            }
-                            Command::Exec => {
-                                let resp = RespValue::Error(
-                                    "ERR EXEC without MULTI".to_string()
-                                );
-                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                    log::error!("写入响应失败: {}", e);
-                                    return Ok(());
-                                }
-                            }
-                            Command::Discard => {
-                                let resp = RespValue::Error(
-                                    "ERR DISCARD without MULTI".to_string()
-                                );
-                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                    log::error!("写入响应失败: {}", e);
+                            Command::Multi | Command::Watch(_) | Command::Exec | Command::Discard => {
+                                if !super::transaction::handle_transaction_init(
+                                    cmd,
+                                    &mut in_transaction,
+                                    &mut tx_queue,
+                                    &mut watched,
+                                    &tx_storage,
+                                    &mut stream,
+                                    &handler,
+                                ).await? {
                                     return Ok(());
                                 }
                             }
@@ -412,143 +287,17 @@ pub(crate) async fn handle_connection(
                                     return Ok(());
                                 }
                             }
-                            Command::Subscribe(channels) => {
-                                is_subscribed = true;
-                                for ch in channels {
-                                    let rx = pubsub.subscribe(&ch);
-                                    let tx = msg_tx.clone();
-                                    let ch_clone = ch.clone();
-                                    let handle = tokio::spawn(async move {
-                                        let mut rx = rx;
-                                        loop {
-                                            match rx.recv().await {
-                                                Ok(data) => {
-                                                    if tx.send(ClientMessage::Message(ch_clone.clone(), data)).is_err() {
-                                                        break;
-                                                    }
-                                                }
-                                                Err(broadcast::error::RecvError::Closed) => break,
-                                                Err(broadcast::error::RecvError::Lagged(_)) => {}
-                                            }
-                                        }
-                                    });
-                                    sub_state.channels.insert(ch.clone(), handle.abort_handle());
-
-                                    let count = sub_state.total();
-                                    let resp = RespValue::Array(vec![
-                                        bulk("subscribe"),
-                                        bulk(&ch),
-                                        RespValue::Integer(count as i64),
-                                    ]);
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                        log::error!("写入响应失败: {}", e);
-                                        return Ok(());
-                                    }
-                                }
-                            }
-                            Command::Unsubscribe(channels) => {
-                                let to_unsub = if channels.is_empty() {
-                                    // 无参数则取消所有精确订阅
-                                    sub_state.channels.keys().cloned().collect::<Vec<_>>()
-                                } else {
-                                    channels
-                                };
-                                for ch in to_unsub {
-                                    if let Some(handle) = sub_state.channels.remove(&ch) {
-                                        handle.abort();
-                                        pubsub.unsubscribe(&ch);
-                                    }
-                                    let count = sub_state.total();
-                                    let resp = RespValue::Array(vec![
-                                        bulk("unsubscribe"),
-                                        bulk(&ch),
-                                        RespValue::Integer(count as i64),
-                                    ]);
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                        log::error!("写入响应失败: {}", e);
-                                        return Ok(());
-                                    }
-                                }
-                                if sub_state.total() == 0 {
-                                    is_subscribed = false;
-                                }
-                            }
-                            Command::PSubscribe(patterns) => {
-                                is_subscribed = true;
-                                for pat in patterns {
-                                    let rx = pubsub.psubscribe(&pat);
-                                    let tx = msg_tx.clone();
-                                    let pat_clone = pat.clone();
-                                    let handle = tokio::spawn(async move {
-                                        let mut rx = rx;
-                                        loop {
-                                            match rx.recv().await {
-                                                Ok((ch, data)) => {
-                                                    if tx.send(ClientMessage::PMessage(pat_clone.clone(), ch, data)).is_err() {
-                                                        break;
-                                                    }
-                                                }
-                                                Err(broadcast::error::RecvError::Closed) => break,
-                                                Err(broadcast::error::RecvError::Lagged(_)) => {}
-                                            }
-                                        }
-                                    });
-                                    sub_state.patterns.insert(pat.clone(), handle.abort_handle());
-
-                                    let count = sub_state.total();
-                                    let resp = RespValue::Array(vec![
-                                        bulk("psubscribe"),
-                                        bulk(&pat),
-                                        RespValue::Integer(count as i64),
-                                    ]);
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                        log::error!("写入响应失败: {}", e);
-                                        return Ok(());
-                                    }
-                                }
-                            }
-                            Command::PUnsubscribe(patterns) => {
-                                let to_unsub = if patterns.is_empty() {
-                                    sub_state.patterns.keys().cloned().collect::<Vec<_>>()
-                                } else {
-                                    patterns
-                                };
-                                for pat in to_unsub {
-                                    if let Some(handle) = sub_state.patterns.remove(&pat) {
-                                        handle.abort();
-                                        pubsub.punsubscribe(&pat);
-                                    }
-                                    let count = sub_state.total();
-                                    let resp = RespValue::Array(vec![
-                                        bulk("punsubscribe"),
-                                        bulk(&pat),
-                                        RespValue::Integer(count as i64),
-                                    ]);
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                        log::error!("写入响应失败: {}", e);
-                                        return Ok(());
-                                    }
-                                }
-                                if sub_state.total() == 0 {
-                                    is_subscribed = false;
-                                }
-                            }
-                            Command::Publish(channel, message) => {
-                                match pubsub.publish(&channel, message) {
-                                    Ok(count) => {
-                                        let resp = RespValue::Integer(count as i64);
-                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                            log::error!("写入响应失败: {}", e);
-                                            return Ok(());
-                                        }
-                                    }
-                                    Err(e) => {
-                                        let resp = RespValue::Error(format!("ERR {}", e));
-                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                            log::error!("写入错误响应失败: {}", e);
-                                            return Ok(());
-                                        }
-                                    }
+                            Command::Subscribe(_) | Command::Unsubscribe(_) | Command::PSubscribe(_) | Command::PUnsubscribe(_) | Command::Publish(_, _) => {
+                                if !super::pubsub::handle_pubsub_command(
+                                    cmd,
+                                    &mut is_subscribed,
+                                    &mut sub_state,
+                                    &msg_tx,
+                                    &pubsub,
+                                    &mut stream,
+                                    &handler,
+                                ).await? {
+                                    return Ok(());
                                 }
                             }
                             // ---------- 无需认证即可执行的命令 ----------
@@ -1480,34 +1229,8 @@ pub(crate) async fn handle_connection(
                             }
                         }
                         maybe_msg = msg_rx.recv() => {
-                            match maybe_msg {
-                                Some(ClientMessage::Message(channel, data)) => {
-                                    let resp = RespValue::Array(vec![
-                                        bulk("message"),
-                                        bulk(&channel),
-                                        bulk_bytes(&data),
-                                    ]);
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                        log::error!("写入消息失败: {}", e);
-                                        return Ok(());
-                                    }
-                                }
-                                Some(ClientMessage::PMessage(pattern, channel, data)) => {
-                                    let resp = RespValue::Array(vec![
-                                        bulk("pmessage"),
-                                        bulk(&pattern),
-                                        bulk(&channel),
-                                        bulk_bytes(&data),
-                                    ]);
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                        log::error!("写入消息失败: {}", e);
-                                        return Ok(());
-                                    }
-                                }
-                                None => {
-                                    // 所有 sender 已关闭，正常退出
-                                    log::debug!("消息通道已关闭");
-                                }
+                            if !super::pubsub::handle_pubsub_message(maybe_msg, &mut stream, &handler).await? {
+                                return Ok(());
                             }
                         }
                     }

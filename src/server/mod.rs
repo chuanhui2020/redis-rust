@@ -24,6 +24,18 @@ use crate::storage::StorageEngine;
 
 pub mod connection;
 pub mod handler;
+pub mod pubsub;
+pub mod transaction;
+
+/// 辅助函数：创建 BulkString
+pub(crate) fn bulk(s: &str) -> RespValue {
+    RespValue::BulkString(Some(Bytes::copy_from_slice(s.as_bytes())))
+}
+
+/// 辅助函数：从 Bytes 创建 BulkString
+pub(crate) fn bulk_bytes(b: &Bytes) -> RespValue {
+    RespValue::BulkString(Some(b.clone()))
+}
 
 pub use handler::ConnectionHandler;
 

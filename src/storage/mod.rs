@@ -1009,6 +1009,7 @@ pub mod set_ops;
 pub mod stream_ops;
 pub mod string_ops;
 pub mod tests;
+pub mod zset_advanced;
 pub mod zset_ops;
 
 // Re-export public types
