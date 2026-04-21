@@ -1007,6 +1007,7 @@ pub mod hll_ops;
 pub mod key_ops;
 pub mod list_ops;
 pub mod set_ops;
+pub mod stream_group;
 pub mod stream_ops;
 pub mod string_ops;
 pub mod tests;
