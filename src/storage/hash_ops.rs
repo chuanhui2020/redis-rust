@@ -4,12 +4,7 @@ impl StorageEngine {
     pub fn hset(&self, key: &str, field: String, value: Bytes) -> Result<i64> {
         self.evict_if_needed()?;
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -39,12 +34,7 @@ impl StorageEngine {
     /// 获取哈希字段的值
     pub fn hget(&self, key: &str, field: &str) -> Result<Option<Bytes>> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get(key) {
             Some(v) => {
@@ -67,12 +57,7 @@ impl StorageEngine {
     pub fn hdel(&self, key: &str, fields: &[String]) -> Result<i64> {
         self.evict_if_needed()?;
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -101,12 +86,7 @@ impl StorageEngine {
     /// 检查哈希字段是否存在
     pub fn hexists(&self, key: &str, field: &str) -> Result<bool> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get(key) {
             Some(v) => {
@@ -128,12 +108,7 @@ impl StorageEngine {
     /// 返回哈希中的所有字段和值
     pub fn hgetall(&self, key: &str) -> Result<Vec<(String, Bytes)>> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get(key) {
             Some(v) => {
@@ -161,12 +136,7 @@ impl StorageEngine {
     /// 返回哈希中字段的数量
     pub fn hlen(&self, key: &str) -> Result<usize> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get(key) {
             Some(v) => {
@@ -189,12 +159,7 @@ impl StorageEngine {
     pub fn hincrby(&self, key: &str, field: String, delta: i64) -> Result<i64> {
         self.evict_if_needed()?;
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -238,12 +203,7 @@ impl StorageEngine {
     pub fn hincrbyfloat(&self, key: &str, field: String, delta: f64) -> Result<String> {
         self.evict_if_needed()?;
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -289,12 +249,7 @@ impl StorageEngine {
     /// 返回哈希中所有字段名
     pub fn hkeys(&self, key: &str) -> Result<Vec<String>> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get(key) {
             Some(v) => {
@@ -320,12 +275,7 @@ impl StorageEngine {
     /// 返回哈希中所有字段值
     pub fn hvals(&self, key: &str) -> Result<Vec<Bytes>> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get(key) {
             Some(v) => {
@@ -354,12 +304,7 @@ impl StorageEngine {
     pub fn hsetnx(&self, key: &str, field: String, value: Bytes) -> Result<i64> {
         self.evict_if_needed()?;
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -396,12 +341,7 @@ impl StorageEngine {
     /// count > 0：不重复；count < 0：可重复
     /// with_values：是否同时返回值
     pub fn hrandfield(&self, key: &str, count: i64, with_values: bool) -> Result<Vec<(String, Option<Bytes>)>> {
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get(key) {
             Some(v) => {
@@ -471,12 +411,7 @@ impl StorageEngine {
     /// 增量迭代哈希字段
     /// 返回 (新游标, 字段值对列表)
     pub fn hscan(&self, key: &str, cursor: usize, pattern: &str, count: usize) -> Result<(usize, Vec<(String, Bytes)>)> {
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get(key) {
             Some(v) => {
@@ -521,12 +456,7 @@ impl StorageEngine {
     /// 批量设置哈希字段
     pub fn hmset(&self, key: &str, pairs: &[(String, Bytes)]) -> Result<()> {
         self.evict_if_needed()?;
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -559,12 +489,7 @@ impl StorageEngine {
     /// 批量获取哈希字段的值
     pub fn hmget(&self, key: &str, fields: &[String]) -> Result<Vec<Option<Bytes>>> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         let h = match map.get(key) {
             Some(v) => {
@@ -600,11 +525,7 @@ impl StorageEngine {
     pub fn hpexpire(&self, key: &str, fields: &[String], milliseconds: u64) -> Result<Vec<i64>> {
         self.evict_if_needed()?;
         let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -646,11 +567,7 @@ impl StorageEngine {
     pub fn hpexpireat(&self, key: &str, fields: &[String], timestamp_ms: u64) -> Result<Vec<i64>> {
         self.evict_if_needed()?;
         let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -693,11 +610,7 @@ impl StorageEngine {
     pub fn hpttl(&self, key: &str, fields: &[String]) -> Result<Vec<i64>> {
         self.cleanup_hash_expired_fields(key);
         let db = self.db();
-        let map = db
-            .inner
-            .get_shard(key)
-            .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let map = self.read_shard(key)?;
 
         match map.get(key) {
             Some(v) => {
@@ -747,11 +660,7 @@ impl StorageEngine {
     pub fn hpexpiretime(&self, key: &str, fields: &[String]) -> Result<Vec<i64>> {
         self.cleanup_hash_expired_fields(key);
         let db = self.db();
-        let map = db
-            .inner
-            .get_shard(key)
-            .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let map = self.read_shard(key)?;
 
         match map.get(key) {
             Some(v) => {
@@ -790,11 +699,7 @@ impl StorageEngine {
     pub fn hpersist(&self, key: &str, fields: &[String]) -> Result<Vec<i64>> {
         self.evict_if_needed()?;
         let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut map = self.write_shard(key)?;
 
         match map.get_mut(key) {
             Some(v) => {

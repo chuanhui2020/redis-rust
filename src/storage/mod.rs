@@ -862,6 +862,48 @@ impl StorageEngine {
             .as_millis() as u64
     }
 
+    /// 获取指定 key 所在分片的写锁
+    pub(crate) fn write_shard(
+        &self,
+        key: &str,
+    ) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<String, StorageValue>>> {
+        let db = &self.dbs[self.current_db.load(Ordering::Relaxed).min(15)];
+        db.inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))
+    }
+
+    /// 获取指定 key 所在分片的读锁
+    pub(crate) fn read_shard(
+        &self,
+        key: &str,
+    ) -> Result<std::sync::RwLockReadGuard<'_, HashMap<String, StorageValue>>> {
+        let db = &self.dbs[self.current_db.load(Ordering::Relaxed).min(15)];
+        db.inner
+            .get_shard(key)
+            .read()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))
+    }
+
+    /// 检查并清理过期的 key
+    pub(crate) fn check_and_remove_expired(
+        map: &mut HashMap<String, StorageValue>,
+        key: &str,
+    ) {
+        if let Some(v) = map.get(key) {
+            if Self::is_expired(v) {
+                map.remove(key);
+            }
+        }
+    }
+
+    /// 写操作后的标准后处理（版本更新 + 访问记录）
+    pub(crate) fn post_write(&self, key: &str) {
+        self.bump_version(key);
+        self.touch(key);
+    }
+
     /// 检查给定的 StorageValue 是否已过期，如果过期则返回 true
     fn is_expired(value: &StorageValue) -> bool {
         match value {

@@ -4,12 +4,7 @@ impl StorageEngine {
     pub fn lpush(&self, key: &str, values: Vec<Bytes>) -> Result<usize> {
         self.evict_if_needed()?;
         let len = {
-            let db = self.db();
-            let mut map = db
-                .inner
-                .get_shard(key)
-                .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            let mut map = self.write_shard(key)?;
 
             match map.get_mut(key) {
                 Some(v) => {
@@ -53,12 +48,7 @@ impl StorageEngine {
     pub fn rpush(&self, key: &str, values: Vec<Bytes>) -> Result<usize> {
         self.evict_if_needed()?;
         let len = {
-            let db = self.db();
-            let mut map = db
-                .inner
-                .get_shard(key)
-                .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            let mut map = self.write_shard(key)?;
 
             match map.get_mut(key) {
                 Some(v) => {
@@ -698,12 +688,7 @@ impl StorageEngine {
     /// 返回移动的元素
     pub fn lmove(&self, source: &str, destination: &str, left_from: bool, left_to: bool) -> Result<Option<Bytes>> {
         self.evict_if_needed()?;
-        let db = self.db();
-        let mut src_map = db
-            .inner
-            .get_shard(source)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut src_map = self.write_shard(source)?;
 
         // 从 source 弹出
         let popped = match src_map.get_mut(source) {
@@ -730,8 +715,7 @@ impl StorageEngine {
             None => return Ok(None),
         };
 
-        let mut dst_map = db.inner.get_shard(destination).write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let mut dst_map = self.write_shard(destination)?;
 
         // 推入 destination
         match dst_map.get_mut(destination) {
@@ -785,11 +769,7 @@ impl StorageEngine {
         let db = self.db();
 
         for key in keys {
-            let mut map = db
-                .inner
-                .get_shard(key)
-                .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            let mut map = self.write_shard(key)?;
             let popped = match map.get_mut(key) {
                 Some(v) => {
                     if Self::is_expired(v) {
