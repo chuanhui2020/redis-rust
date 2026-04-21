@@ -1,3 +1,5 @@
+
+#[allow(unused_imports)]
 use super::*;
 
 #[cfg(test)]
@@ -2335,7 +2337,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(100));
         let idle = engine.object_idletime("k").unwrap();
         assert!(idle.is_some());
-        assert!(idle.unwrap() >= 0);
+        assert!(idle.is_some());
         assert_eq!(engine.object_idletime("missing").unwrap(), None);
     }
 
@@ -3625,7 +3627,7 @@ mod tests {
         engine.xreadgroup("g1", "c1", &["stream".to_string()], &[">".to_string()], None, false).unwrap();
 
         // c2 自动 claim 从 0-0 开始的所有消息（min_idle_time=0）
-        let (next_id, result) = engine.xautoclaim("stream", "g1", "c2", 0, StreamId::new(0, 0), 10, false).unwrap();
+        let (_next_id, result) = engine.xautoclaim("stream", "g1", "c2", 0, StreamId::new(0, 0), 10, false).unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].0, StreamId::new(1000, 0));
         assert_eq!(result[1].0, StreamId::new(1000, 1));

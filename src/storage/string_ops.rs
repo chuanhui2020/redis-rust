@@ -31,7 +31,6 @@ impl StorageEngine {
             | Some(StorageValue::Set(_))
             | Some(StorageValue::ZSet(_))
             | Some(StorageValue::HyperLogLog(_))
-            | Some(StorageValue::Stream(_))
             | Some(StorageValue::Stream(_)) => {
                 Err(AppError::Storage(
                     "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
@@ -762,7 +761,7 @@ impl StorageEngine {
         let db = self.db();
         // 检查所有 key 是否都不存在（或已过期）
         for (key, _) in pairs {
-            let mut map = db
+            let map = db
                 .inner
                 .get_shard(key)
                 .write()

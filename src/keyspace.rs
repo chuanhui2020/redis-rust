@@ -329,7 +329,7 @@ impl KeyspaceNotifier {
                 type_flag: NOTIFY_GENERIC,
                 key: Some(key.clone()),
             }),
-            Command::Rename(key, newkey) => Some(EventInfo {
+            Command::Rename(_key, newkey) => Some(EventInfo {
                 name: "rename_to",
                 type_flag: NOTIFY_GENERIC,
                 key: Some(newkey.clone()),

@@ -1,10 +1,8 @@
 use super::*;
 
 use bytes::Bytes;
-use crate::error::{AppError, Result};
 use crate::protocol::RespValue;
-
-    use super::*;
+use crate::scripting::ScriptEngine;
 
     fn make_bulk_array(items: &[&str]) -> RespValue {
         RespValue::Array(

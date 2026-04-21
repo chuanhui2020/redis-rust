@@ -34,9 +34,6 @@ impl CommandParser {
                             i += 1; // 忽略 ~ 或 =
                         }
                         if i < arr.len() {
-                            max_len = Some(next.parse().map_err(|_| {
-                                AppError::Command("XADD MAXLEN threshold 必须是整数".to_string())
-                            })?);
                             if next == "~" || next == "=" {
                                 max_len = Some(self.extract_string(&arr[i])?.parse().map_err(|_| {
                                     AppError::Command("XADD MAXLEN threshold 必须是整数".to_string())

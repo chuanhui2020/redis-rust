@@ -268,7 +268,7 @@ pub(crate) fn execute_x_pending(executor: &CommandExecutor, key: String, group: 
 
 pub(crate) fn execute_x_info_stream(executor: &CommandExecutor, key: String, full: bool) -> Result<RespValue> {
                 match executor.storage.xinfo_stream(&key, full)? {
-                    Some((length, groups, last_id, first_id, group_names)) => {
+                    Some((length, groups, last_id, first_id, _group_names)) => {
                         let resp = vec![
                             RespValue::BulkString(Some(Bytes::from("length"))),
                             RespValue::Integer(length as i64),

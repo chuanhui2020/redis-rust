@@ -598,7 +598,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        let now = Self::now_millis();
+        let _now = Self::now_millis();
 
         let stream = match map.get_mut(key) {
             Some(v) => {

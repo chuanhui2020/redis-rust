@@ -1,9 +1,7 @@
 use crate::error::{AppError, Result};
-use crate::protocol::RespValue;
 use crate::storage::{StorageEngine, StorageValue, ZSetData};
-use bytes::Bytes;
 use ordered_float::OrderedFloat;
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 impl StorageEngine {
@@ -226,7 +224,7 @@ impl StorageEngine {
         keys: &[String],
         weights: Option<&[f64]>,
         aggregate: &str,
-        with_scores: bool,
+        _with_scores: bool,
     ) -> Result<Vec<(String, f64)>> {
         if keys.is_empty() {
             return Ok(vec![]);
@@ -290,7 +288,7 @@ impl StorageEngine {
         keys: &[String],
         weights: Option<&[f64]>,
         aggregate: &str,
-        with_scores: bool,
+        _with_scores: bool,
     ) -> Result<Vec<(String, f64)>> {
         let db = self.db();
         let mut union_scores: HashMap<String, Vec<f64>> = HashMap::new();
@@ -354,7 +352,7 @@ impl StorageEngine {
                         Self::check_zset_type(v)?;
                         match v {
                             StorageValue::ZSet(z) => {
-                                let mut pairs: Vec<(String, f64)> = if by_score {
+                                let pairs: Vec<(String, f64)> = if by_score {
                                     let min_score: f64 = min.parse().map_err(|_| {
                                         AppError::Command("ZRANGESTORE BYSCORE min 必须是数字".to_string())
                                     })?;

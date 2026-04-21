@@ -1,6 +1,5 @@
 use super::*;
 
-use bytes::Bytes;
 use crate::protocol::RespValue;
 
 impl Command {

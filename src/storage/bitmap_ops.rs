@@ -311,7 +311,7 @@ impl StorageEngine {
         let mut max_len = 0usize;
 
         for key in keys {
-            let mut map = db
+            let map = db
                 .inner
                 .get_shard(key)
                 .write()

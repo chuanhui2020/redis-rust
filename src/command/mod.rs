@@ -1,16 +1,13 @@
 // 命令解析与分发模块
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
 
 use bytes::Bytes;
 
-use crate::aof::AofWriter;
-use crate::error::{AppError, Result};
-use crate::keyspace::KeyspaceNotifier;
+use crate::error::AppError;
 use crate::protocol::RespValue;
-use crate::scripting::ScriptEngine;
 use crate::slowlog::SlowLog;
+#[allow(unused_imports)]
 use crate::storage::{EvictionPolicy, GetExOption, StorageEngine};
 
 /// Redis 支持的命令枚举

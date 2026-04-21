@@ -228,7 +228,7 @@ impl StorageEngine {
         let mut has_data = false;
 
         for key in sourcekeys {
-            let mut map = db
+            let map = db
                 .inner
                 .get_shard(key)
                 .write()

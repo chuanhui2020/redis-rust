@@ -2,20 +2,18 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use bytes::{Bytes, BytesMut};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{broadcast, mpsc};
+use bytes::Bytes;
+use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 
 use crate::aof::AofWriter;
-use crate::command::{Command, CommandExecutor, CommandParser, extract_cmd_info};
 use crate::error::Result;
 use crate::keyspace::KeyspaceNotifier;
-use crate::protocol::{RespParser, RespValue};
+use crate::protocol::RespValue;
 use crate::pubsub::PubSubManager;
 use crate::scripting::ScriptEngine;
 use crate::slowlog::SlowLog;
@@ -42,7 +40,7 @@ pub use handler::ConnectionHandler;
 
 /// 客户端消息（从订阅频道转发而来）
 #[derive(Debug, Clone)]
-enum ClientMessage {
+pub(crate) enum ClientMessage {
     /// 精确频道消息: (频道名, 内容)
     Message(String, Bytes),
     /// 模式消息: (模式, 频道名, 内容)
@@ -50,7 +48,7 @@ enum ClientMessage {
 }
 
 /// 客户端订阅状态
-struct SubscriptionState {
+pub(crate) struct SubscriptionState {
     /// 精确订阅: 频道名 -> 转发任务 abort handle
     channels: HashMap<String, tokio::task::AbortHandle>,
     /// 模式订阅: 模式 -> 转发任务 abort handle

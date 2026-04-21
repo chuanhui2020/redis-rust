@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use crate::command::Command;

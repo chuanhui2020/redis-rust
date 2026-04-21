@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use bytes::Bytes;
 use tokio::net::TcpStream;
 use crate::command::Command;
 use crate::error::Result;

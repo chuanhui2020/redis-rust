@@ -4,7 +4,7 @@ use crate::error::Result;
 use crate::protocol::RespValue;
 use super::executor::CommandExecutor;
 
-pub(crate) fn execute_ping(executor: &CommandExecutor, message: Option<String>) -> Result<RespValue> {
+pub(crate) fn execute_ping(_executor: &CommandExecutor, message: Option<String>) -> Result<RespValue> {
                 // PING 命令：有参数返回参数，否则返回 PONG
                 let reply = message.unwrap_or_else(|| "PONG".to_string());
                 Ok(RespValue::SimpleString(reply))
@@ -102,7 +102,7 @@ pub(crate) fn execute_config_set(executor: &CommandExecutor, key: String, value:
                 }
 }
 
-pub(crate) fn execute_config_rewrite(executor: &CommandExecutor) -> Result<RespValue> {
+pub(crate) fn execute_config_rewrite(_executor: &CommandExecutor) -> Result<RespValue> {
                 Ok(RespValue::SimpleString("OK".to_string()))
 }
 
@@ -170,23 +170,23 @@ pub(crate) fn execute_latency_reset(executor: &CommandExecutor, events: Vec<Stri
                 Ok(RespValue::Integer(count as i64))
 }
 
-pub(crate) fn execute_reset(executor: &CommandExecutor) -> Result<RespValue> {
+pub(crate) fn execute_reset(_executor: &CommandExecutor) -> Result<RespValue> {
                 Err(AppError::Command("RESET 应在连接层处理".to_string()))
 }
 
-pub(crate) fn execute_hello(executor: &CommandExecutor, _protover: u8, _auth: Option<(String, String)>, _setname: Option<String>) -> Result<RespValue> {
+pub(crate) fn execute_hello(_executor: &CommandExecutor, _protover: u8, _auth: Option<(String, String)>, _setname: Option<String>) -> Result<RespValue> {
                 Err(AppError::Command("HELLO 应在连接层处理".to_string()))
 }
 
-pub(crate) fn execute_monitor(executor: &CommandExecutor) -> Result<RespValue> {
+pub(crate) fn execute_monitor(_executor: &CommandExecutor) -> Result<RespValue> {
                 Err(AppError::Command("MONITOR 应在连接层处理".to_string()))
 }
 
-pub(crate) fn execute_command_info(executor: &CommandExecutor) -> Result<RespValue> {
+pub(crate) fn execute_command_info(_executor: &CommandExecutor) -> Result<RespValue> {
                 Ok(RespValue::Array(vec![]))
 }
 
-pub(crate) fn execute_bg_rewrite_aof(executor: &CommandExecutor) -> Result<RespValue> {
+pub(crate) fn execute_bg_rewrite_aof(_executor: &CommandExecutor) -> Result<RespValue> {
                 // BGREWRITEAOF 在 server.rs 中处理，需要 AOF writer
                 Err(AppError::Command("BGREWRITEAOF 应在连接层处理".to_string()))
 }

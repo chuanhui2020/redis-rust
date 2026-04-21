@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use bytes::{Bytes, BytesMut};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc};
 use crate::aof::AofWriter;
@@ -15,7 +15,7 @@ use crate::pubsub::PubSubManager;
 use crate::scripting::ScriptEngine;
 use crate::slowlog::SlowLog;
 use crate::storage::StorageEngine;
-use super::{bulk, bulk_bytes, ClientMessage, ClientInfo, ReplyMode, SubscriptionState};
+use super::{bulk, ClientMessage, ClientInfo, ReplyMode, SubscriptionState};
 use super::handler::{ConnectionHandler, write_resp, send_reply};
 
 /// 客户端连接守卫，连接断开时自动从注册表中移除
@@ -76,8 +76,8 @@ pub(crate) async fn handle_connection(
     let mut current_user = "default".to_string();
     let mut reply_mode = ReplyMode::On;
     let mut client_flags: HashSet<String> = HashSet::new();
-    let mut blocked = false;
-    let mut blocked_reason: Option<String> = None;
+    let blocked = false;
+    let _blocked_reason: Option<String> = None;
 
     let mut executor = match aof.clone() {
         Some(aof_writer) => {

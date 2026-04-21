@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn test_slowlog_max_len() {
-        let mut log = SlowLog::new();
+        let log = SlowLog::new();
         log.set_max_len(3);
         log.record("A", vec![], 15_000);
         log.record("B", vec![], 15_000);

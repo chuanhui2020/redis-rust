@@ -91,8 +91,8 @@ impl CommandParser {
         let key = self.extract_string(&arr[1])?;
 
         let mut idx = 2;
-        let mut center_lon = 0.0f64;
-        let mut center_lat = 0.0f64;
+        let center_lon;
+        let center_lat;
         let mut by_radius: Option<f64> = None;
         let mut by_box: Option<(f64, f64)> = None;
         let mut order: Option<String> = None;
@@ -221,8 +221,8 @@ impl CommandParser {
         let source = self.extract_string(&arr[2])?;
 
         let mut idx = 3;
-        let mut center_lon = 0.0f64;
-        let mut center_lat = 0.0f64;
+        let center_lon;
+        let center_lat;
         let mut by_radius: Option<f64> = None;
         let mut by_box: Option<(f64, f64)> = None;
         let mut order: Option<String> = None;

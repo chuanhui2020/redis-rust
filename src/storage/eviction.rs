@@ -206,7 +206,7 @@ impl StorageEngine {
     fn remove_key_from_db(&self, db_idx: usize, key: &str) {
         let dbs = &self.dbs;
         let db = dbs[db_idx].clone();
-        drop(dbs);
+        let _ = dbs;
         let mut map = db.inner.get_shard(key).write().unwrap();
         map.remove(key);
         let mut versions = db.versions.get_shard(key).write().unwrap();

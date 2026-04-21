@@ -250,7 +250,7 @@ impl ZSetData {
     /// 随机返回成员
     /// count > 0: 不重复返回最多 count 个
     /// count < 0: 允许重复返回 |count| 个
-    pub fn rand_member(&self, count: i64, with_scores: bool) -> Vec<(String, f64)> {
+    pub fn rand_member(&self, count: i64, _with_scores: bool) -> Vec<(String, f64)> {
         use rand::seq::SliceRandom;
         let members: Vec<(String, f64)> = self
             .score_to_member
@@ -406,6 +406,7 @@ impl BitFieldOffset {
 }
 
 /// 从字节数组中按大端序读取指定位域（返回无符号值）
+#[allow(dead_code)]
 fn read_bitfield_unsigned(bytes: &[u8], offset: usize, bits: usize) -> u64 {
     let mut value: u64 = 0;
     for i in 0..bits {
@@ -422,6 +423,7 @@ fn read_bitfield_unsigned(bytes: &[u8], offset: usize, bits: usize) -> u64 {
 }
 
 /// 将有符号位域值从无符号表示转换为 i64
+#[allow(dead_code)]
 fn unsigned_to_signed(value: u64, bits: usize) -> i64 {
     let sign_bit = 1u64 << (bits - 1);
     if value & sign_bit != 0 {
@@ -433,12 +435,14 @@ fn unsigned_to_signed(value: u64, bits: usize) -> i64 {
 }
 
 /// 将 i64 转换为指定宽度的无符号表示
+#[allow(dead_code)]
 fn signed_to_unsigned(value: i64, bits: usize) -> u64 {
     let mask = if bits == 64 { !0u64 } else { (1u64 << bits) - 1 };
     (value as u64) & mask
 }
 
 /// 向字节数组中按大端序写入指定位域
+#[allow(dead_code)]
 fn write_bitfield(bytes: &mut Vec<u8>, offset: usize, bits: usize, value: u64) {
     let needed = (offset + bits + 7) / 8;
     if bytes.len() < needed {
@@ -458,6 +462,7 @@ fn write_bitfield(bytes: &mut Vec<u8>, offset: usize, bits: usize, value: u64) {
 }
 
 /// 读取指定位域的值
+#[allow(dead_code)]
 fn read_field(bytes: &[u8], encoding: &BitFieldEncoding, offset: usize) -> i64 {
     let raw = read_bitfield_unsigned(bytes, offset, encoding.bits);
     if encoding.signed {
@@ -468,6 +473,7 @@ fn read_field(bytes: &[u8], encoding: &BitFieldEncoding, offset: usize) -> i64 {
 }
 
 /// 写入指定位域的值
+#[allow(dead_code)]
 fn write_field(bytes: &mut Vec<u8>, encoding: &BitFieldEncoding, offset: usize, value: i64) {
     let raw = if encoding.signed {
         signed_to_unsigned(value, encoding.bits)
@@ -478,6 +484,7 @@ fn write_field(bytes: &mut Vec<u8>, encoding: &BitFieldEncoding, offset: usize, 
 }
 
 /// 执行 INCRBY 并处理溢出
+#[allow(dead_code)]
 fn incr_with_overflow(
     old_value: i64,
     increment: i64,
@@ -1122,7 +1129,7 @@ impl StorageEngine {
         key: &str,
         max: f64,
         min: f64,
-        with_scores: bool,
+        _with_scores: bool,
         limit_offset: usize,
         limit_count: usize,
     ) -> Result<Vec<(String, f64)>> {
@@ -1266,7 +1273,7 @@ impl StorageEngine {
         by_score: bool,
         by_lex: bool,
         rev: bool,
-        with_scores: bool,
+        _with_scores: bool,
         limit_offset: usize,
         limit_count: usize,
     ) -> Result<Vec<(String, f64)>> {

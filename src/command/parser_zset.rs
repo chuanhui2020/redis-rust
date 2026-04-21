@@ -713,7 +713,7 @@ impl CommandParser {
             _ => return Err(AppError::Command("ZMPOP 必须是 MIN 或 MAX".to_string())),
         };
         let mut count = 1usize;
-        let mut i = 3 + numkeys;
+        let i = 3 + numkeys;
         if i < arr.len() {
             let opt = self.extract_string(&arr[i])?.to_ascii_uppercase();
             if opt == "COUNT" {
@@ -756,7 +756,7 @@ impl CommandParser {
             _ => return Err(AppError::Command("BZMPOP 必须是 MIN 或 MAX".to_string())),
         };
         let mut count = 1usize;
-        let mut i = 4 + numkeys;
+        let i = 4 + numkeys;
         if i < arr.len() {
             let opt = self.extract_string(&arr[i])?.to_ascii_uppercase();
             if opt == "COUNT" {

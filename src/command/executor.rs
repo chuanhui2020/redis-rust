@@ -10,7 +10,7 @@ use crate::keyspace::KeyspaceNotifier;
 use crate::protocol::RespValue;
 use crate::scripting::ScriptEngine;
 use crate::slowlog::SlowLog;
-use crate::storage::{EvictionPolicy, StorageEngine};
+use crate::storage::StorageEngine;
 
 pub struct CommandExecutor {
     /// 存储引擎引用

@@ -973,6 +973,7 @@ impl StorageEngine {
     }
 
     /// 从 StorageValue 中获取 Stream 的可变引用
+    #[allow(dead_code)]
     fn as_stream_mut(value: &mut StorageValue) -> Option<&mut StreamData> {
         match value {
             StorageValue::Stream(s) => Some(s),
@@ -1013,6 +1014,7 @@ pub mod zset_advanced;
 pub mod zset_ops;
 
 // Re-export public types
+#[allow(unused_imports)]
 pub use bitmap_ops::*;
 pub use hll_ops::*;
 pub use stream_ops::*;

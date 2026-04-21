@@ -25,26 +25,31 @@ const TYPE_ZSET: u8 = 4;
 const TYPE_HLL: u8 = 5;
 
 /// 将 u16 写入为大端序字节
+#[allow(dead_code)]
 fn write_u16(buf: &mut Vec<u8>, v: u16) {
     buf.extend_from_slice(&v.to_be_bytes());
 }
 
 /// 将 u32 写入为大端序字节
+#[allow(dead_code)]
 fn write_u32(buf: &mut Vec<u8>, v: u32) {
     buf.extend_from_slice(&v.to_be_bytes());
 }
 
 /// 将 u64 写入为大端序字节
+#[allow(dead_code)]
 fn write_u64(buf: &mut Vec<u8>, v: u64) {
     buf.extend_from_slice(&v.to_be_bytes());
 }
 
 /// 将 f64 写入为大端序字节
+#[allow(dead_code)]
 fn write_f64(buf: &mut Vec<u8>, v: f64) {
     buf.extend_from_slice(&v.to_be_bytes());
 }
 
 /// 从字节流读取 u16（大端序）
+#[allow(dead_code)]
 fn read_u16(reader: &mut impl Read) -> Result<u16> {
     let mut buf = [0u8; 2];
     reader.read_exact(&mut buf)?;
