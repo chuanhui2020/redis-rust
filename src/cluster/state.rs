@@ -317,6 +317,48 @@ impl ClusterState {
         *epoch
     }
 
+    /// 设置节点 epoch
+    pub fn set_node_epoch(&self, node_id: &str, epoch: u64) {
+        let mut nodes = self.nodes.write().unwrap();
+        if let Some(node) = nodes.get_mut(node_id) {
+            if epoch > node.config_epoch {
+                node.config_epoch = epoch;
+            }
+        }
+    }
+
+    /// 根据 ClusterMessage 更新本地节点信息
+    pub fn update_from_message(&self, msg: &super::protocol::ClusterMessage, peer_ip: &str) {
+        let node_id = msg.sender_id.clone();
+        let port = msg.sender_port;
+
+        // 如果发送方节点不存在，创建新节点
+        if self.get_node(&node_id).is_none() {
+            let new_node = ClusterNode::new(node_id.clone(), peer_ip.to_string(), port);
+            self.add_node(new_node);
+        }
+
+        // 更新发送方节点 epoch
+        self.set_node_epoch(&node_id, msg.current_epoch);
+
+        // 更新 slot 分配
+        for slot_info in &msg.slots {
+            for slot in slot_info.slot_start..=slot_info.slot_end {
+                self.assign_slot(slot as usize, &slot_info.node_id);
+            }
+        }
+
+        // 更新消息中携带的其他节点拓扑
+        for node_info in &msg.nodes {
+            if self.get_node(&node_info.node_id).is_none() {
+                let ip_str = super::protocol::format_ip(&node_info.ip);
+                let mut new_node = ClusterNode::new(node_info.node_id.clone(), ip_str, node_info.port);
+                new_node.flags = super::protocol::decode_flags(node_info.flags);
+                self.add_node(new_node);
+            }
+        }
+    }
+
     /// 获取已分配的 slot 数量
     pub fn assigned_slots_count(&self) -> usize {
         let assignment = self.slot_assignment.read().unwrap();

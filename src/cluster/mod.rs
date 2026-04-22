@@ -3,6 +3,7 @@
 pub mod bus;
 pub mod failover;
 pub mod gossip;
+pub mod protocol;
 pub mod state;
 
 pub use state::{ClusterState, ClusterNode, SlotRange};

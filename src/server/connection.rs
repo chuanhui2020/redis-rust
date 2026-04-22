@@ -577,12 +577,27 @@ pub(crate) async fn handle_connection(
                                         RespValue::Array(vec![])
                                     }
                                     Command::ClusterMeet { ip, port } => {
+                                        let meet_ip = ip.clone();
                                         let node = crate::cluster::ClusterNode::new(
                                             crate::cluster::ClusterState::generate_node_id(),
                                             ip,
                                             port,
                                         );
                                         c.add_node(node);
+                                        
+                                        // 向对端总线端口发送 PING，让对端也发现本节点
+                                        if let Some(me) = c.myself() {
+                                            let bus_port = port + 10000;
+                                            let msg = format!("PING {} {} {}\n", me.id, me.ip, me.port);
+                                            tokio::spawn(async move {
+                                                let addr = format!("{}:{}", meet_ip, bus_port);
+                                                let timeout = Duration::from_millis(500);
+                                                if let Ok(Ok(mut stream)) = tokio::time::timeout(timeout, TcpStream::connect(&addr)).await {
+                                                    let _ = tokio::time::timeout(timeout, stream.write_all(msg.as_bytes())).await;
+                                                }
+                                            });
+                                        }
+                                        
                                         RespValue::SimpleString("OK".to_string())
                                     }
                                     Command::ClusterAddSlots(slots) => {

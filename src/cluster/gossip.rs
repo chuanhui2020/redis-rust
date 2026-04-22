@@ -7,7 +7,7 @@ use tokio::net::TcpStream;
 
 use super::ClusterState;
 
-/// 启动 Gossip 任务：每秒随机选择节点发送 PING
+/// 启动 Gossip 任务：每秒向所有已知节点发送 PING
 pub fn start_gossip(cluster: Arc<ClusterState>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -17,6 +17,14 @@ pub fn start_gossip(cluster: Arc<ClusterState>) -> tokio::task::JoinHandle<()> {
             
             let nodes = cluster.get_nodes();
             let my_id = cluster.myself_id();
+            let my_node = cluster.myself();
+            
+            // 获取自己的 IP 和端口
+            let (my_ip, my_port) = if let Some(ref node) = my_node {
+                (node.ip.clone(), node.port)
+            } else {
+                continue;
+            };
             
             // 向所有非自身节点发送 PING
             for node in &nodes {
@@ -28,9 +36,10 @@ pub fn start_gossip(cluster: Arc<ClusterState>) -> tokio::task::JoinHandle<()> {
                 let node_bus_port = node.bus_port;
                 let cluster_clone = cluster.clone();
                 let my_id_clone = my_id.clone();
+                let my_ip_clone = my_ip.clone();
                 
                 tokio::spawn(async move {
-                    match send_cluster_ping(&node_ip, node_bus_port, &my_id_clone).await {
+                    match send_cluster_ping(&node_ip, node_bus_port, &my_id_clone, &my_ip_clone, my_port, &cluster_clone).await {
                         Ok(()) => {
                             // 更新 pong_recv 时间
                             let now = std::time::SystemTime::now()
@@ -50,13 +59,22 @@ pub fn start_gossip(cluster: Arc<ClusterState>) -> tokio::task::JoinHandle<()> {
 }
 
 /// 向节点的集群总线端口发送 PING
-async fn send_cluster_ping(ip: &str, bus_port: u16, my_id: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// 消息格式：PING <my_node_id> <my_ip> <my_port>\n
+/// 期望响应：PONG <remote_node_id> <remote_ip> <remote_port>\n
+pub async fn send_cluster_ping(
+    ip: &str, 
+    bus_port: u16, 
+    my_id: &str,
+    my_ip: &str,
+    my_port: u16,
+    cluster: &ClusterState,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = format!("{}:{}", ip, bus_port);
     let timeout = Duration::from_millis(500);
     let mut stream = tokio::time::timeout(timeout, TcpStream::connect(&addr)).await??;
     
-    // 发送简化的 PING 消息：PING <my_node_id>\n
-    let msg = format!("PING {}\n", my_id);
+    // 发送 PING 消息，携带自己的节点信息
+    let msg = format!("PING {} {} {}\n", my_id, my_ip, my_port);
     stream.write_all(msg.as_bytes()).await?;
     
     // 读取 PONG 响应
@@ -64,9 +82,31 @@ async fn send_cluster_ping(ip: &str, bus_port: u16, my_id: &str) -> Result<(), B
     let n = tokio::time::timeout(timeout, stream.read(&mut buf)).await??;
     let response = String::from_utf8_lossy(&buf[..n]);
     
-    if response.contains("PONG") {
-        Ok(())
-    } else {
-        Err(format!("期望 PONG，收到: {}", response.trim()).into())
+    // 解析 PONG 响应中的节点信息
+    if let Some(line) = response.lines().next() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 4 && parts[0] == "PONG" {
+            let remote_id = parts[1];
+            let remote_ip = parts[2];
+            let remote_port: u16 = parts[3].parse().unwrap_or(0);
+            
+            // 如果远程节点未知，自动添加到集群状态
+            if cluster.get_node(remote_id).is_none() && remote_port > 0 {
+                // 检查是否已有相同地址但不同 ID 的节点，避免重复
+                let existing_id = cluster.get_nodes().iter()
+                    .find(|n| n.ip == remote_ip && n.port == remote_port)
+                    .map(|n| n.id.clone());
+                if let Some(old_id) = existing_id {
+                    if old_id != remote_id {
+                        cluster.remove_node(&old_id);
+                    }
+                }
+                let new_node = super::ClusterNode::new(remote_id.to_string(), remote_ip.to_string(), remote_port);
+                cluster.add_node(new_node);
+            }
+            return Ok(());
+        }
     }
+    
+    Err(format!("期望 PONG，收到: {}", response.trim()).into())
 }
