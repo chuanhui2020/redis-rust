@@ -45,6 +45,8 @@ pub(crate) enum ClientMessage {
     Message(String, Bytes),
     /// 模式消息: (模式, 频道名, 内容)
     PMessage(String, String, Bytes),
+    /// 分片频道消息: (频道名, 内容)
+    SMessage(String, Bytes),
 }
 
 /// 客户端订阅状态
@@ -53,6 +55,8 @@ pub(crate) struct SubscriptionState {
     channels: HashMap<String, tokio::task::AbortHandle>,
     /// 模式订阅: 模式 -> 转发任务 abort handle
     patterns: HashMap<String, tokio::task::AbortHandle>,
+    /// 分片订阅: 频道名 -> 转发任务 abort handle
+    shard_channels: HashMap<String, tokio::task::AbortHandle>,
     /// 用于向客户端主循环发送聚合消息（主要被克隆到转发任务中使用）
     #[allow(dead_code)]
     msg_tx: mpsc::UnboundedSender<ClientMessage>,
@@ -63,13 +67,14 @@ impl SubscriptionState {
         Self {
             channels: HashMap::new(),
             patterns: HashMap::new(),
+            shard_channels: HashMap::new(),
             msg_tx,
         }
     }
 
     /// 当前活跃订阅总数
     fn total(&self) -> usize {
-        self.channels.len() + self.patterns.len()
+        self.channels.len() + self.patterns.len() + self.shard_channels.len()
     }
 }
 
