@@ -54,6 +54,14 @@ run_benchmark() {
     redis-benchmark -h 127.0.0.1 -p "$port" -t "$tests" -n 100000 -c 50 -q 2>/dev/null | tr '\r' '\n' | grep "requests per second" | grep -v "rps="
 }
 
+# 运行 benchmark 并提取 requests per second（支持额外参数）
+run_benchmark_ex() {
+    local port=$1
+    local tests=$2
+    shift 2
+    redis-benchmark -h 127.0.0.1 -p "$port" -t "$tests" -n 100000 -q "$@" 2>/dev/null | tr '\r' '\n' | grep "requests per second" | grep -v "rps="
+}
+
 # 从 benchmark 输出中提取平均 rps
 extract_rps() {
     local output="$1"
@@ -100,68 +108,149 @@ REDIS_SERVER_PID=$!
 wait_for_server 127.0.0.1 "$REDIS_RUST_PORT" "redis-rust"
 wait_for_server 127.0.0.1 "$REDIS_SERVER_PORT" "redis-server"
 
-echo ""
-echo "============================================"
-echo "        基准测试开始 (100K 请求, 50 并发)"
-echo "============================================"
-echo ""
+# 存储所有结果
+declare -a ALL_NAMES=()
+declare -a ALL_RUST_RPS=()
+declare -a ALL_REDIS_RPS=()
+declare -a ALL_PCTS=()
 
-# 定义测试项目
-declare -a TEST_NAMES=("PING" "SET" "GET" "混合(PING+SET+GET)")
-declare -a TEST_CMDS=("ping" "set" "get" "ping,set,get")
-
-declare -a RUST_RPS=()
-declare -a REDIS_RPS=()
-declare -a PERCENTAGES=()
-
-# 执行各项测试
-for i in "${!TEST_NAMES[@]}"; do
-    name="${TEST_NAMES[$i]}"
-    cmd="${TEST_CMDS[$i]}"
+# 运行单个测试并记录结果
+run_single_test() {
+    local name=$1
+    local rust_port=$2
+    local redis_port=$3
+    local tests=$4
+    shift 4
 
     echo "[测试] $name ..."
 
-    # 测试 redis-rust
-    rust_output=$(run_benchmark "$REDIS_RUST_PORT" "$cmd")
+    rust_output=$(run_benchmark_ex "$rust_port" "$tests" "$@")
     rust_val=$(extract_rps "$rust_output")
     if [[ -z "$rust_val" ]]; then
         rust_val=0
     fi
 
-    # 测试 redis-server
-    redis_output=$(run_benchmark "$REDIS_SERVER_PORT" "$cmd")
+    redis_output=$(run_benchmark_ex "$redis_port" "$tests" "$@")
     redis_val=$(extract_rps "$redis_output")
     if [[ -z "$redis_val" ]]; then
         redis_val=0
     fi
 
-    # 计算百分比
     if [[ "$(echo "$redis_val > 0" | bc -l)" -eq 1 ]]; then
         pct=$(echo "scale=4; ($rust_val / $redis_val) * 100" | bc -l | awk '{printf "%.1f", $1}')
     else
         pct="0.0"
     fi
 
-    RUST_RPS+=("$rust_val")
-    REDIS_RPS+=("$redis_val")
-    PERCENTAGES+=("$pct")
+    ALL_NAMES+=("$name")
+    ALL_RUST_RPS+=("$rust_val")
+    ALL_REDIS_RPS+=("$redis_val")
+    ALL_PCTS+=("$pct")
+}
 
-done
-
+# ============ 基础测试 (50 并发) ============
 echo ""
 echo "============================================"
-echo "              测试结果对比"
-echo "============================================"
-printf "%-20s %15s %15s %10s\n" "测试项目" "redis-rust" "redis-server" "性能比"
-printf "%-20s %15s %15s %10s\n" "--------------------" "---------------" "---------------" "----------"
-
-for i in "${!TEST_NAMES[@]}"; do
-    printf "%-20s %15.0f %15.0f %9s%%\n" \
-        "${TEST_NAMES[$i]}" \
-        "${RUST_RPS[$i]}" \
-        "${REDIS_RPS[$i]}" \
-        "${PERCENTAGES[$i]}"
-done
-
+echo "           基础测试 (50 并发)"
 echo "============================================"
 echo ""
+
+run_single_test "PING" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "ping" -c 50
+run_single_test "SET" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "set" -c 50
+run_single_test "GET" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "get" -c 50
+run_single_test "混合(PING+SET+GET)" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "ping,set,get" -c 50
+run_single_test "INCR" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "incr" -c 50
+run_single_test "LPUSH" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "lpush" -c 50
+run_single_test "LPOP" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "lpop" -c 50
+run_single_test "HSET" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "hset" -c 50
+
+# ============ Pipeline 测试 (-P 16, 50 并发) ============
+echo ""
+echo "============================================"
+echo "         Pipeline 测试 (-P 16, 50 并发)"
+echo "============================================"
+echo ""
+
+run_single_test "PING pipeline=16" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "ping" -c 50 -P 16
+run_single_test "SET pipeline=16" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "set" -c 50 -P 16
+run_single_test "GET pipeline=16" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "get" -c 50 -P 16
+
+# ============ 并发度对比测试 (SET) ============
+echo ""
+echo "============================================"
+echo "         并发度对比测试 (SET)"
+echo "============================================"
+echo ""
+
+run_single_test "SET (c=1)" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "set" -c 1
+run_single_test "SET (c=50)" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "set" -c 50
+run_single_test "SET (c=200)" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "set" -c 200
+
+# ============ 并发度对比测试 (GET) ============
+echo ""
+echo "============================================"
+echo "         并发度对比测试 (GET)"
+echo "============================================"
+echo ""
+
+run_single_test "GET (c=1)" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "get" -c 1
+run_single_test "GET (c=50)" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "get" -c 50
+run_single_test "GET (c=200)" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "get" -c 200
+
+# ============ 输出结果 ============
+{
+    echo ""
+    echo "============================================"
+    echo "         基准测试报告"
+    echo "============================================"
+    echo "生成时间: $(date)"
+    echo ""
+    echo "============================================"
+    echo "              测试结果对比"
+    echo "============================================"
+    printf "%-30s %15s %15s %10s\n" "测试项目" "redis-rust" "redis-server" "性能比"
+    printf "%-30s %15s %15s %10s\n" "------------------------------" "---------------" "---------------" "----------"
+
+    for i in "${!ALL_NAMES[@]}"; do
+        printf "%-30s %15.0f %15.0f %9s%%\n" \
+            "${ALL_NAMES[$i]}" \
+            "${ALL_RUST_RPS[$i]}" \
+            "${ALL_REDIS_RPS[$i]}" \
+            "${ALL_PCTS[$i]}"
+    done
+
+    echo "============================================"
+    echo ""
+
+    # 总结
+    THRESHOLD=80.0
+    echo "============================================"
+    echo "                 总结"
+    echo "============================================"
+    echo "达标标准: 性能比 >= ${THRESHOLD}%"
+    echo ""
+
+    echo "[达标]"
+    passed_count=0
+    for i in "${!ALL_NAMES[@]}"; do
+        if [[ "$(echo "${ALL_PCTS[$i]} >= $THRESHOLD" | bc -l)" -eq 1 ]]; then
+            echo "  ✓ ${ALL_NAMES[$i]} (${ALL_PCTS[$i]}%)"
+            ((passed_count++))
+        fi
+    done
+
+    echo ""
+    echo "[未达标]"
+    failed_count=0
+    for i in "${!ALL_NAMES[@]}"; do
+        if [[ "$(echo "${ALL_PCTS[$i]} < $THRESHOLD" | bc -l)" -eq 1 ]]; then
+            echo "  ✗ ${ALL_NAMES[$i]} (${ALL_PCTS[$i]}%)"
+            ((failed_count++))
+        fi
+    done
+
+    echo ""
+    echo "总计: ${passed_count} 项达标, ${failed_count} 项未达标 (共 ${#ALL_NAMES[@]} 项)"
+    echo "============================================"
+    echo ""
+} | tee benchmark_results.txt
