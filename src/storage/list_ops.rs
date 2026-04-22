@@ -6,37 +6,43 @@ impl StorageEngine {
         let len = {
             let mut map = self.write_shard(key)?;
 
+            Self::check_and_remove_expired(&mut map, key);
             match map.get_mut(key) {
                 Some(v) => {
-                    if Self::is_expired(v) {
-                        map.remove(key);
-                        let mut list: VecDeque<Bytes> = VecDeque::new();
-                        for value in values {
-                            list.push_front(value);
-                        }
-                        let len = list.len();
-                        map.insert(key.to_string(), StorageValue::List(list));
-                        self.bump_version(key);
-                        len
-                    } else {
-                        Self::check_list_type(v)?;
-                        let list = Self::as_list_mut(v).unwrap();
-                        for value in values {
-                            list.push_front(value);
-                        }
-                        self.bump_version(key);
-                        list.len()
-                    }
+                                        Self::check_list_type(v)?;
+
+                                        let list = Self::as_list_mut(v).unwrap();
+
+                                        for value in values {
+
+                                            list.push_front(value);
+
+                                        }
+
+                                        self.bump_version(key);
+
+                                        list.len()
+
                 }
                 None => {
-                    let mut list: VecDeque<Bytes> = VecDeque::new();
-                    for value in values {
-                        list.push_front(value);
-                    }
-                    let len = list.len();
-                    map.insert(key.to_string(), StorageValue::List(list));
-                    self.bump_version(key);
-                    len
+
+                                    let mut list: VecDeque<Bytes> = VecDeque::new();
+
+                                    for value in values {
+
+                                        list.push_front(value);
+
+                                    }
+
+                                    let len = list.len();
+
+                                    map.insert(key.to_string(), StorageValue::List(list));
+
+                                    self.bump_version(key);
+
+                                    len
+
+
                 }
             }
         };
@@ -50,37 +56,43 @@ impl StorageEngine {
         let len = {
             let mut map = self.write_shard(key)?;
 
+            Self::check_and_remove_expired(&mut map, key);
             match map.get_mut(key) {
                 Some(v) => {
-                    if Self::is_expired(v) {
-                        map.remove(key);
-                        let mut list: VecDeque<Bytes> = VecDeque::new();
-                        for value in values {
-                            list.push_back(value);
-                        }
-                        let len = list.len();
-                        map.insert(key.to_string(), StorageValue::List(list));
-                        self.bump_version(key);
-                        len
-                    } else {
-                        Self::check_list_type(v)?;
-                        let list = Self::as_list_mut(v).unwrap();
-                        for value in values {
-                            list.push_back(value);
-                        }
-                        self.bump_version(key);
-                        list.len()
-                    }
+                                        Self::check_list_type(v)?;
+
+                                        let list = Self::as_list_mut(v).unwrap();
+
+                                        for value in values {
+
+                                            list.push_back(value);
+
+                                        }
+
+                                        self.bump_version(key);
+
+                                        list.len()
+
                 }
                 None => {
-                    let mut list: VecDeque<Bytes> = VecDeque::new();
-                    for value in values {
-                        list.push_back(value);
-                    }
-                    let len = list.len();
-                    map.insert(key.to_string(), StorageValue::List(list));
-                    self.bump_version(key);
-                    len
+
+                                    let mut list: VecDeque<Bytes> = VecDeque::new();
+
+                                    for value in values {
+
+                                        list.push_back(value);
+
+                                    }
+
+                                    let len = list.len();
+
+                                    map.insert(key.to_string(), StorageValue::List(list));
+
+                                    self.bump_version(key);
+
+                                    len
+
+
                 }
             }
         };
@@ -99,21 +111,25 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(None)
-                } else {
-                    Self::check_list_type(v)?;
-                    let list = Self::as_list_mut(v).unwrap();
-                    let result = list.pop_front();
-                    if list.is_empty() {
-                        map.remove(key);
-                    }
-                    self.bump_version(key);
-                    Ok(result)
-                }
+                                Self::check_list_type(v)?;
+
+                                let list = Self::as_list_mut(v).unwrap();
+
+                                let result = list.pop_front();
+
+                                if list.is_empty() {
+
+                                    map.remove(key);
+
+                                }
+
+                                self.bump_version(key);
+
+                                Ok(result)
+
             }
             None => Ok(None),
         }
@@ -129,21 +145,25 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(None)
-                } else {
-                    Self::check_list_type(v)?;
-                    let list = Self::as_list_mut(v).unwrap();
-                    let result = list.pop_back();
-                    if list.is_empty() {
-                        map.remove(key);
-                    }
-                    self.bump_version(key);
-                    Ok(result)
-                }
+                                Self::check_list_type(v)?;
+
+                                let list = Self::as_list_mut(v).unwrap();
+
+                                let result = list.pop_back();
+
+                                if list.is_empty() {
+
+                                    map.remove(key);
+
+                                }
+
+                                self.bump_version(key);
+
+                                Ok(result)
+
             }
             None => Ok(None),
         }
@@ -158,18 +178,19 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(0)
-                } else {
-                    Self::check_list_type(v)?;
-                    match v {
-                        StorageValue::List(list) => Ok(list.len()),
-                        _ => unreachable!(),
-                    }
-                }
+                                Self::check_list_type(v)?;
+
+                                match v {
+
+                                    StorageValue::List(list) => Ok(list.len()),
+
+                                    _ => unreachable!(),
+
+                                }
+
             }
             None => Ok(0),
         }
@@ -184,17 +205,19 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
+        Self::check_and_remove_expired(&mut map, key);
         let list = match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    return Ok(vec![]);
-                }
-                Self::check_list_type(v)?;
-                match v {
-                    StorageValue::List(l) => l.clone(),
-                    _ => unreachable!(),
-                }
+                            Self::check_list_type(v)?;
+
+                            match v {
+
+                                StorageValue::List(l) => l.clone(),
+
+                                _ => unreachable!(),
+
+                            }
+
             }
             None => return Ok(vec![]),
         };
@@ -237,17 +260,19 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
+        Self::check_and_remove_expired(&mut map, key);
         let list = match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    return Ok(None);
-                }
-                Self::check_list_type(v)?;
-                match v {
-                    StorageValue::List(l) => l.clone(),
-                    _ => unreachable!(),
-                }
+                            Self::check_list_type(v)?;
+
+                            match v {
+
+                                StorageValue::List(l) => l.clone(),
+
+                                _ => unreachable!(),
+
+                            }
+
             }
             None => return Ok(None),
         };
@@ -276,33 +301,45 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    return Err(AppError::Storage(
-                        "ERR no such key".to_string(),
-                    ));
-                }
-                Self::check_list_type(v)?;
-                let list = Self::as_list_mut(v).unwrap();
-                let len = list.len() as i64;
-                let mut idx = index;
-                if idx < 0 {
-                    idx = len + idx;
-                }
-                if idx < 0 || idx >= len {
-                    return Err(AppError::Storage(
-                        "ERR index out of range".to_string(),
-                    ));
-                }
-                list[idx as usize] = value;
-                self.bump_version(key);
-                Ok(())
+                            Self::check_list_type(v)?;
+
+                            let list = Self::as_list_mut(v).unwrap();
+
+                            let len = list.len() as i64;
+
+                            let mut idx = index;
+
+                            if idx < 0 {
+
+                                idx = len + idx;
+
+                            }
+
+                            if idx < 0 || idx >= len {
+
+                                return Err(AppError::Storage(
+
+                                    "ERR index out of range".to_string(),
+
+                                ));
+
+                            }
+
+                            list[idx as usize] = value;
+
+                            self.bump_version(key);
+
+                            Ok(())
+
             }
-            None => Err(AppError::Storage(
-                "ERR no such key".to_string(),
-            )),
+            None => {
+                Err(AppError::Storage(
+                "ERR no such key".to_string()
+                ))
+            }
         }
     }
 
@@ -317,35 +354,55 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    return Ok(-1);
-                }
-                Self::check_list_type(v)?;
-                let list = Self::as_list_mut(v).unwrap();
-                let mut found = false;
-                for i in 0..list.len() {
-                    if list[i] == pivot {
-                        let insert_idx = if position == LInsertPosition::Before {
-                            i
-                        } else {
-                            i + 1
-                        };
-                        // VecDeque 不支持直接按索引插入，先转为 Vec
-                        let mut vec: Vec<Bytes> = list.iter().cloned().collect();
-                        vec.insert(insert_idx, value.clone());
-                        *list = VecDeque::from(vec);
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    return Ok(-1);
-                }
-                self.bump_version(key);
-                Ok(list.len() as i64)
+                            Self::check_list_type(v)?;
+
+                            let list = Self::as_list_mut(v).unwrap();
+
+                            let mut found = false;
+
+                            for i in 0..list.len() {
+
+                                if list[i] == pivot {
+
+                                    let insert_idx = if position == LInsertPosition::Before {
+
+                                        i
+
+                                    } else {
+
+                                        i + 1
+
+                                    };
+
+                                    // VecDeque 不支持直接按索引插入，先转为 Vec
+
+                                    let mut vec: Vec<Bytes> = list.iter().cloned().collect();
+
+                                    vec.insert(insert_idx, value.clone());
+
+                                    *list = VecDeque::from(vec);
+
+                                    found = true;
+
+                                    break;
+
+                                }
+
+                            }
+
+                            if !found {
+
+                                return Ok(-1);
+
+                            }
+
+                            self.bump_version(key);
+
+                            Ok(list.len() as i64)
+
             }
             None => Ok(-1),
         }
@@ -365,70 +422,122 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    return Ok(0);
-                }
-                Self::check_list_type(v)?;
-                let list = Self::as_list_mut(v).unwrap();
-                let mut removed = 0i64;
-                if count == 0 {
-                    // 删除全部匹配的元素
-                    let _original_len = list.len();
-                    list.retain(|item| {
-                        if *item == value {
-                            removed += 1;
-                            false
-                        } else {
-                            true
-                        }
-                    });
-                    if removed > 0 {
-                        self.bump_version(key);
-                    }
-                    return Ok(removed);
-                }
+                            Self::check_list_type(v)?;
 
-                let mut indices_to_remove = Vec::new();
-                if count > 0 {
-                    for (i, item) in list.iter().enumerate() {
-                        if *item == value {
-                            indices_to_remove.push(i);
-                            if indices_to_remove.len() >= count as usize {
-                                break;
+                            let list = Self::as_list_mut(v).unwrap();
+
+                            let mut removed = 0i64;
+
+                            if count == 0 {
+
+                                // 删除全部匹配的元素
+
+                                let _original_len = list.len();
+
+                                list.retain(|item| {
+
+                                    if *item == value {
+
+                                        removed += 1;
+
+                                        false
+
+                                    } else {
+
+                                        true
+
+                                    }
+
+                                });
+
+                                if removed > 0 {
+
+                                    self.bump_version(key);
+
+                                }
+
+                                return Ok(removed);
+
                             }
-                        }
-                    }
-                } else {
-                    let abs_count = (-count) as usize;
-                    for (i, item) in list.iter().enumerate().rev() {
-                        if *item == value {
-                            indices_to_remove.push(i);
-                            if indices_to_remove.len() >= abs_count {
-                                break;
+
+
+                            let mut indices_to_remove = Vec::new();
+
+                            if count > 0 {
+
+                                for (i, item) in list.iter().enumerate() {
+
+                                    if *item == value {
+
+                                        indices_to_remove.push(i);
+
+                                        if indices_to_remove.len() >= count as usize {
+
+                                            break;
+
+                                        }
+
+                                    }
+
+                                }
+
+                            } else {
+
+                                let abs_count = (-count) as usize;
+
+                                for (i, item) in list.iter().enumerate().rev() {
+
+                                    if *item == value {
+
+                                        indices_to_remove.push(i);
+
+                                        if indices_to_remove.len() >= abs_count {
+
+                                            break;
+
+                                        }
+
+                                    }
+
+                                }
+
                             }
-                        }
-                    }
-                }
 
-                removed = indices_to_remove.len() as i64;
-                // 按索引降序删除，避免索引偏移问题
-                indices_to_remove.sort_unstable_by(|a, b| b.cmp(a));
-                let mut vec: Vec<Bytes> = list.iter().cloned().collect();
-                for idx in indices_to_remove {
-                    vec.remove(idx);
-                }
-                *list = VecDeque::from(vec);
 
-                if removed > 0 {
-                    self.bump_version(key);
-                    if list.is_empty() {
-                        map.remove(key);
-                    }
-                }
-                Ok(removed)
+                            removed = indices_to_remove.len() as i64;
+
+                            // 按索引降序删除，避免索引偏移问题
+
+                            indices_to_remove.sort_unstable_by(|a, b| b.cmp(a));
+
+                            let mut vec: Vec<Bytes> = list.iter().cloned().collect();
+
+                            for idx in indices_to_remove {
+
+                                vec.remove(idx);
+
+                            }
+
+                            *list = VecDeque::from(vec);
+
+
+                            if removed > 0 {
+
+                                self.bump_version(key);
+
+                                if list.is_empty() {
+
+                                    map.remove(key);
+
+                                }
+
+                            }
+
+                            Ok(removed)
+
             }
             None => Ok(0),
         }
@@ -444,42 +553,69 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    return Ok(());
-                }
-                Self::check_list_type(v)?;
-                let list = Self::as_list_mut(v).unwrap();
-                let len = list.len() as i64;
-                let mut s = start;
-                let mut e = stop;
-                if s < 0 {
-                    s = len + s;
-                }
-                if e < 0 {
-                    e = len + e;
-                }
-                s = s.max(0);
-                e = e.min(len - 1);
-                if s > e || s >= len {
-                    map.remove(key);
-                    return Ok(());
-                }
-                let start_idx = s as usize;
-                let end_idx = e as usize;
-                let mut new_list = VecDeque::new();
-                for i in start_idx..=end_idx {
-                    new_list.push_back(list[i].clone());
-                }
-                if new_list.is_empty() {
-                    map.remove(key);
-                } else {
-                    *list = new_list;
-                }
-                self.bump_version(key);
-                Ok(())
+                            Self::check_list_type(v)?;
+
+                            let list = Self::as_list_mut(v).unwrap();
+
+                            let len = list.len() as i64;
+
+                            let mut s = start;
+
+                            let mut e = stop;
+
+                            if s < 0 {
+
+                                s = len + s;
+
+                            }
+
+                            if e < 0 {
+
+                                e = len + e;
+
+                            }
+
+                            s = s.max(0);
+
+                            e = e.min(len - 1);
+
+                            if s > e || s >= len {
+
+                                map.remove(key);
+
+                                return Ok(());
+
+                            }
+
+                            let start_idx = s as usize;
+
+                            let end_idx = e as usize;
+
+                            let mut new_list = VecDeque::new();
+
+                            for i in start_idx..=end_idx {
+
+                                new_list.push_back(list[i].clone());
+
+                            }
+
+                            if new_list.is_empty() {
+
+                                map.remove(key);
+
+                            } else {
+
+                                *list = new_list;
+
+                            }
+
+                            self.bump_version(key);
+
+                            Ok(())
+
             }
             None => Ok(()),
         }
@@ -498,52 +634,84 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    return Ok(Vec::new());
-                }
-                Self::check_list_type(v)?;
-                let list = match v {
-                    StorageValue::List(l) => l.clone(),
-                    _ => unreachable!(),
-                };
+                            Self::check_list_type(v)?;
 
-                let mut result = Vec::new();
-                let len = list.len() as i64;
-                let check_limit = if maxlen > 0 { maxlen } else { len };
+                            let list = match v {
 
-                if rank == 0 {
-                    return Ok(Vec::new());
-                }
+                                StorageValue::List(l) => l.clone(),
 
-                let mut checked = 0i64;
-                let mut matched = 0i64;
-                let target_match = rank.abs();
+                                _ => unreachable!(),
 
-                let iter: Box<dyn Iterator<Item = (usize, &Bytes)>> = if rank > 0 {
-                    Box::new(list.iter().enumerate())
-                } else {
-                    Box::new(list.iter().enumerate().rev())
-                };
+                            };
 
-                for (idx, item) in iter {
-                    if checked >= check_limit {
-                        break;
-                    }
-                    checked += 1;
-                    if *item == value {
-                        matched += 1;
-                        if matched >= target_match {
-                            result.push(idx as i64);
-                            if count == 0 || result.len() >= count as usize {
-                                break;
+
+                            let mut result = Vec::new();
+
+                            let len = list.len() as i64;
+
+                            let check_limit = if maxlen > 0 { maxlen } else { len };
+
+
+                            if rank == 0 {
+
+                                return Ok(Vec::new());
+
                             }
-                        }
-                    }
-                }
-                Ok(result)
+
+
+                            let mut checked = 0i64;
+
+                            let mut matched = 0i64;
+
+                            let target_match = rank.abs();
+
+
+                            let iter: Box<dyn Iterator<Item = (usize, &Bytes)>> = if rank > 0 {
+
+                                Box::new(list.iter().enumerate())
+
+                            } else {
+
+                                Box::new(list.iter().enumerate().rev())
+
+                            };
+
+
+                            for (idx, item) in iter {
+
+                                if checked >= check_limit {
+
+                                    break;
+
+                                }
+
+                                checked += 1;
+
+                                if *item == value {
+
+                                    matched += 1;
+
+                                    if matched >= target_match {
+
+                                        result.push(idx as i64);
+
+                                        if count == 0 || result.len() >= count as usize {
+
+                                            break;
+
+                                        }
+
+                                    }
+
+                                }
+
+                            }
+
+                            Ok(result)
+
             }
             None => Ok(Vec::new()),
         }
@@ -691,20 +859,23 @@ impl StorageEngine {
         let mut src_map = self.write_shard(source)?;
 
         // 从 source 弹出
+        Self::check_and_remove_expired(&mut src_map, source);
         let popped = match src_map.get_mut(source) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    src_map.remove(source);
-                    None
-                } else {
-                    Self::check_list_type(v)?;
-                    let list = Self::as_list_mut(v).unwrap();
-                    let result = if left_from { list.pop_front() } else { list.pop_back() };
-                    if list.is_empty() {
-                        src_map.remove(source);
-                    }
-                    result
-                }
+                                Self::check_list_type(v)?;
+
+                                let list = Self::as_list_mut(v).unwrap();
+
+                                let result = if left_from { list.pop_front() } else { list.pop_back() };
+
+                                if list.is_empty() {
+
+                                    src_map.remove(source);
+
+                                }
+
+                                result
+
             }
             None => None,
         };
@@ -718,35 +889,41 @@ impl StorageEngine {
         let mut dst_map = self.write_shard(destination)?;
 
         // 推入 destination
+        Self::check_and_remove_expired(&mut dst_map, destination);
         match dst_map.get_mut(destination) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    dst_map.remove(destination);
-                    let mut list: VecDeque<Bytes> = VecDeque::new();
-                    if left_to {
-                        list.push_front(value.clone());
-                    } else {
-                        list.push_back(value.clone());
-                    }
-                    dst_map.insert(destination.to_string(), StorageValue::List(list));
-                } else {
-                    Self::check_list_type(v)?;
-                    let list = Self::as_list_mut(v).unwrap();
-                    if left_to {
-                        list.push_front(value.clone());
-                    } else {
-                        list.push_back(value.clone());
-                    }
-                }
+                                Self::check_list_type(v)?;
+
+                                let list = Self::as_list_mut(v).unwrap();
+
+                                if left_to {
+
+                                    list.push_front(value.clone());
+
+                                } else {
+
+                                    list.push_back(value.clone());
+
+                                }
+
             }
             None => {
-                let mut list: VecDeque<Bytes> = VecDeque::new();
-                if left_to {
-                    list.push_front(value.clone());
-                } else {
-                    list.push_back(value.clone());
-                }
-                dst_map.insert(destination.to_string(), StorageValue::List(list));
+
+                            let mut list: VecDeque<Bytes> = VecDeque::new();
+
+                            if left_to {
+
+                                list.push_front(value.clone());
+
+                            } else {
+
+                                list.push_back(value.clone());
+
+                            }
+
+                            dst_map.insert(destination.to_string(), StorageValue::List(list));
+
+
             }
         };
 
@@ -766,32 +943,44 @@ impl StorageEngine {
     /// 返回 (key, elements)
     pub fn lmpop(&self, keys: &[String], left: bool, count: usize) -> Result<Option<(String, Vec<Bytes>)>> {
         self.evict_if_needed()?;
-        let db = self.db();
 
         for key in keys {
             let mut map = self.write_shard(key)?;
+            Self::check_and_remove_expired(&mut map, key);
             let popped = match map.get_mut(key) {
                 Some(v) => {
-                    if Self::is_expired(v) {
-                        map.remove(key);
-                        continue;
-                    }
-                    Self::check_list_type(v)?;
-                    let list = Self::as_list_mut(v).unwrap();
-                    let mut results = Vec::new();
-                    for _ in 0..count {
-                        match if left { list.pop_front() } else { list.pop_back() } {
-                            Some(val) => results.push(val),
-                            None => break,
-                        }
-                    }
-                    if list.is_empty() {
-                        map.remove(key);
-                    }
-                    if results.is_empty() {
-                        continue;
-                    }
-                    results
+                                    Self::check_list_type(v)?;
+
+                                    let list = Self::as_list_mut(v).unwrap();
+
+                                    let mut results = Vec::new();
+
+                                    for _ in 0..count {
+
+                                        match if left { list.pop_front() } else { list.pop_back() } {
+
+                                            Some(val) => results.push(val),
+
+                                            None => break,
+
+                                        }
+
+                                    }
+
+                                    if list.is_empty() {
+
+                                        map.remove(key);
+
+                                    }
+
+                                    if results.is_empty() {
+
+                                        continue;
+
+                                    }
+
+                                    results
+
                 }
                 None => continue,
             };

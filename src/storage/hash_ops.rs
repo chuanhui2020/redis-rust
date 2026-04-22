@@ -6,27 +6,31 @@ impl StorageEngine {
         self.cleanup_hash_expired_fields(key);
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    let mut h = HashMap::new();
-                    h.insert(field, value);
-                    map.insert(key.to_string(), StorageValue::Hash(h));
-                    Ok(1)
-                } else {
-                    Self::check_hash_type(v)?;
-                    let h = Self::as_hash_mut(v).unwrap();
-                    let is_new = if h.contains_key(&field) { 0 } else { 1 };
-                    h.insert(field, value);
-                    Ok(is_new)
-                }
+                                Self::check_hash_type(v)?;
+
+                                let h = Self::as_hash_mut(v).unwrap();
+
+                                let is_new = if h.contains_key(&field) { 0 } else { 1 };
+
+                                h.insert(field, value);
+
+                                Ok(is_new)
+
             }
             None => {
-                let mut h = HashMap::new();
-                h.insert(field, value);
-                map.insert(key.to_string(), StorageValue::Hash(h));
-                Ok(1)
+
+                            let mut h = HashMap::new();
+
+                            h.insert(field, value);
+
+                            map.insert(key.to_string(), StorageValue::Hash(h));
+
+                            Ok(1)
+
+
             }
         }
     }
@@ -36,18 +40,19 @@ impl StorageEngine {
         self.cleanup_hash_expired_fields(key);
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(None)
-                } else {
-                    Self::check_hash_type(v)?;
-                    match v {
-                        StorageValue::Hash(h) => Ok(h.get(field).cloned()),
-                        _ => unreachable!(),
-                    }
-                }
+                                Self::check_hash_type(v)?;
+
+                                match v {
+
+                                    StorageValue::Hash(h) => Ok(h.get(field).cloned()),
+
+                                    _ => unreachable!(),
+
+                                }
+
             }
             None => Ok(None),
         }
@@ -59,25 +64,33 @@ impl StorageEngine {
         self.cleanup_hash_expired_fields(key);
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(0)
-                } else {
-                    Self::check_hash_type(v)?;
-                    let h = Self::as_hash_mut(v).unwrap();
-                    let mut count = 0i64;
-                    for field in fields {
-                        if h.remove(field).is_some() {
-                            count += 1;
-                        }
-                    }
-                    if h.is_empty() {
-                        map.remove(key);
-                    }
-                    Ok(count)
-                }
+                                Self::check_hash_type(v)?;
+
+                                let h = Self::as_hash_mut(v).unwrap();
+
+                                let mut count = 0i64;
+
+                                for field in fields {
+
+                                    if h.remove(field).is_some() {
+
+                                        count += 1;
+
+                                    }
+
+                                }
+
+                                if h.is_empty() {
+
+                                    map.remove(key);
+
+                                }
+
+                                Ok(count)
+
             }
             None => Ok(0),
         }
@@ -88,18 +101,19 @@ impl StorageEngine {
         self.cleanup_hash_expired_fields(key);
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(false)
-                } else {
-                    Self::check_hash_type(v)?;
-                    match v {
-                        StorageValue::Hash(h) => Ok(h.contains_key(field)),
-                        _ => unreachable!(),
-                    }
-                }
+                                Self::check_hash_type(v)?;
+
+                                match v {
+
+                                    StorageValue::Hash(h) => Ok(h.contains_key(field)),
+
+                                    _ => unreachable!(),
+
+                                }
+
             }
             None => Ok(false),
         }
@@ -110,24 +124,31 @@ impl StorageEngine {
         self.cleanup_hash_expired_fields(key);
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(vec![])
-                } else {
-                    Self::check_hash_type(v)?;
-                    match v {
-                        StorageValue::Hash(h) => {
-                            let result: Vec<(String, Bytes)> = h
-                                .iter()
-                                .map(|(k, v)| (k.clone(), v.clone()))
-                                .collect();
-                            Ok(result)
-                        }
-                        _ => unreachable!(),
-                    }
-                }
+                                Self::check_hash_type(v)?;
+
+                                match v {
+
+                                    StorageValue::Hash(h) => {
+
+                                        let result: Vec<(String, Bytes)> = h
+
+                                            .iter()
+
+                                            .map(|(k, v)| (k.clone(), v.clone()))
+
+                                            .collect();
+
+                                        Ok(result)
+
+                                    }
+
+                                    _ => unreachable!(),
+
+                                }
+
             }
             None => Ok(vec![]),
         }
@@ -138,18 +159,19 @@ impl StorageEngine {
         self.cleanup_hash_expired_fields(key);
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(0)
-                } else {
-                    Self::check_hash_type(v)?;
-                    match v {
-                        StorageValue::Hash(h) => Ok(h.len()),
-                        _ => unreachable!(),
-                    }
-                }
+                                Self::check_hash_type(v)?;
+
+                                match v {
+
+                                    StorageValue::Hash(h) => Ok(h.len()),
+
+                                    _ => unreachable!(),
+
+                                }
+
             }
             None => Ok(0),
         }
@@ -161,40 +183,55 @@ impl StorageEngine {
         self.cleanup_hash_expired_fields(key);
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    let mut h = HashMap::new();
-                    h.insert(field.clone(), Bytes::from(delta.to_string()));
-                    map.insert(key.to_string(), StorageValue::Hash(h));
-                    self.bump_version(key);
-                    Ok(delta)
-                } else {
-                    Self::check_hash_type(v)?;
-                    let h = Self::as_hash_mut(v).unwrap();
-                    let current = match h.get(&field) {
-                        Some(b) => {
-                            String::from_utf8_lossy(b)
-                                .parse::<i64>()
-                                .map_err(|_| {
-                                    AppError::Storage("hash value is not an integer".to_string())
-                                })?
-                        }
-                        None => 0i64,
-                    };
-                    let new_val = current.saturating_add(delta);
-                    h.insert(field, Bytes::from(new_val.to_string()));
-                    self.bump_version(key);
-                    Ok(new_val)
-                }
+                                Self::check_hash_type(v)?;
+
+                                let h = Self::as_hash_mut(v).unwrap();
+
+                                let current = match h.get(&field) {
+
+                                    Some(b) => {
+
+                                        String::from_utf8_lossy(b)
+
+                                            .parse::<i64>()
+
+                                            .map_err(|_| {
+
+                                                AppError::Storage("hash value is not an integer".to_string())
+
+                                            })?
+
+                                    }
+
+                                    None => 0i64,
+
+                                };
+
+                                let new_val = current.saturating_add(delta);
+
+                                h.insert(field, Bytes::from(new_val.to_string()));
+
+                                self.bump_version(key);
+
+                                Ok(new_val)
+
             }
             None => {
-                let mut h = HashMap::new();
-                h.insert(field, Bytes::from(delta.to_string()));
-                map.insert(key.to_string(), StorageValue::Hash(h));
-                self.bump_version(key);
-                Ok(delta)
+
+                            let mut h = HashMap::new();
+
+                            h.insert(field, Bytes::from(delta.to_string()));
+
+                            map.insert(key.to_string(), StorageValue::Hash(h));
+
+                            self.bump_version(key);
+
+                            Ok(delta)
+
+
             }
         }
     }
@@ -205,43 +242,59 @@ impl StorageEngine {
         self.cleanup_hash_expired_fields(key);
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    let mut h = HashMap::new();
-                    let new_str = format_float(delta);
-                    h.insert(field.clone(), Bytes::from(new_str.clone()));
-                    map.insert(key.to_string(), StorageValue::Hash(h));
-                    self.bump_version(key);
-                    Ok(new_str)
-                } else {
-                    Self::check_hash_type(v)?;
-                    let h = Self::as_hash_mut(v).unwrap();
-                    let current = match h.get(&field) {
-                        Some(b) => {
-                            String::from_utf8_lossy(b)
-                                .parse::<f64>()
-                                .map_err(|_| {
-                                    AppError::Storage("hash value is not a valid float".to_string())
-                                })?
-                        }
-                        None => 0.0,
-                    };
-                    let new_val = current + delta;
-                    let new_str = format_float(new_val);
-                    h.insert(field, Bytes::from(new_str.clone()));
-                    self.bump_version(key);
-                    Ok(new_str)
-                }
+                                Self::check_hash_type(v)?;
+
+                                let h = Self::as_hash_mut(v).unwrap();
+
+                                let current = match h.get(&field) {
+
+                                    Some(b) => {
+
+                                        String::from_utf8_lossy(b)
+
+                                            .parse::<f64>()
+
+                                            .map_err(|_| {
+
+                                                AppError::Storage("hash value is not a valid float".to_string())
+
+                                            })?
+
+                                    }
+
+                                    None => 0.0,
+
+                                };
+
+                                let new_val = current + delta;
+
+                                let new_str = format_float(new_val);
+
+                                h.insert(field, Bytes::from(new_str.clone()));
+
+                                self.bump_version(key);
+
+                                Ok(new_str)
+
             }
             None => {
-                let mut h = HashMap::new();
-                let new_str = format_float(delta);
-                h.insert(field, Bytes::from(new_str.clone()));
-                map.insert(key.to_string(), StorageValue::Hash(h));
-                self.bump_version(key);
-                Ok(new_str)
+
+                            let mut h = HashMap::new();
+
+                            let new_str = format_float(delta);
+
+                            h.insert(field, Bytes::from(new_str.clone()));
+
+                            map.insert(key.to_string(), StorageValue::Hash(h));
+
+                            self.bump_version(key);
+
+                            Ok(new_str)
+
+
             }
         }
     }
@@ -251,22 +304,27 @@ impl StorageEngine {
         self.cleanup_hash_expired_fields(key);
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(vec![])
-                } else {
-                    Self::check_hash_type(v)?;
-                    match v {
-                        StorageValue::Hash(h) => {
-                            let mut keys: Vec<String> = h.keys().cloned().collect();
-                            keys.sort();
-                            Ok(keys)
-                        }
-                        _ => unreachable!(),
-                    }
-                }
+                                Self::check_hash_type(v)?;
+
+                                match v {
+
+                                    StorageValue::Hash(h) => {
+
+                                        let mut keys: Vec<String> = h.keys().cloned().collect();
+
+                                        keys.sort();
+
+                                        Ok(keys)
+
+                                    }
+
+                                    _ => unreachable!(),
+
+                                }
+
             }
             None => Ok(vec![]),
         }
@@ -277,24 +335,31 @@ impl StorageEngine {
         self.cleanup_hash_expired_fields(key);
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(vec![])
-                } else {
-                    Self::check_hash_type(v)?;
-                    match v {
-                        StorageValue::Hash(h) => {
-                            // 按字段名排序以保持确定性
-                            let mut pairs: Vec<(String, Bytes)> = h.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                            pairs.sort_by(|a, b| a.0.cmp(&b.0));
-                            let result: Vec<Bytes> = pairs.into_iter().map(|(_, v)| v).collect();
-                            Ok(result)
-                        }
-                        _ => unreachable!(),
-                    }
-                }
+                                Self::check_hash_type(v)?;
+
+                                match v {
+
+                                    StorageValue::Hash(h) => {
+
+                                        // 按字段名排序以保持确定性
+
+                                        let mut pairs: Vec<(String, Bytes)> = h.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+
+                                        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+
+                                        let result: Vec<Bytes> = pairs.into_iter().map(|(_, v)| v).collect();
+
+                                        Ok(result)
+
+                                    }
+
+                                    _ => unreachable!(),
+
+                                }
+
             }
             None => Ok(vec![]),
         }
@@ -306,33 +371,41 @@ impl StorageEngine {
         self.cleanup_hash_expired_fields(key);
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    let mut h = HashMap::new();
-                    h.insert(field, value);
-                    map.insert(key.to_string(), StorageValue::Hash(h));
-                    self.bump_version(key);
-                    Ok(1)
-                } else {
-                    Self::check_hash_type(v)?;
-                    let h = Self::as_hash_mut(v).unwrap();
-                    if h.contains_key(&field) {
-                        Ok(0)
-                    } else {
-                        h.insert(field, value);
-                        self.bump_version(key);
-                        Ok(1)
-                    }
-                }
+                                Self::check_hash_type(v)?;
+
+                                let h = Self::as_hash_mut(v).unwrap();
+
+                                if h.contains_key(&field) {
+
+                                    Ok(0)
+
+                                } else {
+
+                                    h.insert(field, value);
+
+                                    self.bump_version(key);
+
+                                    Ok(1)
+
+                                }
+
             }
             None => {
-                let mut h = HashMap::new();
-                h.insert(field, value);
-                map.insert(key.to_string(), StorageValue::Hash(h));
-                self.bump_version(key);
-                Ok(1)
+
+                            let mut h = HashMap::new();
+
+                            h.insert(field, value);
+
+                            map.insert(key.to_string(), StorageValue::Hash(h));
+
+                            self.bump_version(key);
+
+                            Ok(1)
+
+
             }
         }
     }
@@ -343,66 +416,113 @@ impl StorageEngine {
     pub fn hrandfield(&self, key: &str, count: i64, with_values: bool) -> Result<Vec<(String, Option<Bytes>)>> {
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(vec![])
-                } else {
-                    Self::check_hash_type(v)?;
-                    match v {
-                        StorageValue::Hash(h) => {
-                            let fields: Vec<(String, Bytes)> = h
-                                .iter()
-                                .map(|(k, v)| (k.clone(), v.clone()))
-                                .collect();
-                            if fields.is_empty() {
-                                return Ok(vec![]);
-                            }
+                                Self::check_hash_type(v)?;
 
-                            use rand::seq::SliceRandom;
-                            let mut rng = rand::thread_rng();
+                                match v {
 
-                            if count > 0 {
-                                let n = count as usize;
-                                if n >= fields.len() {
-                                    // 返回全部，打乱顺序
-                                    let mut shuffled = fields.clone();
-                                    shuffled.shuffle(&mut rng);
-                                    Ok(shuffled.into_iter().map(|(k, v)| {
-                                        if with_values {
-                                            (k, Some(v))
-                                        } else {
-                                            (k, None)
+                                    StorageValue::Hash(h) => {
+
+                                        let fields: Vec<(String, Bytes)> = h
+
+                                            .iter()
+
+                                            .map(|(k, v)| (k.clone(), v.clone()))
+
+                                            .collect();
+
+                                        if fields.is_empty() {
+
+                                            return Ok(vec![]);
+
                                         }
-                                    }).collect())
-                                } else {
-                                    let selected: Vec<_> = fields.choose_multiple(&mut rng, n).cloned().collect();
-                                    Ok(selected.into_iter().map(|(k, v)| {
-                                        if with_values {
-                                            (k, Some(v))
+
+
+                                        use rand::seq::SliceRandom;
+
+                                        let mut rng = rand::thread_rng();
+
+
+                                        if count > 0 {
+
+                                            let n = count as usize;
+
+                                            if n >= fields.len() {
+
+                                                // 返回全部，打乱顺序
+
+                                                let mut shuffled = fields.clone();
+
+                                                shuffled.shuffle(&mut rng);
+
+                                                Ok(shuffled.into_iter().map(|(k, v)| {
+
+                                                    if with_values {
+
+                                                        (k, Some(v))
+
+                                                    } else {
+
+                                                        (k, None)
+
+                                                    }
+
+                                                }).collect())
+
+                                            } else {
+
+                                                let selected: Vec<_> = fields.choose_multiple(&mut rng, n).cloned().collect();
+
+                                                Ok(selected.into_iter().map(|(k, v)| {
+
+                                                    if with_values {
+
+                                                        (k, Some(v))
+
+                                                    } else {
+
+                                                        (k, None)
+
+                                                    }
+
+                                                }).collect())
+
+                                            }
+
                                         } else {
-                                            (k, None)
+
+                                            let n = (-count) as usize;
+
+                                            let mut result = Vec::with_capacity(n);
+
+                                            for _ in 0..n {
+
+                                                let (k, v) = fields.choose(&mut rng).unwrap().clone();
+
+                                                if with_values {
+
+                                                    result.push((k, Some(v)));
+
+                                                } else {
+
+                                                    result.push((k, None));
+
+                                                }
+
+                                            }
+
+                                            Ok(result)
+
                                         }
-                                    }).collect())
-                                }
-                            } else {
-                                let n = (-count) as usize;
-                                let mut result = Vec::with_capacity(n);
-                                for _ in 0..n {
-                                    let (k, v) = fields.choose(&mut rng).unwrap().clone();
-                                    if with_values {
-                                        result.push((k, Some(v)));
-                                    } else {
-                                        result.push((k, None));
+
                                     }
+
+                                    _ => unreachable!(),
+
                                 }
-                                Ok(result)
-                            }
-                        }
-                        _ => unreachable!(),
-                    }
-                }
+
             }
             None => Ok(vec![]),
         }
@@ -413,41 +533,63 @@ impl StorageEngine {
     pub fn hscan(&self, key: &str, cursor: usize, pattern: &str, count: usize) -> Result<(usize, Vec<(String, Bytes)>)> {
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    return Ok((0, vec![]));
-                }
-                Self::check_hash_type(v)?;
-                match v {
-                    StorageValue::Hash(h) => {
-                        let mut fields: Vec<(String, Bytes)> = h
-                            .iter()
-                            .map(|(k, v)| (k.clone(), v.clone()))
-                            .collect();
-                        fields.sort_by(|a, b| a.0.cmp(&b.0));
+                            Self::check_hash_type(v)?;
 
-                        let mut filtered = Vec::new();
-                        for (field, value) in fields {
-                            if Self::glob_match(&field, pattern) {
-                                filtered.push((field, value));
+                            match v {
+
+                                StorageValue::Hash(h) => {
+
+                                    let mut fields: Vec<(String, Bytes)> = h
+
+                                        .iter()
+
+                                        .map(|(k, v)| (k.clone(), v.clone()))
+
+                                        .collect();
+
+                                    fields.sort_by(|a, b| a.0.cmp(&b.0));
+
+
+                                    let mut filtered = Vec::new();
+
+                                    for (field, value) in fields {
+
+                                        if Self::glob_match(&field, pattern) {
+
+                                            filtered.push((field, value));
+
+                                        }
+
+                                    }
+
+
+                                    if cursor >= filtered.len() {
+
+                                        return Ok((0, vec![]));
+
+                                    }
+
+
+                                    let count = if count == 0 { 10 } else { count };
+
+                                    let end = (cursor + count).min(filtered.len());
+
+                                    let result = filtered[cursor..end].to_vec();
+
+                                    let new_cursor = if end >= filtered.len() { 0 } else { end };
+
+
+                                    Ok((new_cursor, result))
+
+                                }
+
+                                _ => unreachable!(),
+
                             }
-                        }
 
-                        if cursor >= filtered.len() {
-                            return Ok((0, vec![]));
-                        }
-
-                        let count = if count == 0 { 10 } else { count };
-                        let end = (cursor + count).min(filtered.len());
-                        let result = filtered[cursor..end].to_vec();
-                        let new_cursor = if end >= filtered.len() { 0 } else { end };
-
-                        Ok((new_cursor, result))
-                    }
-                    _ => unreachable!(),
-                }
             }
             None => Ok((0, vec![])),
         }
@@ -458,29 +600,33 @@ impl StorageEngine {
         self.evict_if_needed()?;
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    let mut h = HashMap::new();
-                    for (field, value) in pairs {
-                        h.insert(field.clone(), value.clone());
-                    }
-                    map.insert(key.to_string(), StorageValue::Hash(h));
-                } else {
-                    Self::check_hash_type(v)?;
-                    let h = Self::as_hash_mut(v).unwrap();
-                    for (field, value) in pairs {
-                        h.insert(field.clone(), value.clone());
-                    }
-                }
+                                Self::check_hash_type(v)?;
+
+                                let h = Self::as_hash_mut(v).unwrap();
+
+                                for (field, value) in pairs {
+
+                                    h.insert(field.clone(), value.clone());
+
+                                }
+
             }
             None => {
-                let mut h = HashMap::new();
-                for (field, value) in pairs {
-                    h.insert(field.clone(), value.clone());
-                }
-                map.insert(key.to_string(), StorageValue::Hash(h));
+
+                            let mut h = HashMap::new();
+
+                            for (field, value) in pairs {
+
+                                h.insert(field.clone(), value.clone());
+
+                            }
+
+                            map.insert(key.to_string(), StorageValue::Hash(h));
+
+
             }
         }
         Ok(())
@@ -491,17 +637,19 @@ impl StorageEngine {
         self.cleanup_hash_expired_fields(key);
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         let h = match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    return Ok(vec![None; fields.len()]);
-                }
-                Self::check_hash_type(v)?;
-                match v {
-                    StorageValue::Hash(h) => h.clone(),
-                    _ => unreachable!(),
-                }
+                            Self::check_hash_type(v)?;
+
+                            match v {
+
+                                StorageValue::Hash(h) => h.clone(),
+
+                                _ => unreachable!(),
+
+                            }
+
             }
             None => return Ok(vec![None; fields.len()]),
         };
@@ -527,32 +675,47 @@ impl StorageEngine {
         let db = self.db();
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(vec![-1; fields.len()])
-                } else {
-                    Self::check_hash_type(v)?;
-                    let h = Self::as_hash_mut(v).unwrap();
-                    let expire_at = Self::now_millis().saturating_add(milliseconds);
-                    let mut result = Vec::with_capacity(fields.len());
-                    let mut exp_map = db.hash_field_expirations.write().unwrap();
-                    let field_map = exp_map.entry(key.to_string()).or_insert_with(HashMap::new);
-                    for field in fields {
-                        if h.contains_key(field) {
-                            field_map.insert(field.clone(), expire_at);
-                            result.push(1);
-                        } else {
-                            result.push(0);
-                        }
-                    }
-                    if field_map.is_empty() {
-                        exp_map.remove(key);
-                    }
-                    self.bump_version(key);
-                    Ok(result)
-                }
+                                Self::check_hash_type(v)?;
+
+                                let h = Self::as_hash_mut(v).unwrap();
+
+                                let expire_at = Self::now_millis().saturating_add(milliseconds);
+
+                                let mut result = Vec::with_capacity(fields.len());
+
+                                let mut exp_map = db.hash_field_expirations.write().unwrap();
+
+                                let field_map = exp_map.entry(key.to_string()).or_insert_with(HashMap::new);
+
+                                for field in fields {
+
+                                    if h.contains_key(field) {
+
+                                        field_map.insert(field.clone(), expire_at);
+
+                                        result.push(1);
+
+                                    } else {
+
+                                        result.push(0);
+
+                                    }
+
+                                }
+
+                                if field_map.is_empty() {
+
+                                    exp_map.remove(key);
+
+                                }
+
+                                self.bump_version(key);
+
+                                Ok(result)
+
             }
             None => Ok(vec![-1; fields.len()]),
         }
@@ -569,31 +732,45 @@ impl StorageEngine {
         let db = self.db();
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(vec![-1; fields.len()])
-                } else {
-                    Self::check_hash_type(v)?;
-                    let h = Self::as_hash_mut(v).unwrap();
-                    let mut result = Vec::with_capacity(fields.len());
-                    let mut exp_map = db.hash_field_expirations.write().unwrap();
-                    let field_map = exp_map.entry(key.to_string()).or_insert_with(HashMap::new);
-                    for field in fields {
-                        if h.contains_key(field) {
-                            field_map.insert(field.clone(), timestamp_ms);
-                            result.push(1);
-                        } else {
-                            result.push(0);
-                        }
-                    }
-                    if field_map.is_empty() {
-                        exp_map.remove(key);
-                    }
-                    self.bump_version(key);
-                    Ok(result)
-                }
+                                Self::check_hash_type(v)?;
+
+                                let h = Self::as_hash_mut(v).unwrap();
+
+                                let mut result = Vec::with_capacity(fields.len());
+
+                                let mut exp_map = db.hash_field_expirations.write().unwrap();
+
+                                let field_map = exp_map.entry(key.to_string()).or_insert_with(HashMap::new);
+
+                                for field in fields {
+
+                                    if h.contains_key(field) {
+
+                                        field_map.insert(field.clone(), timestamp_ms);
+
+                                        result.push(1);
+
+                                    } else {
+
+                                        result.push(0);
+
+                                    }
+
+                                }
+
+                                if field_map.is_empty() {
+
+                                    exp_map.remove(key);
+
+                                }
+
+                                self.bump_version(key);
+
+                                Ok(result)
+
             }
             None => Ok(vec![-1; fields.len()]),
         }
@@ -701,43 +878,69 @@ impl StorageEngine {
         let db = self.db();
         let mut map = self.write_shard(key)?;
 
+        Self::check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
-                    map.remove(key);
-                    Ok(vec![-1; fields.len()])
-                } else {
-                    Self::check_hash_type(v)?;
-                    let h = Self::as_hash_mut(v).unwrap();
-                    let mut exp_map = db.hash_field_expirations.write().unwrap();
-                    let mut result = Vec::with_capacity(fields.len());
-                    if let Some(field_map) = exp_map.get_mut(key) {
-                        for field in fields {
-                            if h.contains_key(field) {
-                                if field_map.remove(field).is_some() {
-                                    result.push(1);
+                                Self::check_hash_type(v)?;
+
+                                let h = Self::as_hash_mut(v).unwrap();
+
+                                let mut exp_map = db.hash_field_expirations.write().unwrap();
+
+                                let mut result = Vec::with_capacity(fields.len());
+
+                                if let Some(field_map) = exp_map.get_mut(key) {
+
+                                    for field in fields {
+
+                                        if h.contains_key(field) {
+
+                                            if field_map.remove(field).is_some() {
+
+                                                result.push(1);
+
+                                            } else {
+
+                                                result.push(0);
+
+                                            }
+
+                                        } else {
+
+                                            result.push(0);
+
+                                        }
+
+                                    }
+
+                                    if field_map.is_empty() {
+
+                                        exp_map.remove(key);
+
+                                    }
+
                                 } else {
-                                    result.push(0);
+
+                                    for field in fields {
+
+                                        if h.contains_key(field) {
+
+                                            result.push(0);
+
+                                        } else {
+
+                                            result.push(0);
+
+                                        }
+
+                                    }
+
                                 }
-                            } else {
-                                result.push(0);
-                            }
-                        }
-                        if field_map.is_empty() {
-                            exp_map.remove(key);
-                        }
-                    } else {
-                        for field in fields {
-                            if h.contains_key(field) {
-                                result.push(0);
-                            } else {
-                                result.push(0);
-                            }
-                        }
-                    }
-                    self.bump_version(key);
-                    Ok(result)
-                }
+
+                                self.bump_version(key);
+
+                                Ok(result)
+
             }
             None => Ok(vec![-1; fields.len()]),
         }

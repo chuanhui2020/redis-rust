@@ -2132,3 +2132,290 @@ async fn test_xgroup_create_mkstream() {
     let resp = exec(&mut stream, &["XLEN", "newstream"]).await;
     assert_eq!(resp, RespValue::Integer(0));
 }
+
+
+// ---------- 边界和错误处理测试 ----------
+
+#[tokio::test]
+async fn test_wrongtype_set_then_lpush() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SET", "mixed", "value"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["LPUSH", "mixed", "item"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        "期望 WRONGTYPE 错误，得到 {:?}",
+        resp
+    );
+}
+
+#[tokio::test]
+async fn test_wrongtype_lpush_then_get() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["LPUSH", "listkey", "item"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["GET", "listkey"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        "期望 WRONGTYPE 错误，得到 {:?}",
+        resp
+    );
+}
+
+#[tokio::test]
+async fn test_wrongtype_hset_then_sadd() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["HSET", "hashkey", "field", "value"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["SADD", "hashkey", "member"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        "期望 WRONGTYPE 错误，得到 {:?}",
+        resp
+    );
+}
+
+#[tokio::test]
+async fn test_set_missing_args() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SET", "key"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("SET") && e.contains("至少")),
+        "期望 SET 参数错误，得到 {:?}",
+        resp
+    );
+}
+
+#[tokio::test]
+async fn test_get_extra_args() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["GET", "key", "extra"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("GET") && e.contains("参数")),
+        "期望 GET 参数错误，得到 {:?}",
+        resp
+    );
+}
+
+#[tokio::test]
+async fn test_expire_missing_seconds() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["EXPIRE", "key"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("EXPIRE") && e.contains("参数")),
+        "期望 EXPIRE 参数错误，得到 {:?}",
+        resp
+    );
+}
+
+#[tokio::test]
+async fn test_large_list_1000_elements() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // 分 10 批，每批 LPUSH 100 个元素
+    for batch in 0..10 {
+        let mut batch_vec = vec!["LPUSH".to_string(), "biglist".to_string()];
+        for i in 0..100 {
+            batch_vec.push(format!("v{}", batch * 100 + i));
+        }
+        let refs: Vec<&str> = batch_vec.iter().map(|s| s.as_str()).collect();
+        let resp = exec(&mut stream, &refs).await;
+        assert_eq!(resp, RespValue::Integer((batch + 1) * 100));
+    }
+
+    let resp = exec(&mut stream, &["LLEN", "biglist"]).await;
+    assert_eq!(resp, RespValue::Integer(1000));
+}
+
+#[tokio::test]
+async fn test_ttl_precision_px() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SET", "pxkey", "pxval", "PX", "500"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // 立即 GET 应该有值
+    let resp = exec(&mut stream, &["GET", "pxkey"]).await;
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("pxval")))
+    );
+
+    // PTTL 在过期前应返回正数
+    let resp = exec(&mut stream, &["PTTL", "pxkey"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n > 0 && n <= 500, "PTTL 应在 0~500 之间，得到 {}", n),
+        other => panic!("期望 Integer PTTL，得到 {:?}", other),
+    }
+
+    // 等待 600ms 确保过期
+    sleep(Duration::from_millis(600)).await;
+
+    let resp = exec(&mut stream, &["GET", "pxkey"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+}
+
+#[tokio::test]
+async fn test_empty_key_and_value_explicit() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SET", "", ""]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["GET", ""]).await;
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from_static(b"")))
+    );
+}
+
+#[tokio::test]
+async fn test_crlf_in_value() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let value = "line1\r\nline2\r\nline3";
+    let resp = exec(&mut stream, &["SET", "crlfkey", value]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["GET", "crlfkey"]).await;
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from(value)))
+    );
+}
+
+#[tokio::test]
+async fn test_del_multiple_keys() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "da", "1"]).await;
+    exec(&mut stream, &["SET", "db", "2"]).await;
+    exec(&mut stream, &["SET", "dc", "3"]).await;
+
+    let resp = exec(&mut stream, &["DEL", "da", "db", "dc"]).await;
+    assert_eq!(resp, RespValue::Integer(3));
+
+    let resp = exec(&mut stream, &["DEL", "da", "db", "dc"]).await;
+    assert_eq!(resp, RespValue::Integer(0));
+}
+
+#[tokio::test]
+async fn test_exists_multiple_keys() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "ea", "1"]).await;
+    exec(&mut stream, &["SET", "eb", "2"]).await;
+
+    let resp = exec(&mut stream, &["EXISTS", "ea", "eb", "ec"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+}
+
+#[tokio::test]
+async fn test_rename_success_and_missing() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "src", "value"]).await;
+    let resp = exec(&mut stream, &["RENAME", "src", "dst"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["GET", "dst"]).await;
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("value")))
+    );
+
+    let resp = exec(&mut stream, &["GET", "src"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+
+    let resp = exec(&mut stream, &["RENAME", "nonexistent", "dst2"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("不存在") || e.contains("过期")),
+        "期望 RENAME 不存在的 key 报错，得到 {:?}",
+        resp
+    );
+}
+
+#[tokio::test]
+async fn test_type_various() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // string
+    exec(&mut stream, &["SET", "t_str", "v"]).await;
+    let resp = exec(&mut stream, &["TYPE", "t_str"]).await;
+    assert_eq!(resp, RespValue::SimpleString("string".to_string()));
+
+    // list
+    exec(&mut stream, &["LPUSH", "t_list", "v"]).await;
+    let resp = exec(&mut stream, &["TYPE", "t_list"]).await;
+    assert_eq!(resp, RespValue::SimpleString("list".to_string()));
+
+    // hash
+    exec(&mut stream, &["HSET", "t_hash", "f", "v"]).await;
+    let resp = exec(&mut stream, &["TYPE", "t_hash"]).await;
+    assert_eq!(resp, RespValue::SimpleString("hash".to_string()));
+
+    // set
+    exec(&mut stream, &["SADD", "t_set", "m"]).await;
+    let resp = exec(&mut stream, &["TYPE", "t_set"]).await;
+    assert_eq!(resp, RespValue::SimpleString("set".to_string()));
+
+    // zset
+    exec(&mut stream, &["ZADD", "t_zset", "1", "m"]).await;
+    let resp = exec(&mut stream, &["TYPE", "t_zset"]).await;
+    assert_eq!(resp, RespValue::SimpleString("zset".to_string()));
+
+    // none
+    let resp = exec(&mut stream, &["TYPE", "t_none"]).await;
+    assert_eq!(resp, RespValue::SimpleString("none".to_string()));
+}

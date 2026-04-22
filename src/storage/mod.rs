@@ -899,10 +899,6 @@ impl StorageEngine {
     }
 
     /// 写操作后的标准后处理（版本更新 + 访问记录）
-    pub(crate) fn post_write(&self, key: &str) {
-        self.bump_version(key);
-        self.touch(key);
-    }
 
     /// 检查给定的 StorageValue 是否已过期，如果过期则返回 true
     fn is_expired(value: &StorageValue) -> bool {
