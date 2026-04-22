@@ -142,6 +142,8 @@ impl CommandParser {
                     Ok(Command::AclGenPass(Some(bits)))
                 }
             }
+            "SAVE" => Ok(Command::AclSave),
+            "LOAD" => Ok(Command::AclLoad),
             _ => Err(AppError::Command(
                 format!("ACL 未知子命令: {}", sub),
             )),

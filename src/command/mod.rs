@@ -301,6 +301,16 @@ pub enum Command {
     PubSubNumSub(Vec<String>),
     /// PUBSUB NUMPAT
     PubSubNumPat,
+    /// SSUBSCRIBE channel [channel ...]
+    SSubscribe(Vec<String>),
+    /// SUNSUBSCRIBE [channel ...]
+    SUnsubscribe(Vec<String>),
+    /// SPUBLISH channel message
+    SPublish(String, Bytes),
+    /// PUBSUB SHARDCHANNELS [pattern]
+    PubSubShardChannels(Option<String>),
+    /// PUBSUB SHARDNUMSUB [channel ...]
+    PubSubShardNumSub(Vec<String>),
     /// MULTI
     Multi,
     /// EXEC
@@ -407,6 +417,10 @@ pub enum Command {
     AclLog(Option<String>),
     /// ACL GENPASS [bits]
     AclGenPass(Option<usize>),
+    /// ACL SAVE
+    AclSave,
+    /// ACL LOAD
+    AclLoad,
     /// CLIENT SETNAME connection-name
     ClientSetName(String),
     /// CLIENT GETNAME

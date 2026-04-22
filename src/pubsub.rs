@@ -22,6 +22,8 @@ struct PubSubInner {
     channels: HashMap<String, broadcast::Sender<Bytes>>,
     /// 模式订阅: 模式 -> broadcast sender，消息为 (频道名, 内容)
     patterns: HashMap<String, broadcast::Sender<(String, Bytes)>>,
+    /// 分片频道: 频道名 -> broadcast sender
+    shard_channels: HashMap<String, broadcast::Sender<Bytes>>,
 }
 
 impl PubSubManager {
@@ -31,6 +33,7 @@ impl PubSubManager {
             inner: Arc::new(RwLock::new(PubSubInner {
                 channels: HashMap::new(),
                 patterns: HashMap::new(),
+                shard_channels: HashMap::new(),
             })),
         }
     }
@@ -113,6 +116,90 @@ impl PubSubManager {
     pub fn numpat(&self) -> usize {
         let inner = self.inner.read().unwrap();
         inner.patterns.len()
+    }
+
+    /// 订阅分片频道，返回 receiver 用于接收消息
+    pub fn ssubscribe(&self, channel: &str) -> broadcast::Receiver<Bytes> {
+        let mut inner = self.inner.write().unwrap();
+        let sender = inner
+            .shard_channels
+            .entry(channel.to_string())
+            .or_insert_with(|| broadcast::channel(256).0);
+        sender.subscribe()
+    }
+
+    /// 取消分片订阅（清理无活跃接收者的频道）
+    pub fn sunsubscribe(&self, channel: &str) {
+        let mut inner = self.inner.write().unwrap();
+        if let Some(sender) = inner.shard_channels.get(channel) {
+            if sender.receiver_count() == 0 {
+                inner.shard_channels.remove(channel);
+            }
+        }
+    }
+
+    /// 向分片频道发布消息，返回收到消息的订阅者数量（无模式匹配）
+    pub fn spublish(&self, channel: &str, message: Bytes) -> Result<usize> {
+        let mut total = 0usize;
+
+        {
+            let inner = self.inner.read().unwrap();
+            if let Some(sender) = inner.shard_channels.get(channel) {
+                match sender.send(message.clone()) {
+                    Ok(n) => total += n,
+                    Err(_) => {}
+                }
+            }
+        }
+
+        // 清理无活跃接收者的空分片频道
+        {
+            let mut inner = self.inner.write().unwrap();
+            let empty_channels: Vec<String> = inner
+                .shard_channels
+                .iter()
+                .filter(|(_, s)| s.receiver_count() == 0)
+                .map(|(k, _)| k.clone())
+                .collect();
+            for ch in empty_channels {
+                inner.shard_channels.remove(&ch);
+            }
+        }
+
+        Ok(total)
+    }
+
+    /// 获取活跃的分片频道名称，可选按 glob 模式过滤
+    pub fn shard_channels(&self, pattern: Option<&str>) -> Vec<String> {
+        let inner = self.inner.read().unwrap();
+        inner
+            .shard_channels
+            .keys()
+            .filter(|ch| {
+                if let Some(pat) = pattern {
+                    crate::storage::StorageEngine::glob_match(ch, pat)
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// 获取指定分片频道的订阅者数量
+    pub fn shard_numsub(&self, channels: &[String]) -> Vec<(String, usize)> {
+        let inner = self.inner.read().unwrap();
+        channels
+            .iter()
+            .map(|ch| {
+                let count = inner
+                    .shard_channels
+                    .get(ch.as_str())
+                    .map(|sender| sender.receiver_count())
+                    .unwrap_or(0);
+                (ch.clone(), count)
+            })
+            .collect()
     }
 
     /// 向频道发布消息，返回收到消息的订阅者数量
@@ -304,5 +391,65 @@ mod tests {
 
         let _rx2 = pubsub.psubscribe("weather.*");
         assert_eq!(pubsub.numpat(), 2);
+    }
+
+    #[test]
+    fn test_ssubscribe_and_spublish() {
+        let pubsub = PubSubManager::new();
+        let mut rx = pubsub.ssubscribe("sh1");
+
+        let count = pubsub.spublish("sh1", Bytes::from("hello")).unwrap();
+        assert_eq!(count, 1);
+
+        let msg = rx.try_recv().unwrap();
+        assert_eq!(msg, Bytes::from("hello"));
+    }
+
+    #[test]
+    fn test_spublish_no_pattern_match() {
+        let pubsub = PubSubManager::new();
+        // 分片发布不应匹配模式订阅
+        let mut rx = pubsub.psubscribe("sh.*");
+        let count = pubsub.spublish("sh.1", Bytes::from("hello")).unwrap();
+        assert_eq!(count, 0);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_sunsubscribe() {
+        let pubsub = PubSubManager::new();
+        {
+            let _rx = pubsub.ssubscribe("sh1");
+        }
+        pubsub.sunsubscribe("sh1");
+
+        let count = pubsub.spublish("sh1", Bytes::from("hello")).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_shard_channels() {
+        let pubsub = PubSubManager::new();
+        let _rx1 = pubsub.ssubscribe("news");
+        let _rx2 = pubsub.ssubscribe("weather");
+        let _rx3 = pubsub.ssubscribe("news.sport");
+
+        let all = pubsub.shard_channels(None);
+        assert_eq!(all.len(), 3);
+
+        let filtered = pubsub.shard_channels(Some("news*"));
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_shard_numsub() {
+        let pubsub = PubSubManager::new();
+        let _rx1 = pubsub.ssubscribe("news");
+        let _rx2 = pubsub.ssubscribe("news");
+
+        let result = pubsub.shard_numsub(&["news".to_string(), "weather".to_string()]);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], ("news".to_string(), 2));
+        assert_eq!(result[1], ("weather".to_string(), 0));
     }
 }

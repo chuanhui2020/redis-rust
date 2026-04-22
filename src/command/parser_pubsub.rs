@@ -59,6 +59,39 @@ impl CommandParser {
         };
         Ok(Command::PUnsubscribe(patterns))
     }
+    pub(crate) fn parse_ssubscribe(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 2 {
+            return Err(AppError::Command(
+                "SSUBSCRIBE 命令需要至少 1 个参数".to_string(),
+            ));
+        }
+        let channels = arr[1..]
+            .iter()
+            .map(|v| self.extract_string(v))
+            .collect::<Result<Vec<String>>>()?;
+        Ok(Command::SSubscribe(channels))
+    }
+    pub(crate) fn parse_sunsubscribe(&self, arr: &[RespValue]) -> Result<Command> {
+        let channels = if arr.len() > 1 {
+            arr[1..]
+                .iter()
+                .map(|v| self.extract_string(v))
+                .collect::<Result<Vec<String>>>()?
+        } else {
+            vec![]
+        };
+        Ok(Command::SUnsubscribe(channels))
+    }
+    pub(crate) fn parse_spublish(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() != 3 {
+            return Err(AppError::Command(
+                "SPUBLISH 命令需要 2 个参数".to_string(),
+            ));
+        }
+        let channel = self.extract_string(&arr[1])?;
+        let message = self.extract_bytes(&arr[2])?;
+        Ok(Command::SPublish(channel, message))
+    }
     pub(crate) fn parse_pubsub(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
             return Err(AppError::Command(
@@ -93,6 +126,25 @@ impl CommandParser {
                     ));
                 }
                 Ok(Command::PubSubNumPat)
+            }
+            "SHARDCHANNELS" => {
+                let pattern = if arr.len() > 2 {
+                    Some(self.extract_string(&arr[2])?)
+                } else {
+                    None
+                };
+                Ok(Command::PubSubShardChannels(pattern))
+            }
+            "SHARDNUMSUB" => {
+                let channels = if arr.len() > 2 {
+                    arr[2..]
+                        .iter()
+                        .map(|v| self.extract_string(v))
+                        .collect::<Result<Vec<String>>>()?
+                } else {
+                    vec![]
+                };
+                Ok(Command::PubSubShardNumSub(channels))
             }
             _ => Err(AppError::Command(
                 format!("未知的 PUBSUB 子命令: {}", subcmd),

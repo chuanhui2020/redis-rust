@@ -240,6 +240,41 @@ impl Command {
             Command::PubSubNumPat => {
                 RespValue::Array(vec![bulk("PUBSUB"), bulk("NUMPAT")])
             }
+            Command::SSubscribe(channels) => {
+                let mut parts = vec![bulk("SSUBSCRIBE")];
+                for ch in channels {
+                    parts.push(bulk(ch));
+                }
+                RespValue::Array(parts)
+            }
+            Command::SUnsubscribe(channels) => {
+                let mut parts = vec![bulk("SUNSUBSCRIBE")];
+                for ch in channels {
+                    parts.push(bulk(ch));
+                }
+                RespValue::Array(parts)
+            }
+            Command::SPublish(channel, message) => {
+                RespValue::Array(vec![
+                    bulk("SPUBLISH"),
+                    bulk(channel),
+                    bulk_bytes(message),
+                ])
+            }
+            Command::PubSubShardChannels(pattern) => {
+                let mut parts = vec![bulk("PUBSUB"), bulk("SHARDCHANNELS")];
+                if let Some(pat) = pattern {
+                    parts.push(bulk(pat));
+                }
+                RespValue::Array(parts)
+            }
+            Command::PubSubShardNumSub(channels) => {
+                let mut parts = vec![bulk("PUBSUB"), bulk("SHARDNUMSUB")];
+                for ch in channels {
+                    parts.push(bulk(ch));
+                }
+                RespValue::Array(parts)
+            }
             Command::Multi => {
                 RespValue::Array(vec![bulk("MULTI")])
             }
@@ -431,6 +466,12 @@ impl Command {
                     parts.push(bulk(&b.to_string()));
                 }
                 RespValue::Array(parts)
+            }
+            Command::AclSave => {
+                RespValue::Array(vec![bulk("ACL"), bulk("SAVE")])
+            }
+            Command::AclLoad => {
+                RespValue::Array(vec![bulk("ACL"), bulk("LOAD")])
             }
             Command::Sort(key, _, _, _, _, _, _, _) => {
                 let mut parts = vec![bulk("SORT"), bulk(key)];

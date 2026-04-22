@@ -422,6 +422,20 @@ impl CommandExecutor {
                 let pass = acl.genpass(bits)?;
                 Ok(RespValue::BulkString(Some(Bytes::from(pass))))
             }
+            Command::AclSave => {
+                let acl = self.acl.as_ref().ok_or_else(|| {
+                    AppError::Command("ACL 未启用".to_string())
+                })?;
+                acl.save("users.acl")?;
+                Ok(RespValue::SimpleString("OK".to_string()))
+            }
+            Command::AclLoad => {
+                let acl = self.acl.as_ref().ok_or_else(|| {
+                    AppError::Command("ACL 未启用".to_string())
+                })?;
+                acl.load("users.acl")?;
+                Ok(RespValue::SimpleString("OK".to_string()))
+            }
             Command::ClientSetName(_) | Command::ClientGetName | Command::ClientList | Command::ClientId
             | Command::ClientInfo | Command::ClientKill { .. } | Command::ClientPause(_, _)
             | Command::ClientUnpause | Command::ClientNoEvict(_) | Command::ClientNoTouch(_)
@@ -722,6 +736,24 @@ impl CommandExecutor {
                 // PUBSUB 内省命令需要 PubSubManager，在连接层处理
                 Err(AppError::Command(
                     "PUBSUB 命令应在连接层处理".to_string(),
+                ))
+            }
+            Command::SSubscribe(_) | Command::SUnsubscribe(_) => {
+                // 分片 Pub/Sub 命令在 server.rs 中直接处理，不应到达此处
+                Err(AppError::Command("分片 pub/sub 命令应在连接层处理".to_string()))
+            }
+            Command::SPublish(channel, message) => {
+                // SPUBLISH 需要 PubSubManager，但当前执行器未持有它。
+                Err(AppError::Command(format!(
+                    "SPUBLISH 命令应在连接层处理 (channel={}, message={})",
+                    channel,
+                    String::from_utf8_lossy(&message),
+                )))
+            }
+            Command::PubSubShardChannels(_) | Command::PubSubShardNumSub(_) => {
+                // PUBSUB 分片内省命令需要 PubSubManager，在连接层处理
+                Err(AppError::Command(
+                    "PUBSUB 分片命令应在连接层处理".to_string(),
                 ))
             }
             Command::Multi | Command::Exec | Command::Discard | Command::Watch(_) => {

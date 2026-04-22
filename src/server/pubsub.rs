@@ -195,6 +195,113 @@ pub(crate) async fn handle_pubsub_command(
             }
             Ok(true)
         }
+        Command::SSubscribe(channels) => {
+            *is_subscribed = true;
+            for ch in channels {
+                let rx = pubsub.ssubscribe(&ch);
+                let tx = msg_tx.clone();
+                let ch_clone = ch.clone();
+                let handle = tokio::spawn(async move {
+                    let mut rx = rx;
+                    loop {
+                        match rx.recv().await {
+                            Ok(data) => {
+                                if tx.send(ClientMessage::SMessage(ch_clone.clone(), data)).is_err() {
+                                    break;
+                                }
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        }
+                    }
+                });
+                sub_state.shard_channels.insert(ch.clone(), handle.abort_handle());
+
+                let count = sub_state.total();
+                let resp = RespValue::Array(vec![
+                    super::bulk("ssubscribe"),
+                    super::bulk(&ch),
+                    RespValue::Integer(count as i64),
+                ]);
+                if let Err(e) = write_resp(stream, handler, &resp).await {
+                    log::error!("写入响应失败: {}", e);
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        Command::SUnsubscribe(channels) => {
+            let to_unsub = if channels.is_empty() {
+                // 无参数则取消所有分片订阅
+                sub_state.shard_channels.keys().cloned().collect::<Vec<_>>()
+            } else {
+                channels
+            };
+            for ch in to_unsub {
+                if let Some(handle) = sub_state.shard_channels.remove(&ch) {
+                    handle.abort();
+                    pubsub.sunsubscribe(&ch);
+                }
+                let count = sub_state.total();
+                let resp = RespValue::Array(vec![
+                    super::bulk("sunsubscribe"),
+                    super::bulk(&ch),
+                    RespValue::Integer(count as i64),
+                ]);
+                if let Err(e) = write_resp(stream, handler, &resp).await {
+                    log::error!("写入响应失败: {}", e);
+                    return Ok(false);
+                }
+            }
+            if sub_state.total() == 0 {
+                *is_subscribed = false;
+            }
+            Ok(true)
+        }
+        Command::SPublish(channel, message) => {
+            match pubsub.spublish(&channel, message) {
+                Ok(count) => {
+                    let resp = RespValue::Integer(count as i64);
+                    if let Err(e) = write_resp(stream, handler, &resp).await {
+                        log::error!("写入响应失败: {}", e);
+                        return Ok(false);
+                    }
+                }
+                Err(e) => {
+                    let resp = RespValue::Error(format!("ERR {}", e));
+                    if let Err(e) = write_resp(stream, handler, &resp).await {
+                        log::error!("写入错误响应失败: {}", e);
+                        return Ok(false);
+                    }
+                }
+            }
+            Ok(true)
+        }
+        Command::PubSubShardChannels(pattern) => {
+            let channels = pubsub.shard_channels(pattern.as_deref());
+            let resp = RespValue::Array(
+                channels.into_iter().map(|ch| super::bulk(&ch)).collect(),
+            );
+            if let Err(e) = write_resp(stream, handler, &resp).await {
+                log::error!("写入响应失败: {}", e);
+                return Ok(false);
+            }
+            Ok(true)
+        }
+        Command::PubSubShardNumSub(channels) => {
+            let counts = pubsub.shard_numsub(&channels);
+            let mut arr = Vec::new();
+            for (ch, count) in counts {
+                arr.push(super::bulk(&ch));
+                arr.push(RespValue::Integer(count as i64));
+            }
+            let resp = RespValue::Array(arr);
+            if let Err(e) = write_resp(stream, handler, &resp).await {
+                log::error!("写入响应失败: {}", e);
+                return Ok(false);
+            }
+            Ok(true)
+        }
         _ => Ok(true),
     }
 }
@@ -221,6 +328,18 @@ pub(crate) async fn handle_pubsub_message(
             let resp = RespValue::Array(vec![
                 super::bulk("pmessage"),
                 super::bulk(&pattern),
+                super::bulk(&channel),
+                super::bulk_bytes(&data),
+            ]);
+            if let Err(e) = write_resp(stream, handler, &resp).await {
+                log::error!("写入消息失败: {}", e);
+                return Ok(false);
+            }
+            Ok(true)
+        }
+        Some(ClientMessage::SMessage(channel, data)) => {
+            let resp = RespValue::Array(vec![
+                super::bulk("smessage"),
                 super::bulk(&channel),
                 super::bulk_bytes(&data),
             ]);

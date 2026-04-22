@@ -293,7 +293,8 @@ pub(crate) async fn handle_connection(
                                     return Ok(());
                                 }
                             }
-                            Command::Subscribe(_) | Command::Unsubscribe(_) | Command::PSubscribe(_) | Command::PUnsubscribe(_) | Command::Publish(_, _) | Command::PubSubChannels(_) | Command::PubSubNumSub(_) | Command::PubSubNumPat => {
+                            Command::Subscribe(_) | Command::Unsubscribe(_) | Command::PSubscribe(_) | Command::PUnsubscribe(_) | Command::Publish(_, _) | Command::PubSubChannels(_) | Command::PubSubNumSub(_) | Command::PubSubNumPat
+                            | Command::SSubscribe(_) | Command::SUnsubscribe(_) | Command::SPublish(_, _) | Command::PubSubShardChannels(_) | Command::PubSubShardNumSub(_) => {
                                 if !super::pubsub::handle_pubsub_command(
                                     cmd,
                                     &mut is_subscribed,
@@ -616,7 +617,7 @@ pub(crate) async fn handle_connection(
                             _other if is_subscribed => {
                                 // 订阅模式下不允许非 pub/sub 命令
                                 let resp = RespValue::Error(
-                                    "ERR only (P)SUBSCRIBE / (P)UNSUBSCRIBE / PING / QUIT allowed in this context".to_string()
+                                    "ERR only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT allowed in this context".to_string()
                                 );
                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                     log::error!("写入响应失败: {}", e);

@@ -414,6 +414,46 @@ impl AclManager {
         Ok(())
     }
 
+    /// 保存 ACL 规则到文件
+    pub fn save(&self, path: &str) -> Result<()> {
+        let users = self.inner.read().map_err(|e| {
+            AppError::Storage(format!("ACL 锁中毒: {}", e))
+        })?;
+        let mut content = String::new();
+        for (name, user) in users.users.iter() {
+            let rules = user.to_rules();
+            content.push_str(&format!("user {} {}\n", name, rules.join(" ")));
+        }
+        std::fs::write(path, content).map_err(|e| AppError::Io(e))?;
+        Ok(())
+    }
+
+    /// 从文件加载 ACL 规则
+    pub fn load(&self, path: &str) -> Result<()> {
+        let content = std::fs::read_to_string(path).map_err(|e| AppError::Io(e))?;
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if !line.starts_with("user ") {
+                continue;
+            }
+            let parts: Vec<&str> = line[5..].splitn(2, ' ').collect();
+            if parts.is_empty() {
+                continue;
+            }
+            let username = parts[0];
+            let rules: Vec<&str> = if parts.len() > 1 {
+                parts[1].split_whitespace().collect()
+            } else {
+                vec![]
+            };
+            self.setuser(username, &rules)?;
+        }
+        Ok(())
+    }
+
     /// 生成随机密码
     pub fn genpass(&self, bits: Option<usize>) -> Result<String> {
         let bits = bits.unwrap_or(256);
