@@ -2,3 +2,8 @@
 appendonly.aof
 dump.rdb
 .cargo/config.toml
+.claude/
+mingw.7z
+mingw.zip
+rustup-init.exe
+users.acl
