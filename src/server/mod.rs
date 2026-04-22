@@ -133,6 +133,8 @@ pub struct Server {
     replication: Option<Arc<crate::replication::ReplicationManager>>,
     /// Sentinel 管理器（可选）
     sentinel: Option<Arc<crate::sentinel::SentinelManager>>,
+    /// Cluster 状态（可选）
+    cluster: Option<Arc<crate::cluster::ClusterState>>,
     /// 客户端暂停状态：(结束时间, 模式 WRITE|ALL)
     client_pause: Arc<RwLock<Option<(Instant, String)>>>,
     /// 待关闭的客户端 ID 集合
@@ -170,6 +172,7 @@ impl Server {
             acl: None,
             replication: None,
             sentinel: None,
+            cluster: None,
             client_pause: Arc::new(RwLock::new(None)),
             client_kill_flags: Arc::new(Mutex::new(HashSet::new())),
             monitor_tx: tokio::sync::broadcast::channel(1024).0,
@@ -193,6 +196,12 @@ impl Server {
     /// 设置 Sentinel 管理器
     pub fn with_sentinel(mut self, sentinel: Arc<crate::sentinel::SentinelManager>) -> Self {
         self.sentinel = Some(sentinel);
+        self
+    }
+
+    /// 设置 Cluster 状态
+    pub fn with_cluster(mut self, cluster: Arc<crate::cluster::ClusterState>) -> Self {
+        self.cluster = Some(cluster);
         self
     }
 
@@ -244,6 +253,7 @@ impl Server {
             let acl = self.acl.clone();
             let replication = self.replication.clone();
             let sentinel = self.sentinel.clone();
+            let cluster = self.cluster.clone();
             let client_pause = self.client_pause.clone();
             let client_kill_flags = self.client_kill_flags.clone();
             let monitor_tx = self.monitor_tx.clone();
@@ -253,7 +263,7 @@ impl Server {
                 if let Err(e) = connection::handle_connection(
                     stream, peer_addr.to_string(), storage, aof, pubsub,
                     password, clients, next_client_id, script_engine, rdb_path, slowlog, acl,
-                    replication, sentinel, client_pause, client_kill_flags, monitor_tx, latency,
+                    replication, sentinel, cluster, client_pause, client_kill_flags, monitor_tx, latency,
                     keyspace_notifier,
                 ).await {
                     log::error!("处理连接 {} 时出错: {}", peer_addr, e);

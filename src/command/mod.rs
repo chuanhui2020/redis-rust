@@ -624,6 +624,40 @@ pub enum Command {
     SentinelCkquorum(String),
     /// SENTINEL MYID
     SentinelMyId,
+    /// CLUSTER INFO
+    ClusterInfo,
+    /// CLUSTER NODES
+    ClusterNodes,
+    /// CLUSTER MYID
+    ClusterMyId,
+    /// CLUSTER SLOTS
+    ClusterSlots,
+    /// CLUSTER SHARDS
+    ClusterShards,
+    /// CLUSTER MEET ip port
+    ClusterMeet { ip: String, port: u16 },
+    /// CLUSTER ADDSLOTS slot [slot ...]
+    ClusterAddSlots(Vec<usize>),
+    /// CLUSTER DELSLOTS slot [slot ...]
+    ClusterDelSlots(Vec<usize>),
+    /// CLUSTER SETSLOT slot IMPORTING|MIGRATING|STABLE|NODE node-id
+    ClusterSetSlot { slot: usize, state: String, node_id: Option<String> },
+    /// CLUSTER REPLICATE node-id
+    ClusterReplicate(String),
+    /// CLUSTER FAILOVER [FORCE|TAKEOVER]
+    ClusterFailover(Option<String>),
+    /// CLUSTER RESET [HARD|SOFT]
+    ClusterReset(Option<String>),
+    /// CLUSTER KEYSLOT key
+    ClusterKeySlot(String),
+    /// CLUSTER COUNTKEYSINSLOT slot
+    ClusterCountKeysInSlot(usize),
+    /// CLUSTER GETKEYSINSLOT slot count
+    ClusterGetKeysInSlot(usize, usize),
+    /// MIGRATE host port key|"" destination-db timeout [COPY] [REPLACE] [AUTH password] [KEYS key [key ...]]
+    Migrate { host: String, port: u16, keys: Vec<String>, db: usize, timeout: u64, copy: bool, replace: bool },
+    /// ASKING
+    Asking,
     /// 未知命令
     Unknown(String),
 }

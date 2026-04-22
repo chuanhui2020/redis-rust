@@ -926,6 +926,12 @@ impl CommandExecutor {
                     None => Ok(RespValue::Integer(0)),
                 }
             }
+            Command::Migrate { .. } => {
+                Err(AppError::Command("MIGRATE 应在连接层处理".to_string()))
+            }
+            Command::Asking => {
+                Ok(RespValue::SimpleString("OK".to_string()))
+            }
             Command::Failover { .. } => {
                 // FAILOVER 需要在连接层异步处理
                 Err(AppError::Command("FAILOVER 应在连接层处理".to_string()))
@@ -947,6 +953,23 @@ impl CommandExecutor {
             | Command::SentinelCkquorum(_)
             | Command::SentinelMyId => {
                 Err(AppError::Command("SENTINEL 应在连接层处理".to_string()))
+            }
+            Command::ClusterInfo
+            | Command::ClusterNodes
+            | Command::ClusterMyId
+            | Command::ClusterSlots
+            | Command::ClusterShards
+            | Command::ClusterMeet { .. }
+            | Command::ClusterAddSlots(_)
+            | Command::ClusterDelSlots(_)
+            | Command::ClusterSetSlot { .. }
+            | Command::ClusterReplicate(_)
+            | Command::ClusterFailover(_)
+            | Command::ClusterReset(_)
+            | Command::ClusterKeySlot(_)
+            | Command::ClusterCountKeysInSlot(_)
+            | Command::ClusterGetKeysInSlot(_, _) => {
+                Err(AppError::Command("CLUSTER 应在连接层处理".to_string()))
             }
             Command::Unknown(cmd_name) => {
                 Ok(RespValue::Error(format!(

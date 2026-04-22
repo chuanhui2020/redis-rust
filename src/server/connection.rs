@@ -30,6 +30,56 @@ impl Drop for ClientGuard {
     }
 }
 
+/// 格式化 slot 范围列表为字符串
+fn format_slot_ranges(slots: &[usize]) -> String {
+    if slots.is_empty() { return String::new(); }
+    let mut ranges = Vec::new();
+    let mut start = slots[0];
+    let mut end = slots[0];
+    for &s in &slots[1..] {
+        if s == end + 1 {
+            end = s;
+        } else {
+            if start == end {
+                ranges.push(format!("{}", start));
+            } else {
+                ranges.push(format!("{}-{}", start, end));
+            }
+            start = s;
+            end = s;
+        }
+    }
+    if start == end {
+        ranges.push(format!("{}", start));
+    } else {
+        ranges.push(format!("{}-{}", start, end));
+    }
+    ranges.join(" ")
+}
+
+/// 格式化集群节点列表为 CLUSTER NODES 输出格式
+fn format_cluster_nodes(cluster: &crate::cluster::ClusterState) -> String {
+    let nodes = cluster.get_nodes();
+    let my_id = cluster.myself_id();
+    let mut result = String::new();
+    for node in &nodes {
+        let flags = if node.id == my_id {
+            format!("myself,{}", node.flags_string())
+        } else {
+            node.flags_string()
+        };
+        let master_id = node.master_id.as_deref().unwrap_or("-");
+        let slots_str = format_slot_ranges(&node.get_slots());
+        result.push_str(&format!(
+            "{} {}:{}@{} {} {} {} {} {} {}\n",
+            node.id, node.ip, node.port, node.bus_port,
+            flags, master_id, node.ping_sent, node.pong_recv,
+            node.config_epoch, slots_str
+        ));
+    }
+    result
+}
+
 /// 将 SentinelInstance 格式化为 Redis 7 兼容的 key-value 数组
 fn sentinel_instance_to_resp(inst: &crate::sentinel::SentinelInstance) -> RespValue {
     RespValue::Array(vec![
@@ -62,6 +112,7 @@ pub(crate) async fn handle_connection(
     acl: Option<crate::acl::AclManager>,
     replication: Option<Arc<crate::replication::ReplicationManager>>,
     sentinel: Option<Arc<crate::sentinel::SentinelManager>>,
+    cluster: Option<Arc<crate::cluster::ClusterState>>,
     client_pause: Arc<RwLock<Option<(Instant, String)>>>,
     client_kill_flags: Arc<Mutex<HashSet<u64>>>,
     monitor_tx: tokio::sync::broadcast::Sender<String>,
@@ -85,6 +136,7 @@ pub(crate) async fn handle_connection(
         });
     }
     let _client_guard = ClientGuard { client_id, clients: clients.clone() };
+
 
     // 连接状态
     let mut authenticated = password.is_none() && acl.is_none();
@@ -390,6 +442,168 @@ pub(crate) async fn handle_connection(
                                 return Ok(());
                             }
                             continue;
+                        }
+
+                        // CLUSTER 命令在连接层处理
+                        if matches!(cmd, Command::ClusterInfo | Command::ClusterNodes | Command::ClusterMyId | Command::ClusterSlots | Command::ClusterShards | Command::ClusterMeet { .. } | Command::ClusterAddSlots(_) | Command::ClusterDelSlots(_) | Command::ClusterSetSlot { .. } | Command::ClusterReplicate(_) | Command::ClusterFailover(_) | Command::ClusterReset(_) | Command::ClusterKeySlot(_) | Command::ClusterCountKeysInSlot(_) | Command::ClusterGetKeysInSlot(_, _)) {
+                            let resp = if cluster.is_none() {
+                                RespValue::Error("ERR This instance has cluster support disabled".to_string())
+                            } else {
+                                let c = cluster.as_ref().unwrap();
+                                match cmd {
+                                    Command::ClusterInfo => {
+                                        RespValue::BulkString(Some(Bytes::from(c.get_info_string())))
+                                    }
+                                    Command::ClusterNodes => {
+                                        RespValue::BulkString(Some(Bytes::from(format_cluster_nodes(c))))
+                                    }
+                                    Command::ClusterMyId => {
+                                        RespValue::BulkString(Some(Bytes::from(c.myself_id())))
+                                    }
+                                    Command::ClusterSlots => {
+                                        // 简化为空数组
+                                        RespValue::Array(vec![])
+                                    }
+                                    Command::ClusterShards => {
+                                        // 简化为空数组
+                                        RespValue::Array(vec![])
+                                    }
+                                    Command::ClusterMeet { ip, port } => {
+                                        let node = crate::cluster::ClusterNode::new(
+                                            crate::cluster::ClusterState::generate_node_id(),
+                                            ip,
+                                            port,
+                                        );
+                                        c.add_node(node);
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::ClusterAddSlots(slots) => {
+                                        let my_id = c.myself_id();
+                                        for slot in slots {
+                                            c.assign_slot(slot, &my_id);
+                                        }
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::ClusterDelSlots(slots) => {
+                                        for slot in slots {
+                                            c.unassign_slot(slot);
+                                        }
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::ClusterSetSlot { slot, state, node_id } => {
+                                        match state.as_str() {
+                                            "IMPORTING" => {
+                                                if let Some(ref source_id) = node_id {
+                                                    c.set_slot_importing(slot, source_id.clone());
+                                                }
+                                            }
+                                            "MIGRATING" => {
+                                                if let Some(ref target_id) = node_id {
+                                                    c.set_slot_migrating(slot, target_id.clone());
+                                                }
+                                            }
+                                            "STABLE" => {
+                                                c.set_slot_stable(slot);
+                                            }
+                                            "NODE" => {
+                                                if let Some(ref new_node_id) = node_id {
+                                                    c.assign_slot(slot, new_node_id);
+                                                    c.set_slot_stable(slot);
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::ClusterReplicate(_) => {
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::ClusterFailover(_) => {
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::ClusterReset(_) => {
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::ClusterKeySlot(key) => {
+                                        let slot = crate::cluster::ClusterState::key_slot(&key);
+                                        RespValue::Integer(slot as i64)
+                                    }
+                                    Command::ClusterCountKeysInSlot(_) => {
+                                        RespValue::Integer(0)
+                                    }
+                                    Command::ClusterGetKeysInSlot(_, _) => {
+                                        RespValue::Array(vec![])
+                                    }
+                                    _ => unreachable!(),
+                                }
+                            };
+                            if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                log::error!("写入响应失败: {}", e);
+                                return Ok(());
+                            }
+                            continue;
+                        }
+
+                        // Cluster 模式 MOVED/ASK 重定向检查
+                        if let Some(ref cluster) = cluster {
+                            let (_, keys) = crate::command::extract_cmd_info(&cmd);
+                            if let Some(first_key) = keys.first() {
+                                let slot = crate::cluster::ClusterState::key_slot(first_key);
+                                let my_id = cluster.myself_id();
+                                // 如果 slot 正在从本节点迁出，且 key 不存在，返回 ASK
+                                if let Some(target_id) = cluster.is_slot_migrating(slot) {
+                                    let key_exists = handler.executor.storage().exists(first_key).unwrap_or(false);
+                                    if !key_exists {
+                                        if let Some(target_node) = cluster.get_node(&target_id) {
+                                            let resp = RespValue::Error(format!(
+                                                "ASK {} {}:{}",
+                                                slot, target_node.ip, target_node.port
+                                            ));
+                                            if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                log::error!("写入响应失败: {}", e);
+                                                return Ok(());
+                                            }
+                                            continue;
+                                        }
+                                    }
+                                }
+                                if let Some(node_id) = cluster.get_slot_node(slot) {
+                                    if node_id != my_id {
+                                        if let Some(node) = cluster.get_node(&node_id) {
+                                            let resp = RespValue::Error(format!(
+                                                "MOVED {} {}:{}",
+                                                slot, node.ip, node.port
+                                            ));
+                                            if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                log::error!("写入响应失败: {}", e);
+                                                return Ok(());
+                                            }
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Cluster 模式 CROSSSLOT 检查（多 key 命令）
+                        if let Some(ref _cluster) = cluster {
+                            let (_, keys) = crate::command::extract_cmd_info(&cmd);
+                            if keys.len() > 1 {
+                                let first_slot = crate::cluster::ClusterState::key_slot(&keys[0]);
+                                let cross_slot = keys[1..].iter().any(|k| {
+                                    crate::cluster::ClusterState::key_slot(k) != first_slot
+                                });
+                                if cross_slot {
+                                    let resp = RespValue::Error(
+                                        "CROSSSLOT Keys in request don't hash to the same slot".to_string()
+                                    );
+                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                        log::error!("写入响应失败: {}", e);
+                                        return Ok(());
+                                    }
+                                    continue;
+                                }
+                            }
                         }
 
                         match cmd {
@@ -1270,6 +1484,37 @@ pub(crate) async fn handle_connection(
                                             }
                                         }
                                     }
+                                }
+                            }
+                            Command::Migrate { host, port, keys, db: _, timeout: _, copy, replace: _ } => {
+                                // 简化实现：记录日志并删除本地 key（如果不是 COPY 模式）
+                                let mut migrated = 0i64;
+                                for key in &keys {
+                                    if let Ok(Some(_data)) = handler.executor.storage().dump(key) {
+                                        let ttl = handler.executor.storage().pttl(key).unwrap_or(-1);
+                                        let ttl_ms = if ttl < 0 { 0u64 } else { ttl as u64 };
+                                        log::info!("MIGRATE key {} 到 {}:{}, ttl={}ms", key, host, port, ttl_ms);
+                                        if !copy {
+                                            let _ = handler.executor.storage().del(key);
+                                        }
+                                        migrated += 1;
+                                    }
+                                }
+                                let resp = if migrated > 0 {
+                                    RespValue::SimpleString("OK".to_string())
+                                } else {
+                                    RespValue::Error("ERR no such key".to_string())
+                                };
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::Asking => {
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
                                 }
                             }
                             Command::Reset => {

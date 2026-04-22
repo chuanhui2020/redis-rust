@@ -720,6 +720,91 @@ impl Command {
             Command::SentinelMyId => {
                 RespValue::Array(vec![bulk("SENTINEL"), bulk("MYID")])
             }
+            Command::ClusterInfo => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("INFO")])
+            }
+            Command::ClusterNodes => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("NODES")])
+            }
+            Command::ClusterMyId => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("MYID")])
+            }
+            Command::ClusterSlots => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("SLOTS")])
+            }
+            Command::ClusterShards => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("SHARDS")])
+            }
+            Command::ClusterMeet { ip, port } => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("MEET"), bulk(ip), bulk(&port.to_string())])
+            }
+            Command::ClusterAddSlots(slots) => {
+                let mut parts = vec![bulk("CLUSTER"), bulk("ADDSLOTS")];
+                for slot in slots {
+                    parts.push(bulk(&slot.to_string()));
+                }
+                RespValue::Array(parts)
+            }
+            Command::ClusterDelSlots(slots) => {
+                let mut parts = vec![bulk("CLUSTER"), bulk("DELSLOTS")];
+                for slot in slots {
+                    parts.push(bulk(&slot.to_string()));
+                }
+                RespValue::Array(parts)
+            }
+            Command::ClusterSetSlot { slot, state, node_id } => {
+                let mut parts = vec![bulk("CLUSTER"), bulk("SETSLOT"), bulk(&slot.to_string()), bulk(state)];
+                if let Some(id) = node_id {
+                    parts.push(bulk(id));
+                }
+                RespValue::Array(parts)
+            }
+            Command::ClusterReplicate(node_id) => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("REPLICATE"), bulk(node_id)])
+            }
+            Command::ClusterFailover(opt) => {
+                let mut parts = vec![bulk("CLUSTER"), bulk("FAILOVER")];
+                if let Some(o) = opt {
+                    parts.push(bulk(o));
+                }
+                RespValue::Array(parts)
+            }
+            Command::ClusterReset(opt) => {
+                let mut parts = vec![bulk("CLUSTER"), bulk("RESET")];
+                if let Some(o) = opt {
+                    parts.push(bulk(o));
+                }
+                RespValue::Array(parts)
+            }
+            Command::ClusterKeySlot(key) => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("KEYSLOT"), bulk(key)])
+            }
+            Command::ClusterCountKeysInSlot(slot) => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("COUNTKEYSINSLOT"), bulk(&slot.to_string())])
+            }
+            Command::ClusterGetKeysInSlot(slot, count) => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("GETKEYSINSLOT"), bulk(&slot.to_string()), bulk(&count.to_string())])
+            }
+            Command::Migrate { host, port, keys, db, timeout, copy, replace } => {
+                let mut parts = vec![bulk("MIGRATE"), bulk(host), bulk(&port.to_string())];
+                if keys.len() == 1 {
+                    parts.push(bulk(&keys[0]));
+                } else {
+                    parts.push(bulk(""));
+                }
+                parts.push(bulk(&db.to_string()));
+                parts.push(bulk(&timeout.to_string()));
+                if *copy { parts.push(bulk("COPY")); }
+                if *replace { parts.push(bulk("REPLACE")); }
+                if keys.len() > 1 {
+                    parts.push(bulk("KEYS"));
+                    for k in keys { parts.push(bulk(k)); }
+                }
+                RespValue::Array(parts)
+            }
+            Command::Asking => {
+                RespValue::Array(vec![bulk("ASKING")])
+            }
             Command::Unknown(cmd_name) => {
                 RespValue::Array(vec![bulk(cmd_name)])
             }

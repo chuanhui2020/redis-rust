@@ -36,6 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut port = DEFAULT_PORT;
     let mut no_aof = false;
     let mut sentinel_mode = false;
+    let mut cluster_enabled = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--port" {
@@ -46,6 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             no_aof = true;
         } else if arg == "--sentinel" {
             sentinel_mode = true;
+        } else if arg == "--cluster-enabled" {
+            if let Some(val) = args.next() {
+                cluster_enabled = val.to_ascii_lowercase() == "yes";
+            }
         }
     }
     // Sentinel 模式下默认端口为 26379
@@ -109,6 +114,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("从 RDB 恢复复制信息: replid={}, offset={}", replication.get_master_replid(), replication.get_master_repl_offset());
     }
 
+    // 创建 Cluster 状态（仅在 Cluster 模式下）
+    let cluster = if cluster_enabled {
+        Some(Arc::new(redis_rust::cluster::ClusterState::new("127.0.0.1".to_string(), port)))
+    } else {
+        None
+    };
+
     // 创建 Sentinel 管理器（仅在 Sentinel 模式下）
     let sentinel = if sentinel_mode {
         Some(Arc::new(SentinelManager::new()))
@@ -131,11 +143,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = redis_rust::sentinel::failover::start_odown_checker(s.clone());
     }
 
+    // Cluster 模式下启动集群总线监听
+    if cluster_enabled {
+        let bus_port = port + 10000;
+        let bus_addr = format!("127.0.0.1:{}", bus_port);
+        let bus_addr_for_task = bus_addr.clone();
+        let cluster_for_bus = cluster.clone().unwrap();
+        tokio::spawn(async move {
+            if let Err(e) = redis_rust::cluster::bus::start_cluster_bus(&bus_addr_for_task, cluster_for_bus).await {
+                log::error!("集群总线启动失败: {}", e);
+            }
+        });
+        log::info!("集群总线监听: {}", bus_addr);
+    }
+
+    // Cluster 模式下启动 Gossip 任务
+    if cluster_enabled {
+        if let Some(ref c) = cluster {
+            redis_rust::cluster::gossip::start_gossip(c.clone());
+        }
+    }
+
+    // Cluster 模式下启动故障检测任务
+    if cluster_enabled {
+        if let Some(ref c) = cluster {
+            redis_rust::cluster::failover::start_failure_detector(c.clone());
+        }
+    }
+
     // 创建 TCP 服务器并启动
     let mut server = Server::new(&addr, storage, aof, pubsub, None)
         .with_rdb_path(RDB_PATH)
         .with_acl(acl)
         .with_replication(replication);
+    if let Some(ref c) = cluster {
+        server = server.with_cluster(c.clone());
+    }
     if let Some(s) = sentinel {
         server = server.with_sentinel(s);
     }

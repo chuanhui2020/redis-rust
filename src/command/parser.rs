@@ -271,6 +271,9 @@ impl CommandParser {
             "WAIT" => self.parse_wait(&arr),
             "FAILOVER" => self.parse_failover(&arr),
             "SENTINEL" => self.parse_sentinel(&arr),
+            "MIGRATE" => self.parse_migrate(&arr),
+            "ASKING" => Ok(Command::Asking),
+            "CLUSTER" => self.parse_cluster(&arr),
             other => Ok(Command::Unknown(other.to_string())),
         }
     }
@@ -532,6 +535,122 @@ impl CommandParser {
         Ok(Command::Wait { numreplicas, timeout })
     }
 
+    /// 解析 CLUSTER 子命令
+    fn parse_cluster(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 2 {
+            return Err(AppError::Command("CLUSTER 命令需要子命令".to_string()));
+        }
+        let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
+        match sub.as_str() {
+            "INFO" => Ok(Command::ClusterInfo),
+            "NODES" => Ok(Command::ClusterNodes),
+            "MYID" => Ok(Command::ClusterMyId),
+            "SLOTS" => Ok(Command::ClusterSlots),
+            "SHARDS" => Ok(Command::ClusterShards),
+            "MEET" => {
+                if arr.len() != 4 {
+                    return Err(AppError::Command("CLUSTER MEET 命令需要 ip 和 port 参数".to_string()));
+                }
+                let ip = self.extract_string(&arr[2])?;
+                let port = self.extract_string(&arr[3])?.parse::<u16>().map_err(|_| {
+                    AppError::Command("CLUSTER MEET port 必须是有效的整数".to_string())
+                })?;
+                Ok(Command::ClusterMeet { ip, port })
+            }
+            "ADDSLOTS" => {
+                if arr.len() < 3 {
+                    return Err(AppError::Command("CLUSTER ADDSLOTS 命令需要至少 1 个 slot".to_string()));
+                }
+                let slots = arr[2..]
+                    .iter()
+                    .map(|v| self.extract_string(v)?.parse::<usize>().map_err(|_| {
+                        AppError::Command("CLUSTER ADDSLOTS slot 必须是有效的整数".to_string())
+                    }))
+                    .collect::<Result<Vec<usize>>>()?;
+                Ok(Command::ClusterAddSlots(slots))
+            }
+            "DELSLOTS" => {
+                if arr.len() < 3 {
+                    return Err(AppError::Command("CLUSTER DELSLOTS 命令需要至少 1 个 slot".to_string()));
+                }
+                let slots = arr[2..]
+                    .iter()
+                    .map(|v| self.extract_string(v)?.parse::<usize>().map_err(|_| {
+                        AppError::Command("CLUSTER DELSLOTS slot 必须是有效的整数".to_string())
+                    }))
+                    .collect::<Result<Vec<usize>>>()?;
+                Ok(Command::ClusterDelSlots(slots))
+            }
+            "SETSLOT" => {
+                if arr.len() < 4 {
+                    return Err(AppError::Command("CLUSTER SETSLOT 命令需要 slot 和 state 参数".to_string()));
+                }
+                let slot = self.extract_string(&arr[2])?.parse::<usize>().map_err(|_| {
+                    AppError::Command("CLUSTER SETSLOT slot 必须是有效的整数".to_string())
+                })?;
+                let state = self.extract_string(&arr[3])?.to_ascii_uppercase();
+                let node_id = if arr.len() > 4 {
+                    Some(self.extract_string(&arr[4])?)
+                } else {
+                    None
+                };
+                Ok(Command::ClusterSetSlot { slot, state, node_id })
+            }
+            "REPLICATE" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("CLUSTER REPLICATE 命令需要 node-id 参数".to_string()));
+                }
+                let node_id = self.extract_string(&arr[2])?;
+                Ok(Command::ClusterReplicate(node_id))
+            }
+            "FAILOVER" => {
+                let option = if arr.len() > 2 {
+                    Some(self.extract_string(&arr[2])?.to_ascii_uppercase())
+                } else {
+                    None
+                };
+                Ok(Command::ClusterFailover(option))
+            }
+            "RESET" => {
+                let option = if arr.len() > 2 {
+                    Some(self.extract_string(&arr[2])?.to_ascii_uppercase())
+                } else {
+                    None
+                };
+                Ok(Command::ClusterReset(option))
+            }
+            "KEYSLOT" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("CLUSTER KEYSLOT 命令需要 key 参数".to_string()));
+                }
+                let key = self.extract_string(&arr[2])?;
+                Ok(Command::ClusterKeySlot(key))
+            }
+            "COUNTKEYSINSLOT" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("CLUSTER COUNTKEYSINSLOT 命令需要 slot 参数".to_string()));
+                }
+                let slot = self.extract_string(&arr[2])?.parse::<usize>().map_err(|_| {
+                    AppError::Command("CLUSTER COUNTKEYSINSLOT slot 必须是有效的整数".to_string())
+                })?;
+                Ok(Command::ClusterCountKeysInSlot(slot))
+            }
+            "GETKEYSINSLOT" => {
+                if arr.len() != 4 {
+                    return Err(AppError::Command("CLUSTER GETKEYSINSLOT 命令需要 slot 和 count 参数".to_string()));
+                }
+                let slot = self.extract_string(&arr[2])?.parse::<usize>().map_err(|_| {
+                    AppError::Command("CLUSTER GETKEYSINSLOT slot 必须是有效的整数".to_string())
+                })?;
+                let count = self.extract_string(&arr[3])?.parse::<usize>().map_err(|_| {
+                    AppError::Command("CLUSTER GETKEYSINSLOT count 必须是有效的整数".to_string())
+                })?;
+                Ok(Command::ClusterGetKeysInSlot(slot, count))
+            }
+            _ => Err(AppError::Command(format!("未知的 CLUSTER 子命令: {}", sub))),
+        }
+    }
+
     /// 解析 SENTINEL 子命令
     fn parse_sentinel(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
@@ -622,6 +741,51 @@ impl CommandParser {
             "MYID" => Ok(Command::SentinelMyId),
             _ => Err(AppError::Command(format!("未知的 SENTINEL 子命令: {}", sub))),
         }
+    }
+
+    /// 解析 MIGRATE 命令：MIGRATE host port key|"" destination-db timeout [COPY] [REPLACE] [AUTH password] [KEYS key [key ...]]
+    fn parse_migrate(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 6 {
+            return Err(AppError::Command("MIGRATE 需要至少 5 个参数".to_string()));
+        }
+        let host = self.extract_string(&arr[1])?;
+        let port: u16 = self.extract_string(&arr[2])?.parse().map_err(|_| {
+            AppError::Command("MIGRATE port 必须是整数".to_string())
+        })?;
+        let key_or_empty = self.extract_string(&arr[3])?;
+        let db: usize = self.extract_string(&arr[4])?.parse().map_err(|_| {
+            AppError::Command("MIGRATE db 必须是整数".to_string())
+        })?;
+        let timeout: u64 = self.extract_string(&arr[5])?.parse().map_err(|_| {
+            AppError::Command("MIGRATE timeout 必须是整数".to_string())
+        })?;
+        
+        let mut copy = false;
+        let mut replace = false;
+        let mut keys = Vec::new();
+        
+        if !key_or_empty.is_empty() {
+            keys.push(key_or_empty);
+        }
+        
+        let mut i = 6;
+        while i < arr.len() {
+            let arg = self.extract_string(&arr[i])?.to_ascii_uppercase();
+            match arg.as_str() {
+                "COPY" => copy = true,
+                "REPLACE" => replace = true,
+                "KEYS" => {
+                    for j in (i + 1)..arr.len() {
+                        keys.push(self.extract_string(&arr[j])?);
+                    }
+                    break;
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        
+        Ok(Command::Migrate { host, port, keys, db, timeout, copy, replace })
     }
 
     /// 解析 FAILOVER 命令：FAILOVER [TO host port] [TIMEOUT timeout] [FORCE] | FAILOVER ABORT
