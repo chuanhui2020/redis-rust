@@ -124,6 +124,8 @@ pub struct Server {
     slowlog: SlowLog,
     /// ACL 管理器（可选）
     acl: Option<crate::acl::AclManager>,
+    /// 复制管理器（可选）
+    replication: Option<Arc<crate::replication::ReplicationManager>>,
     /// 客户端暂停状态：(结束时间, 模式 WRITE|ALL)
     client_pause: Arc<RwLock<Option<(Instant, String)>>>,
     /// 待关闭的客户端 ID 集合
@@ -159,6 +161,7 @@ impl Server {
             rdb_path: None,
             slowlog: SlowLog::new(),
             acl: None,
+            replication: None,
             client_pause: Arc::new(RwLock::new(None)),
             client_kill_flags: Arc::new(Mutex::new(HashSet::new())),
             monitor_tx: tokio::sync::broadcast::channel(1024).0,
@@ -170,6 +173,12 @@ impl Server {
     /// 设置 ACL 管理器
     pub fn with_acl(mut self, acl: crate::acl::AclManager) -> Self {
         self.acl = Some(acl);
+        self
+    }
+
+    /// 设置复制管理器
+    pub fn with_replication(mut self, replication: Arc<crate::replication::ReplicationManager>) -> Self {
+        self.replication = Some(replication);
         self
     }
 
@@ -198,6 +207,12 @@ impl Server {
     async fn run_with_listener(self, listener: TcpListener) -> Result<()> {
         log::info!("服务器已启动，等待客户端连接...");
 
+        if let Some(ref repl) = self.replication {
+            if let Ok(addr) = listener.local_addr() {
+                repl.set_listening_port(addr.port());
+            }
+        }
+
         loop {
             let (stream, peer_addr) = listener.accept().await?;
             log::info!("客户端已连接: {}", peer_addr);
@@ -213,6 +228,7 @@ impl Server {
             let rdb_path = self.rdb_path.clone();
             let slowlog = self.slowlog.clone();
             let acl = self.acl.clone();
+            let replication = self.replication.clone();
             let client_pause = self.client_pause.clone();
             let client_kill_flags = self.client_kill_flags.clone();
             let monitor_tx = self.monitor_tx.clone();
@@ -222,7 +238,7 @@ impl Server {
                 if let Err(e) = connection::handle_connection(
                     stream, peer_addr.to_string(), storage, aof, pubsub,
                     password, clients, next_client_id, script_engine, rdb_path, slowlog, acl,
-                    client_pause, client_kill_flags, monitor_tx, latency,
+                    replication, client_pause, client_kill_flags, monitor_tx, latency,
                     keyspace_notifier,
                 ).await {
                     log::error!("处理连接 {} 时出错: {}", peer_addr, e);

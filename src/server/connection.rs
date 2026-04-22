@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use bytes::{Bytes, BytesMut};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc};
 use crate::aof::AofWriter;
@@ -45,6 +45,7 @@ pub(crate) async fn handle_connection(
     rdb_path: Option<String>,
     slowlog: SlowLog,
     acl: Option<crate::acl::AclManager>,
+    replication: Option<Arc<crate::replication::ReplicationManager>>,
     client_pause: Arc<RwLock<Option<(Instant, String)>>>,
     client_kill_flags: Arc<Mutex<HashSet<u64>>>,
     monitor_tx: tokio::sync::broadcast::Sender<String>,
@@ -90,6 +91,9 @@ pub(crate) async fn handle_connection(
     executor.set_latency(latency);
     if let Some(ref acl_mgr) = acl {
         executor.set_acl(acl_mgr.clone());
+    }
+    if let Some(ref repl_mgr) = replication {
+        executor.set_replication(repl_mgr.clone());
     }
 
     // 设置全局 Keyspace 通知器
@@ -1156,6 +1160,10 @@ pub(crate) async fn handle_connection(
                             }
                             other => {
                                 // 普通命令，交给执行器，同时广播到 MONITOR
+                                let is_replconf_ack = matches!(
+                                    &other,
+                                    Command::ReplConf { args } if args.len() >= 2 && args[0].to_uppercase() == "ACK"
+                                );
                                 let (cmd_name, args) = extract_cmd_info(&other);
                                 let monitor_str = format!(
                                     "{:.6} [{} {}] \"{}\" {}",
@@ -1171,9 +1179,185 @@ pub(crate) async fn handle_connection(
                                 let _ = monitor_tx.send(monitor_str);
                                 match handler.executor.execute(other) {
                                     Ok(response) => {
+                                        // 处理 CONTINUE 增量同步响应
+                                        if let RespValue::SimpleString(ref s) = response {
+                                            if s.starts_with("CONTINUE") {
+                                                let parts: Vec<&str> = s.split_whitespace().collect();
+                                                if parts.len() >= 3 {
+                                                    let offset: i64 = parts[2].parse().unwrap_or(0);
+                                                    // 向客户端发送标准 CONTINUE 响应（仅 replid）
+                                                    let continue_resp = RespValue::SimpleString(format!("CONTINUE {}", parts[1]));
+                                                    if let Err(e) = send_reply(&mut stream, &handler, &continue_resp, &mut reply_mode).await {
+                                                        log::error!("写入 CONTINUE 响应失败: {}", e);
+                                                        return Ok(());
+                                                    }
+                                                    if let Some(ref repl) = replication {
+                                                        if let Some(backlog_data) = repl.get_backlog_from_offset(offset) {
+                                                            if let Err(e) = stream.write_all(&backlog_data).await {
+                                                                log::error!("写入增量数据失败: {}", e);
+                                                                return Ok(());
+                                                            }
+                                                        }
+                                                        // 进入副本命令转发循环
+                                                        let mut rx = repl.subscribe();
+                                                        let (replica_addr, replica_port) = if let Some(colon_pos) = peer_addr.rfind(':') {
+                                                            let addr = peer_addr[..colon_pos].to_string();
+                                                            let port = peer_addr[colon_pos + 1..].parse::<u16>().unwrap_or(0);
+                                                            (addr, port)
+                                                        } else {
+                                                            (peer_addr.clone(), 0)
+                                                        };
+                                                        repl.add_replica(replica_addr.clone(), replica_port);
+                                                        log::info!("副本已连接（增量同步）: {}:{}", replica_addr, replica_port);
+
+                                                        let (mut read_half, mut write_half) = stream.into_split();
+                                                        let mut read_buf = bytes::BytesMut::with_capacity(256);
+                                                        let resp_parser = crate::protocol::RespParser::new();
+                                                        let cmd_parser = crate::command::CommandParser::new();
+
+                                                        loop {
+                                                            tokio::select! {
+                                                                result = rx.recv() => {
+                                                                    match result {
+                                                                        Ok(data) => {
+                                                                            if let Err(e) = write_half.write_all(&data).await {
+                                                                                log::error!("写入副本失败: {}", e);
+                                                                                break;
+                                                                            }
+                                                                        }
+                                                                        Err(broadcast::error::RecvError::Closed) => break,
+                                                                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                                                                            log::warn!("副本落后 {} 条命令", n);
+                                                                        }
+                                                                    }
+                                                                }
+                                                                result = read_half.read_buf(&mut read_buf) => {
+                                                                    match result {
+                                                                        Ok(0) => break,
+                                                                        Ok(_) => {
+                                                                            while let Ok(Some(resp)) = resp_parser.parse(&mut read_buf) {
+                                                                                if let Ok(cmd) = cmd_parser.parse(resp) {
+                                                                                    if let Command::ReplConf { ref args } = cmd {
+                                                                                        if args.len() >= 2 && args[0].to_uppercase() == "ACK" {
+                                                                                            if let Ok(offset) = args[1].parse::<i64>() {
+                                                                                                repl.update_replica_offset(&replica_addr, replica_port, offset);
+                                                                                                log::debug!("收到副本 REPLCONF ACK, offset: {}", offset);
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        Err(e) => {
+                                                                            log::error!("读取副本数据失败: {}", e);
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        repl.remove_replica(&replica_addr, replica_port);
+                                                        log::info!("副本已断开: {}:{}", replica_addr, replica_port);
+                                                        return Ok(());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        
+                                        if is_replconf_ack {
+                                            continue;
+                                        }
+                                        
                                         if let Err(e) = send_reply(&mut stream, &handler, &response, &mut reply_mode).await {
                                             log::error!("写入响应失败: {}", e);
                                             return Ok(());
+                                        }
+                                        // 检测到 FULLRESYNC 响应后发送 RDB 数据
+                                        if let RespValue::SimpleString(ref s) = response {
+                                            if s.starts_with("FULLRESYNC") {
+                                                let mut rdb_buf = Vec::new();
+                                                if let Err(e) = crate::rdb::save_to_writer(&handler.executor.storage(), &mut rdb_buf) {
+                                                    log::error!("生成 RDB 失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                                let header = format!("${}\r\n", rdb_buf.len());
+                                                if let Err(e) = stream.write_all(header.as_bytes()).await {
+                                                    log::error!("写入 RDB 头部失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                                if let Err(e) = stream.write_all(&rdb_buf).await {
+                                                    log::error!("写入 RDB 数据失败: {}", e);
+                                                    return Ok(());
+                                                }
+
+                                                // RDB 发送完成后，进入副本命令转发循环
+                                                if let Some(ref repl) = replication {
+                                                    let mut rx = repl.subscribe();
+
+                                                    // 解析对端地址和端口
+                                                    let (replica_addr, replica_port) = if let Some(colon_pos) = peer_addr.rfind(':') {
+                                                        let addr = peer_addr[..colon_pos].to_string();
+                                                        let port = peer_addr[colon_pos + 1..].parse::<u16>().unwrap_or(0);
+                                                        (addr, port)
+                                                    } else {
+                                                        (peer_addr.clone(), 0)
+                                                    };
+
+                                                    repl.add_replica(replica_addr.clone(), replica_port);
+                                                    log::info!("副本已连接: {}:{}", replica_addr, replica_port);
+
+                                                    let (mut read_half, mut write_half) = stream.into_split();
+                                                    let mut read_buf = bytes::BytesMut::with_capacity(256);
+                                                    let resp_parser = crate::protocol::RespParser::new();
+                                                    let cmd_parser = crate::command::CommandParser::new();
+
+                                                    loop {
+                                                        tokio::select! {
+                                                            result = rx.recv() => {
+                                                                match result {
+                                                                    Ok(data) => {
+                                                                        if let Err(e) = write_half.write_all(&data).await {
+                                                                            log::error!("写入副本失败: {}", e);
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                    Err(broadcast::error::RecvError::Closed) => break,
+                                                                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                                                                        log::warn!("副本落后 {} 条命令", n);
+                                                                    }
+                                                                }
+                                                            }
+                                                            result = read_half.read_buf(&mut read_buf) => {
+                                                                match result {
+                                                                    Ok(0) => break,
+                                                                    Ok(_) => {
+                                                                        while let Ok(Some(resp)) = resp_parser.parse(&mut read_buf) {
+                                                                            if let Ok(cmd) = cmd_parser.parse(resp) {
+                                                                                if let Command::ReplConf { ref args } = cmd {
+                                                                                    if args.len() >= 2 && args[0].to_uppercase() == "ACK" {
+                                                                                        if let Ok(offset) = args[1].parse::<i64>() {
+                                                                                            repl.update_replica_offset(&replica_addr, replica_port, offset);
+                                                                                            log::debug!("收到副本 REPLCONF ACK, offset: {}", offset);
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    Err(e) => {
+                                                                        log::error!("读取副本数据失败: {}", e);
+                                                                        break;
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    repl.remove_replica(&replica_addr, replica_port);
+                                                    log::info!("副本已断开: {}:{}", replica_addr, replica_port);
+                                                    return Ok(());
+                                                }
+                                            }
                                         }
                                     }
                                     Err(e) => {

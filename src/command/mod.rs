@@ -538,6 +538,16 @@ pub enum Command {
     BRpoplpush(String, String, f64),
     /// QUIT
     Quit,
+    /// REPLCONF args...
+    ReplConf { args: Vec<String> },
+    /// PSYNC replid offset
+    Psync { replid: String, offset: i64 },
+    /// ROLE
+    Role,
+    /// REPLICAOF host port
+    ReplicaOf { host: String, port: u16 },
+    /// REPLICAOF NO ONE
+    ReplicaOfNoOne,
     /// 未知命令
     Unknown(String),
 }

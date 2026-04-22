@@ -7,6 +7,7 @@ use log::info;
 use redis_rust::acl::AclManager;
 use redis_rust::aof::{AofReplayer, AofWriter};
 use redis_rust::pubsub::PubSubManager;
+use redis_rust::replication::ReplicationManager;
 use redis_rust::server::Server;
 use redis_rust::storage::StorageEngine;
 
@@ -82,10 +83,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 创建 ACL 管理器（默认用户拥有所有权限）
     let acl = AclManager::new();
 
+    // 创建复制管理器
+    let replication = Arc::new(ReplicationManager::new());
+
     // 创建 TCP 服务器并启动
     let server = Server::new(&addr, storage, aof, pubsub, None)
         .with_rdb_path(RDB_PATH)
-        .with_acl(acl);
+        .with_acl(acl)
+        .with_replication(replication);
     server.run().await?;
 
     Ok(())

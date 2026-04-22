@@ -524,6 +524,25 @@ impl Command {
             Command::Quit => {
                 RespValue::Array(vec![bulk("QUIT")])
             }
+            Command::Role => {
+                RespValue::Array(vec![bulk("ROLE")])
+            }
+            Command::ReplicaOf { host, port } => {
+                RespValue::Array(vec![bulk("REPLICAOF"), bulk(host), bulk(&port.to_string())])
+            }
+            Command::ReplicaOfNoOne => {
+                RespValue::Array(vec![bulk("REPLICAOF"), bulk("NO"), bulk("ONE")])
+            }
+            Command::ReplConf { args } => {
+                let mut arr = vec![bulk("REPLCONF")];
+                for arg in args {
+                    arr.push(bulk(arg));
+                }
+                RespValue::Array(arr)
+            }
+            Command::Psync { replid, offset } => {
+                RespValue::Array(vec![bulk("PSYNC"), bulk(replid), bulk(&offset.to_string())])
+            }
             Command::Unknown(cmd_name) => {
                 RespValue::Array(vec![bulk(cmd_name)])
             }

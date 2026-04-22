@@ -1,3 +1,4 @@
 /target
 appendonly.aof
 dump.rdb
+.cargo/config.toml

@@ -23,6 +23,8 @@ pub struct CommandExecutor {
     pub(crate) slowlog: Option<SlowLog>,
     /// ACL 管理器（可选）
     acl: Option<crate::acl::AclManager>,
+    /// 复制管理器（可选）
+    replication: Option<Arc<crate::replication::ReplicationManager>>,
     /// 延迟追踪器（可选）
     pub(crate) latency: Option<crate::latency::LatencyTracker>,
     /// Keyspace 通知器（可选）
@@ -40,6 +42,7 @@ impl CommandExecutor {
             script_engine: None,
             slowlog: None,
             acl: None,
+            replication: None,
             latency: None,
             keyspace_notifier: None,
             aof_use_rdb_preamble: Arc::new(AtomicBool::new(false)),
@@ -57,6 +60,7 @@ impl CommandExecutor {
             script_engine: None,
             slowlog: None,
             acl: None,
+            replication: None,
             latency: None,
             keyspace_notifier: None,
             aof_use_rdb_preamble: Arc::new(AtomicBool::new(false)),
@@ -76,6 +80,16 @@ impl CommandExecutor {
     /// 设置 ACL 管理器
     pub fn set_acl(&mut self, acl: crate::acl::AclManager) {
         self.acl = Some(acl);
+    }
+
+    /// 设置复制管理器
+    pub fn set_replication(&mut self, replication: Arc<crate::replication::ReplicationManager>) {
+        self.replication = Some(replication);
+    }
+
+    /// 获取复制管理器
+    pub fn replication(&self) -> Option<Arc<crate::replication::ReplicationManager>> {
+        self.replication.clone()
     }
 
     /// 设置延迟追踪器
@@ -151,6 +165,24 @@ impl CommandExecutor {
         }
     }
 
+    /// 将写命令广播到所有已连接的副本
+    fn propagate_to_replicas(&self, cmd: &Command) {
+        if !cmd.is_write_command() {
+            return;
+        }
+        if let Some(ref repl) = self.replication {
+            if matches!(repl.get_role(), crate::replication::ReplicationRole::Master) {
+                let resp_bytes = crate::replication::serialize_command_to_resp(cmd);
+                let len = resp_bytes.len() as i64;
+                // 追加到复制积压缓冲区
+                repl.append_to_backlog(&resp_bytes);
+                // 广播到已连接的副本
+                let _ = repl.get_repl_tx().send(resp_bytes);
+                repl.incr_master_repl_offset(len);
+            }
+        }
+    }
+
     /// 执行命令并返回 RESP 结果（自动记录慢查询）
     pub fn execute(&self, cmd: Command) -> Result<RespValue> {
         let start = std::time::Instant::now();
@@ -159,16 +191,17 @@ impl CommandExecutor {
         // 写操作先记录到 AOF，再执行
         self.append_to_aof(&cmd);
 
-        // 保留命令引用用于 keyspace 通知
+        // 保留命令引用用于 keyspace 通知和复制传播
         let cmd_for_notify = cmd.clone();
         let result = self.do_execute(cmd);
 
-        // 命令执行成功后发送 Keyspace 通知
+        // 命令执行成功后发送 Keyspace 通知并广播到副本
         if result.is_ok() {
             if let Some(ref notifier) = self.keyspace_notifier {
                 let db = self.storage.current_db();
                 notifier.notify_command(&cmd_for_notify, db);
             }
+            self.propagate_to_replicas(&cmd_for_notify);
         }
 
         let duration_us = start.elapsed().as_micros() as u64;
@@ -689,6 +722,96 @@ impl CommandExecutor {
                 // 事务命令在 server.rs 中直接处理，不应到达此处
                 Err(AppError::Command("事务命令应在连接层处理".to_string()))
             }
+            Command::ReplConf { args } => {
+                if args.len() >= 2 && args[0].to_uppercase() == "ACK" {
+                    if let Ok(offset) = args[1].parse::<i64>() {
+                        if let Some(ref _repl) = self.replication {
+                            log::debug!("收到副本 ACK, offset: {}", offset);
+                        }
+                    }
+                }
+                Ok(RespValue::SimpleString("OK".to_string()))
+            }
+            Command::Psync { replid, offset } => {
+                let repl = self.replication.as_ref().ok_or_else(|| {
+                    AppError::Command("复制管理器未初始化".to_string())
+                })?;
+                let master_replid = repl.get_master_replid();
+                
+                if offset >= 0 && replid == master_replid {
+                    // 尝试增量同步
+                    if let Some(_backlog_data) = repl.get_backlog_from_offset(offset) {
+                        // 返回 CONTINUE 响应，连接层会发送积压数据
+                        return Ok(RespValue::SimpleString(format!(
+                            "CONTINUE {} {}",
+                            master_replid, offset
+                        )));
+                    }
+                }
+                
+                // 全量同步
+                let master_offset = repl.get_master_repl_offset();
+                Ok(RespValue::SimpleString(format!(
+                    "FULLRESYNC {} {}",
+                    master_replid, master_offset
+                )))
+            }
+            Command::Role => {
+                let repl = self.replication.as_ref().ok_or_else(|| {
+                    AppError::Command("复制管理器未初始化".to_string())
+                })?;
+                match repl.get_role() {
+                    crate::replication::ReplicationRole::Master => {
+                        let offset = repl.get_master_repl_offset();
+                        let replicas = repl.get_connected_replicas();
+                        let mut replica_arr = Vec::new();
+                        for r in replicas {
+                            replica_arr.push(RespValue::Array(vec![
+                                RespValue::BulkString(Some(Bytes::from(r.addr))),
+                                RespValue::Integer(r.port as i64),
+                                RespValue::Integer(r.offset),
+                            ]));
+                        }
+                        Ok(RespValue::Array(vec![
+                            RespValue::BulkString(Some(Bytes::from("master"))),
+                            RespValue::Integer(offset),
+                            RespValue::Array(replica_arr),
+                        ]))
+                    }
+                    crate::replication::ReplicationRole::Slave => {
+                        let (host, port) = repl.get_master_host_port();
+                        let offset = repl.get_master_repl_offset();
+                        Ok(RespValue::Array(vec![
+                            RespValue::BulkString(Some(Bytes::from("slave"))),
+                            RespValue::BulkString(Some(Bytes::from(host.unwrap_or_default()))),
+                            RespValue::Integer(port.unwrap_or(0) as i64),
+                            RespValue::BulkString(Some(Bytes::from("connect"))),
+                            RespValue::Integer(offset),
+                        ]))
+                    }
+                }
+            }
+            Command::ReplicaOf { host, port } => {
+                let repl = self.replication.as_ref().ok_or_else(|| {
+                    AppError::Command("复制管理器未初始化".to_string())
+                })?;
+                repl.set_replicaof(host.clone(), port);
+                let repl_clone = repl.clone();
+                let storage_clone = self.storage.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = repl_clone.start_replication(storage_clone, host, port).await {
+                        log::error!("复制任务失败: {}", e);
+                    }
+                });
+                Ok(RespValue::SimpleString("OK".to_string()))
+            }
+            Command::ReplicaOfNoOne => {
+                let repl = self.replication.as_ref().ok_or_else(|| {
+                    AppError::Command("复制管理器未初始化".to_string())
+                })?;
+                repl.set_replicaof_no_one();
+                Ok(RespValue::SimpleString("OK".to_string()))
+            }
             Command::Unknown(cmd_name) => {
                 Ok(RespValue::Error(format!(
                     "ERR unknown command '{}'",
@@ -716,6 +839,7 @@ impl Clone for CommandExecutor {
             script_engine: self.script_engine.clone(),
             slowlog: self.slowlog.clone(),
             acl: self.acl.clone(),
+            replication: self.replication.clone(),
             latency: self.latency.clone(),
             keyspace_notifier: self.keyspace_notifier.clone(),
             aof_use_rdb_preamble: self.aof_use_rdb_preamble.clone(),

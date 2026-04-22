@@ -257,6 +257,11 @@ impl CommandParser {
             "HELLO" => self.parse_hello(&arr),
             "MONITOR" => Ok(Command::Monitor),
             "QUIT" => Ok(Command::Quit),
+            "REPLCONF" => self.parse_replconf(&arr),
+            "PSYNC" => self.parse_psync(&arr),
+            "ROLE" => self.parse_role(&arr),
+            "REPLICAOF" => self.parse_replicaof(&arr),
+            "SLAVEOF" => self.parse_replicaof(&arr),
             other => Ok(Command::Unknown(other.to_string())),
         }
     }
@@ -399,6 +404,63 @@ impl CommandParser {
 
 
 
+
+    /// 解析 ROLE 命令：ROLE
+    fn parse_role(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() != 1 {
+            return Err(AppError::Command(
+                "ROLE 命令不需要参数".to_string(),
+            ));
+        }
+        Ok(Command::Role)
+    }
+
+    /// 解析 REPLCONF 命令：REPLCONF arg [arg ...]
+    fn parse_replconf(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 2 {
+            return Err(AppError::Command(
+                "REPLCONF 命令需要至少 1 个参数".to_string(),
+            ));
+        }
+        let args = arr[1..]
+            .iter()
+            .map(|v| self.extract_string(v))
+            .collect::<Result<Vec<String>>>()?;
+        Ok(Command::ReplConf { args })
+    }
+
+    /// 解析 PSYNC 命令：PSYNC replid offset
+    fn parse_psync(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() != 3 {
+            return Err(AppError::Command(
+                "PSYNC 命令需要 2 个参数".to_string(),
+            ));
+        }
+        let replid = self.extract_string(&arr[1])?;
+        let offset = self.extract_string(&arr[2])?.parse::<i64>().map_err(|_| {
+            AppError::Command("PSYNC offset 必须是有效的整数".to_string())
+        })?;
+        Ok(Command::Psync { replid, offset })
+    }
+
+    /// 解析 REPLICAOF 命令：REPLICAOF host port | REPLICAOF NO ONE
+    fn parse_replicaof(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() != 3 {
+            return Err(AppError::Command(
+                "REPLICAOF 命令需要 2 个参数".to_string(),
+            ));
+        }
+        let arg1 = self.extract_string(&arr[1])?;
+        let arg2 = self.extract_string(&arr[2])?;
+        if arg1.to_ascii_uppercase() == "NO" && arg2.to_ascii_uppercase() == "ONE" {
+            Ok(Command::ReplicaOfNoOne)
+        } else {
+            let port = arg2.parse::<u16>().map_err(|_| {
+                AppError::Command("REPLICAOF 端口必须是有效的整数".to_string())
+            })?;
+            Ok(Command::ReplicaOf { host: arg1, port })
+        }
+    }
 
     /// 从 RespValue 中提取字符串（支持 BulkString 和 SimpleString）
     pub(crate) fn extract_string(&self, value: &RespValue) -> Result<String> {

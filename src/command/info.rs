@@ -259,6 +259,11 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::PUnsubscribe(patterns) => ("PUNSUBSCRIBE".to_string(), patterns.clone()),
         Command::Publish(channel, _) => ("PUBLISH".to_string(), vec![channel.clone()]),
         Command::BgRewriteAof => ("BGREWRITEAOF".to_string(), vec![]),
+        Command::ReplConf { args } => ("REPLCONF".to_string(), args.clone()),
+        Command::Psync { replid, offset } => ("PSYNC".to_string(), vec![replid.clone(), offset.to_string()]),
+        Command::Role => ("ROLE".to_string(), vec![]),
+        Command::ReplicaOf { host, port } => ("REPLICAOF".to_string(), vec![host.clone(), port.to_string()]),
+        Command::ReplicaOfNoOne => ("REPLICAOF".to_string(), vec!["NO".to_string(), "ONE".to_string()]),
         Command::Unknown(name) => (name.clone(), vec![]),
     }
 }
