@@ -2419,3 +2419,312 @@ async fn test_type_various() {
     let resp = exec(&mut stream, &["TYPE", "t_none"]).await;
     assert_eq!(resp, RespValue::SimpleString("none".to_string()));
 }
+
+
+// ---------- 并发压力测试 ----------
+
+#[tokio::test]
+async fn test_concurrent_set_get() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+
+    let mut handles = vec![];
+    for i in 0..10 {
+        handles.push(tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            let parser = RespParser::new();
+            let mut buf = BytesMut::with_capacity(4096);
+            for j in 0..100 {
+                let key = format!("key_{}_{}", i, j);
+                let value = format!("value_{}_{}", i, j);
+
+                // SET
+                let cmd = format!(
+                    "*3\r\n$3\r\nSET\r\n${}\r\n{}\r\n${}\r\n{}\r\n",
+                    key.len(),
+                    key,
+                    value.len(),
+                    value
+                );
+                stream.write_all(cmd.as_bytes()).await.unwrap();
+
+                let resp = loop {
+                    match parser.parse(&mut buf).unwrap() {
+                        Some(resp) => break resp,
+                        None => {
+                            let mut tmp = [0u8; 1024];
+                            let n = stream.read(&mut tmp).await.unwrap();
+                            assert!(n > 0, "连接已关闭");
+                            buf.extend_from_slice(&tmp[..n]);
+                        }
+                    }
+                };
+                assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+                // GET
+                let cmd = format!("*2\r\n$3\r\nGET\r\n${}\r\n{}\r\n", key.len(), key);
+                stream.write_all(cmd.as_bytes()).await.unwrap();
+
+                let resp = loop {
+                    match parser.parse(&mut buf).unwrap() {
+                        Some(resp) => break resp,
+                        None => {
+                            let mut tmp = [0u8; 1024];
+                            let n = stream.read(&mut tmp).await.unwrap();
+                            assert!(n > 0, "连接已关闭");
+                            buf.extend_from_slice(&tmp[..n]);
+                        }
+                    }
+                };
+                assert_eq!(
+                    resp,
+                    RespValue::BulkString(Some(bytes::Bytes::from(value)))
+                );
+            }
+        }));
+    }
+
+    for h in handles {
+        h.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn test_concurrent_incr() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+
+    // 初始化 counter = 0
+    {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(b"*3\r\n$3\r\nSET\r\n$7\r\ncounter\r\n$1\r\n0\r\n")
+            .await
+            .unwrap();
+        let parser = RespParser::new();
+        let mut buf = BytesMut::with_capacity(4096);
+        let resp = loop {
+            match parser.parse(&mut buf).unwrap() {
+                Some(resp) => break resp,
+                None => {
+                    let mut tmp = [0u8; 1024];
+                    let n = stream.read(&mut tmp).await.unwrap();
+                    buf.extend_from_slice(&tmp[..n]);
+                }
+            }
+        };
+        assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    }
+
+    let mut handles = vec![];
+    for _ in 0..10 {
+        handles.push(tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            let parser = RespParser::new();
+            let mut buf = BytesMut::with_capacity(4096);
+            for _ in 0..100 {
+                stream
+                    .write_all(b"*2\r\n$4\r\nINCR\r\n$7\r\ncounter\r\n")
+                    .await
+                    .unwrap();
+
+                let resp = loop {
+                    match parser.parse(&mut buf).unwrap() {
+                        Some(resp) => break resp,
+                        None => {
+                            let mut tmp = [0u8; 1024];
+                            let n = stream.read(&mut tmp).await.unwrap();
+                            assert!(n > 0, "连接已关闭");
+                            buf.extend_from_slice(&tmp[..n]);
+                        }
+                    }
+                };
+                assert!(matches!(resp, RespValue::Integer(_)));
+            }
+        }));
+    }
+
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    // 验证最终值
+    {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(b"*2\r\n$3\r\nGET\r\n$7\r\ncounter\r\n")
+            .await
+            .unwrap();
+        let parser = RespParser::new();
+        let mut buf = BytesMut::with_capacity(4096);
+        let resp = loop {
+            match parser.parse(&mut buf).unwrap() {
+                Some(resp) => break resp,
+                None => {
+                    let mut tmp = [0u8; 1024];
+                    let n = stream.read(&mut tmp).await.unwrap();
+                    buf.extend_from_slice(&tmp[..n]);
+                }
+            }
+        };
+        assert_eq!(
+            resp,
+            RespValue::BulkString(Some(bytes::Bytes::from("1000")))
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_concurrent_lpush_llen() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+
+    let mut handles = vec![];
+    for i in 0..5 {
+        handles.push(tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            let parser = RespParser::new();
+            let mut buf = BytesMut::with_capacity(4096);
+            for j in 0..50 {
+                let elem = format!("elem_{}_{}", i, j);
+                let cmd = format!(
+                    "*3\r\n$5\r\nLPUSH\r\n$6\r\nmylist\r\n${}\r\n{}\r\n",
+                    elem.len(),
+                    elem
+                );
+                stream.write_all(cmd.as_bytes()).await.unwrap();
+
+                let resp = loop {
+                    match parser.parse(&mut buf).unwrap() {
+                        Some(resp) => break resp,
+                        None => {
+                            let mut tmp = [0u8; 1024];
+                            let n = stream.read(&mut tmp).await.unwrap();
+                            assert!(n > 0, "连接已关闭");
+                            buf.extend_from_slice(&tmp[..n]);
+                        }
+                    }
+                };
+                assert!(matches!(resp, RespValue::Integer(_)));
+            }
+        }));
+    }
+
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    // 验证 LLEN
+    {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(b"*2\r\n$4\r\nLLEN\r\n$6\r\nmylist\r\n")
+            .await
+            .unwrap();
+        let parser = RespParser::new();
+        let mut buf = BytesMut::with_capacity(4096);
+        let resp = loop {
+            match parser.parse(&mut buf).unwrap() {
+                Some(resp) => break resp,
+                None => {
+                    let mut tmp = [0u8; 1024];
+                    let n = stream.read(&mut tmp).await.unwrap();
+                    buf.extend_from_slice(&tmp[..n]);
+                }
+            }
+        };
+        assert_eq!(resp, RespValue::Integer(250));
+    }
+}
+
+#[tokio::test]
+async fn test_concurrent_mixed_operations() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        async {
+            let mut writer_handles = vec![];
+            for i in 0..5 {
+                writer_handles.push(tokio::spawn(async move {
+                    let mut stream = TcpStream::connect(addr).await.unwrap();
+                    let parser = RespParser::new();
+                    let mut buf = BytesMut::with_capacity(4096);
+                    for j in 0..20 {
+                        let key = format!("mix_{}", j);
+                        let value = format!("v_{}_{}", i, j);
+                        let cmd = format!(
+                            "*3\r\n$3\r\nSET\r\n${}\r\n{}\r\n${}\r\n{}\r\n",
+                            key.len(),
+                            key,
+                            value.len(),
+                            value
+                        );
+                        stream.write_all(cmd.as_bytes()).await.unwrap();
+
+                        let resp = loop {
+                            match parser.parse(&mut buf).unwrap() {
+                                Some(resp) => break resp,
+                                None => {
+                                    let mut tmp = [0u8; 1024];
+                                    let n = stream.read(&mut tmp).await.unwrap();
+                                    assert!(n > 0, "连接已关闭");
+                                    buf.extend_from_slice(&tmp[..n]);
+                                }
+                            }
+                        };
+                        assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+                    }
+                }));
+            }
+
+            let mut reader_handles = vec![];
+            for _ in 0..5 {
+                reader_handles.push(tokio::spawn(async move {
+                    let mut stream = TcpStream::connect(addr).await.unwrap();
+                    let parser = RespParser::new();
+                    let mut buf = BytesMut::with_capacity(4096);
+                    for j in 0..20 {
+                        let key = format!("mix_{}", j);
+                        let cmd =
+                            format!("*2\r\n$3\r\nGET\r\n${}\r\n{}\r\n", key.len(), key);
+                        stream.write_all(cmd.as_bytes()).await.unwrap();
+
+                        let resp = loop {
+                            match parser.parse(&mut buf).unwrap() {
+                                Some(resp) => break resp,
+                                None => {
+                                    let mut tmp = [0u8; 1024];
+                                    let n = stream.read(&mut tmp).await.unwrap();
+                                    assert!(n > 0, "连接已关闭");
+                                    buf.extend_from_slice(&tmp[..n]);
+                                }
+                            }
+                        };
+                        // 读到的值可能是 nil（写者还未写入）或某个值，只要格式正确即可
+                        assert!(
+                            matches!(resp, RespValue::BulkString(_)),
+                            "期望 BulkString，得到 {:?}",
+                            resp
+                        );
+                    }
+                }));
+            }
+
+            for h in writer_handles {
+                h.await.unwrap();
+            }
+            for h in reader_handles {
+                h.await.unwrap();
+            }
+        },
+    )
+    .await;
+
+    assert!(result.is_ok(), "混合并发操作超时（超过 5 秒）");
+}
