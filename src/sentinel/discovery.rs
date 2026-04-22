@@ -18,6 +18,7 @@ pub fn start_discovery(sentinel: Arc<SentinelManager>, listen_port: u16) -> toki
             interval.tick().await;
             
             let masters = sentinel.get_masters();
+            let epoch = sentinel.get_current_epoch();
             for master in &masters {
                 let ip = master.ip.clone();
                 let port = master.port;
@@ -25,9 +26,10 @@ pub fn start_discovery(sentinel: Arc<SentinelManager>, listen_port: u16) -> toki
                 let runid = sentinel.runid.clone();
                 
                 // 发布 hello 消息到 master 的 __sentinel__:hello 频道
+                // 格式: "ip,port,runid,epoch,master_name"
                 let hello_msg = format!(
                     "{},{},{},{},{}",
-                    "127.0.0.1", listen_port, runid, 0, name
+                    "127.0.0.1", listen_port, runid, epoch, name
                 );
                 
                 if let Err(e) = publish_hello(&ip, port, &hello_msg).await {
@@ -127,6 +129,8 @@ fn parse_hello_message(msg: &str) -> Option<SentinelPeer> {
     let ip = parts[0].to_string();
     let port: u16 = parts[1].parse().ok()?;
     let runid = parts[2].to_string();
+    // parts[3] 是 epoch，当前不严格使用
+    let _epoch: u64 = parts[3].parse().unwrap_or(0);
     
     Some(SentinelPeer {
         ip,

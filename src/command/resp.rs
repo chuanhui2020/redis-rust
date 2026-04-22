@@ -720,6 +720,12 @@ impl Command {
             Command::SentinelMyId => {
                 RespValue::Array(vec![bulk("SENTINEL"), bulk("MYID")])
             }
+            Command::SentinelIsMasterDownByAddr { ip, port, current_epoch, runid } => {
+                RespValue::Array(vec![
+                    bulk("SENTINEL"), bulk("IS-MASTER-DOWN-BY-ADDR"), bulk(ip),
+                    bulk(&port.to_string()), bulk(&current_epoch.to_string()), bulk(runid),
+                ])
+            }
             Command::ClusterInfo => {
                 RespValue::Array(vec![bulk("CLUSTER"), bulk("INFO")])
             }

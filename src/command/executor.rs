@@ -1005,7 +1005,8 @@ impl CommandExecutor {
             | Command::SentinelFailover(_)
             | Command::SentinelReset(_)
             | Command::SentinelCkquorum(_)
-            | Command::SentinelMyId => {
+            | Command::SentinelMyId
+            | Command::SentinelIsMasterDownByAddr { .. } => {
                 Err(AppError::Command("SENTINEL 应在连接层处理".to_string()))
             }
             Command::ClusterInfo

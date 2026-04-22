@@ -305,6 +305,7 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::SentinelReset(pattern) => ("SENTINEL".to_string(), vec!["RESET".to_string(), pattern.clone()]),
         Command::SentinelCkquorum(name) => ("SENTINEL".to_string(), vec!["CKQUORUM".to_string(), name.clone()]),
         Command::SentinelMyId => ("SENTINEL".to_string(), vec!["MYID".to_string()]),
+        Command::SentinelIsMasterDownByAddr { .. } => ("SENTINEL".to_string(), vec!["IS-MASTER-DOWN-BY-ADDR".to_string()]),
         Command::ClusterInfo => ("CLUSTER".to_string(), vec!["INFO".to_string()]),
         Command::ClusterNodes => ("CLUSTER".to_string(), vec!["NODES".to_string()]),
         Command::ClusterMyId => ("CLUSTER".to_string(), vec!["MYID".to_string()]),

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use super::SentinelManager;
@@ -34,10 +34,13 @@ pub fn start_odown_checker(sentinel: Arc<SentinelManager>) -> tokio::task::JoinH
 
                 for peer in &master.sentinels {
                     match ask_sentinel_is_down(&peer.ip, peer.port, &master.ip, master.port).await {
-                        Ok(true) => {
+                        Ok((true, _, _)) => {
                             agree_count += 1;
                         }
-                        _ => {}
+                        Ok((false, _, _)) => {}
+                        Err(e) => {
+                            log::debug!("询问 Sentinel {}:{} 失败: {}", peer.ip, peer.port, e);
+                        }
                     }
                 }
 
@@ -53,7 +56,7 @@ pub fn start_odown_checker(sentinel: Arc<SentinelManager>) -> tokio::task::JoinH
 
                         // 尝试成为 leader 并执行故障转移
                         let is_leader = try_become_leader(
-                            &sentinel, &master.name, &master.sentinels,
+                            &sentinel, &master.name, &master.ip, master.port, &master.sentinels,
                         ).await;
 
                         if is_leader {
@@ -78,12 +81,13 @@ pub fn start_odown_checker(sentinel: Arc<SentinelManager>) -> tokio::task::JoinH
 }
 
 /// 向其他 Sentinel 询问 master 是否下线
+/// 返回 (是否下线, leader_runid, leader_epoch)
 async fn ask_sentinel_is_down(
     sentinel_ip: &str,
     sentinel_port: u16,
     master_ip: &str,
     master_port: u16,
-) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(bool, String, u64), Box<dyn std::error::Error + Send + Sync>> {
     let addr = format!("{}:{}", sentinel_ip, sentinel_port);
     let timeout = Duration::from_millis(500);
     let stream = tokio::time::timeout(timeout, TcpStream::connect(&addr)).await??;
@@ -91,7 +95,7 @@ async fn ask_sentinel_is_down(
 
     // 发送 SENTINEL is-master-down-by-addr master_ip master_port 0 *
     let cmd = format!(
-        "*5\r\n$8\r\nSENTINEL\r\n$25\r\nis-master-down-by-addr\r\n${}\r\n{}\r\n${}\r\n{}\r\n$1\r\n*\r\n",
+        "*6\r\n$8\r\nSENTINEL\r\n$25\r\nis-master-down-by-addr\r\n${}\r\n{}\r\n${}\r\n{}\r\n$1\r\n0\r\n$1\r\n*\r\n",
         master_ip.len(),
         master_ip,
         master_port.to_string().len(),
@@ -100,21 +104,64 @@ async fn ask_sentinel_is_down(
     write_half.write_all(cmd.as_bytes()).await?;
 
     let mut reader = tokio::io::BufReader::new(read_half);
+
+    // 读取 RESP 数组头
     let mut line = String::new();
     tokio::time::timeout(timeout, reader.read_line(&mut line)).await??;
+    if !line.starts_with('*') {
+        return Err(format!("期望 RESP 数组，收到: {}", line).into());
+    }
+    let array_len: usize = line.trim()[1..].parse()?;
 
-    // 简化解析：如果响应包含 ":1" 表示同意下线
-    Ok(line.contains(":1"))
+    // 读取 down_state（整数）
+    let mut down_line = String::new();
+    tokio::time::timeout(timeout, reader.read_line(&mut down_line)).await??;
+    let down_state = down_line.trim().strip_prefix(':').unwrap_or("0").parse::<i64>().unwrap_or(0) == 1;
+
+    // 读取 leader_runid（bulk string）
+    let mut runid_line = String::new();
+    tokio::time::timeout(timeout, reader.read_line(&mut runid_line)).await??;
+    let leader_runid = if runid_line.starts_with('$') {
+        let len: usize = runid_line.trim()[1..].parse()?;
+        if len > 0 {
+            let mut buf = vec![0u8; len + 2]; // +2 for \r\n
+            tokio::time::timeout(timeout, reader.read_exact(&mut buf)).await??;
+            String::from_utf8_lossy(&buf[..len]).to_string()
+        } else {
+            let mut _crlf = [0u8; 2];
+            tokio::time::timeout(timeout, reader.read_exact(&mut _crlf)).await??;
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
+    // 读取 leader_epoch（整数），如果数组长度 >= 3
+    let mut leader_epoch = 0u64;
+    if array_len >= 3 {
+        let mut epoch_line = String::new();
+        tokio::time::timeout(timeout, reader.read_line(&mut epoch_line)).await??;
+        leader_epoch = epoch_line.trim().strip_prefix(':').unwrap_or("0").parse::<u64>().unwrap_or(0);
+    }
+
+    Ok((down_state, leader_runid, leader_epoch))
 }
 
 /// 尝试成为 leader（简化的 Raft-like 选举）
 async fn try_become_leader(
     sentinel: &SentinelManager,
     master_name: &str,
+    master_ip: &str,
+    master_port: u16,
     peers: &[super::SentinelPeer],
 ) -> bool {
+    // 递增 epoch
+    let epoch = sentinel.incr_epoch();
+    log::info!("Sentinel: 开始 leader 选举，master={}, epoch={}", master_name, epoch);
+
     if peers.is_empty() {
         // 没有其他 Sentinel，自己就是 leader
+        log::info!("Sentinel: 没有其他 Sentinel，直接当选为 leader");
         return true;
     }
 
@@ -124,28 +171,29 @@ async fn try_become_leader(
     let majority = total / 2 + 1;
 
     for peer in peers {
-        match request_vote(&peer.ip, peer.port, master_name, my_runid).await {
+        match request_vote(&peer.ip, peer.port, master_ip, master_port, epoch, my_runid).await {
             Ok(true) => {
                 votes += 1;
             }
-            _ => {}
+            Ok(false) => {
+                log::debug!("Sentinel {}:{} 拒绝投票", peer.ip, peer.port);
+            }
+            Err(e) => {
+                log::debug!("向 Sentinel {}:{} 请求投票失败: {}", peer.ip, peer.port, e);
+            }
         }
     }
 
     let elected = votes >= majority;
     if elected {
         log::info!(
-            "Sentinel: leader 选举成功，获得 {}/{} 票（需要 {}）",
-            votes,
-            total,
-            majority
+            "Sentinel: leader 选举成功，获得 {}/{} 票（需要 {}），epoch={}",
+            votes, total, majority, epoch
         );
     } else {
         log::info!(
-            "Sentinel: leader 选举失败，获得 {}/{} 票（需要 {}）",
-            votes,
-            total,
-            majority
+            "Sentinel: leader 选举失败，获得 {}/{} 票（需要 {}），epoch={}",
+            votes, total, majority, epoch
         );
     }
 
@@ -156,7 +204,9 @@ async fn try_become_leader(
 async fn request_vote(
     sentinel_ip: &str,
     sentinel_port: u16,
-    master_name: &str,
+    master_ip: &str,
+    master_port: u16,
+    epoch: u64,
     my_runid: &str,
 ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
     let addr = format!("{}:{}", sentinel_ip, sentinel_port);
@@ -164,22 +214,57 @@ async fn request_vote(
     let stream = tokio::time::timeout(timeout, TcpStream::connect(&addr)).await??;
     let (read_half, mut write_half) = stream.into_split();
 
-    // 发送投票请求（复用 is-master-down-by-addr，带上 runid）
+    // 发送投票请求：SENTINEL is-master-down-by-addr master_ip master_port epoch runid
+    let epoch_str = epoch.to_string();
     let cmd = format!(
-        "*5\r\n$8\r\nSENTINEL\r\n$25\r\nis-master-down-by-addr\r\n${}\r\n{}\r\n$1\r\n0\r\n${}\r\n{}\r\n",
-        master_name.len(),
-        master_name,
-        my_runid.len(),
-        my_runid
+        "*6\r\n$8\r\nSENTINEL\r\n$25\r\nis-master-down-by-addr\r\n${}\r\n{}\r\n${}\r\n{}\r\n${}\r\n{}\r\n${}\r\n{}\r\n",
+        master_ip.len(), master_ip,
+        master_port.to_string().len(), master_port,
+        epoch_str.len(), epoch_str,
+        my_runid.len(), my_runid
     );
     write_half.write_all(cmd.as_bytes()).await?;
 
     let mut reader = tokio::io::BufReader::new(read_half);
+
+    // 读取 RESP 数组头
     let mut line = String::new();
     tokio::time::timeout(timeout, reader.read_line(&mut line)).await??;
+    if !line.starts_with('*') {
+        return Err(format!("期望 RESP 数组，收到: {}", line).into());
+    }
+    let array_len: usize = line.trim()[1..].parse()?;
 
-    // 简化：如果响应包含我们的 runid，表示投票给我们
-    Ok(line.contains(my_runid))
+    // 读取 down_state
+    let mut down_line = String::new();
+    tokio::time::timeout(timeout, reader.read_line(&mut down_line)).await??;
+
+    // 读取 leader_runid
+    let mut runid_line = String::new();
+    tokio::time::timeout(timeout, reader.read_line(&mut runid_line)).await??;
+    let voted_runid = if runid_line.starts_with('$') {
+        let len: usize = runid_line.trim()[1..].parse()?;
+        if len > 0 {
+            let mut buf = vec![0u8; len + 2];
+            tokio::time::timeout(timeout, reader.read_exact(&mut buf)).await??;
+            String::from_utf8_lossy(&buf[..len]).to_string()
+        } else {
+            let mut _crlf = [0u8; 2];
+            tokio::time::timeout(timeout, reader.read_exact(&mut _crlf)).await??;
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
+    // 读取 leader_epoch（如果有）
+    if array_len >= 3 {
+        let mut epoch_line = String::new();
+        tokio::time::timeout(timeout, reader.read_line(&mut epoch_line)).await??;
+    }
+
+    // 如果响应中的 leader_runid 是我们的 runid，表示投票给我们
+    Ok(voted_runid == my_runid)
 }
 
 /// 执行自动故障转移
@@ -226,6 +311,33 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) {
         }
     }
 
+    // 等待新 master 确认 role:master（超时 60 秒）
+    let timeout = Duration::from_secs(60);
+    let start = std::time::Instant::now();
+    let mut confirmed_master = false;
+    loop {
+        if start.elapsed() > timeout {
+            log::warn!("故障转移：等待 {}:{} 成为 master 超时", replica.ip, replica.port);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        match check_role_master(&replica.ip, replica.port).await {
+            Ok(true) => {
+                log::info!("故障转移：{}:{} 已确认 role=master", replica.ip, replica.port);
+                confirmed_master = true;
+                break;
+            }
+            Ok(false) => {}
+            Err(e) => {
+                log::debug!("故障转移：检查 {}:{} role 失败: {}", replica.ip, replica.port, e);
+            }
+        }
+    }
+
+    if !confirmed_master {
+        log::warn!("故障转移：新 master {}:{} 未在超时内确认 role=master，继续执行", replica.ip, replica.port);
+    }
+
     // 2. 向其他 replica 发送 REPLICAOF <new_master_ip> <new_master_port>
     for other in &master.replicas {
         if other.ip == replica.ip && other.port == replica.port {
@@ -244,6 +356,48 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) {
                     other.ip, other.port, e
                 );
             }
+        }
+    }
+
+    // 等待其他 replica 确认 master_host 和 master_port 正确（每个超时 60 秒，并行检查较复杂，这里串行）
+    for other in &master.replicas {
+        if other.ip == replica.ip && other.port == replica.port {
+            continue;
+        }
+        let replica_start = std::time::Instant::now();
+        let mut confirmed = false;
+        loop {
+            if replica_start.elapsed() > timeout {
+                log::warn!(
+                    "故障转移：等待 replica {}:{} 同步超时",
+                    other.ip, other.port
+                );
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            match check_replica_master(&other.ip, other.port, &replica.ip, replica.port).await {
+                Ok(true) => {
+                    log::info!(
+                        "故障转移：replica {}:{} 已确认指向新 master",
+                        other.ip, other.port
+                    );
+                    confirmed = true;
+                    break;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    log::debug!(
+                        "故障转移：检查 replica {}:{} 同步状态失败: {}",
+                        other.ip, other.port, e
+                    );
+                }
+            }
+        }
+        if !confirmed {
+            log::warn!(
+                "故障转移：replica {}:{} 未在超时内确认同步",
+                other.ip, other.port
+            );
         }
     }
 
@@ -300,4 +454,57 @@ async fn send_replicaof(ip: &str, port: u16, master_ip: &str, master_port: u16) 
     } else {
         Err(format!("REPLICAOF 响应异常: {}", line.trim()).into())
     }
+}
+
+/// 检查实例的 role 是否为 master
+async fn check_role_master(ip: &str, port: u16) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    let info = get_info_replication(ip, port).await?;
+    Ok(info.lines().any(|line| line.trim() == "role:master"))
+}
+
+/// 检查 replica 是否已指向正确的 master
+async fn check_replica_master(
+    ip: &str,
+    port: u16,
+    expected_master_ip: &str,
+    expected_master_port: u16,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    let info = get_info_replication(ip, port).await?;
+    let mut master_host = None;
+    let mut master_port = None;
+    for line in info.lines() {
+        if line.starts_with("master_host:") {
+            master_host = Some(line["master_host:".len()..].trim().to_string());
+        }
+        if line.starts_with("master_port:") {
+            master_port = line["master_port:".len()..].trim().parse::<u16>().ok();
+        }
+    }
+    Ok(master_host.as_deref() == Some(expected_master_ip) && master_port == Some(expected_master_port))
+}
+
+/// 向实例发送 INFO replication，返回响应内容
+async fn get_info_replication(ip: &str, port: u16) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let addr = format!("{}:{}", ip, port);
+    let timeout = Duration::from_secs(2);
+    let stream = tokio::time::timeout(timeout, TcpStream::connect(&addr)).await??;
+    let (read_half, mut write_half) = stream.into_split();
+
+    write_half.write_all(b"*2\r\n$4\r\nINFO\r\n$11\r\nreplication\r\n").await?;
+
+    let mut reader = tokio::io::BufReader::new(read_half);
+    let mut line = String::new();
+
+    // 读取 bulk string 长度行
+    tokio::time::timeout(timeout, reader.read_line(&mut line)).await??;
+    if !line.starts_with('$') {
+        return Err(format!("期望 bulk string，收到: {}", line).into());
+    }
+    let len: usize = line.trim()[1..].parse()?;
+
+    // 读取内容
+    let mut buf = vec![0u8; len + 2]; // +2 for \r\n
+    tokio::time::timeout(timeout, reader.read_exact(&mut buf)).await??;
+
+    Ok(String::from_utf8_lossy(&buf[..len]).to_string())
 }

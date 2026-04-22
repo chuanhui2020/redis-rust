@@ -739,6 +739,24 @@ impl CommandParser {
                 Ok(Command::SentinelCkquorum(name))
             }
             "MYID" => Ok(Command::SentinelMyId),
+            "IS-MASTER-DOWN-BY-ADDR" => {
+                if arr.len() < 5 {
+                    return Err(AppError::Command("SENTINEL IS-MASTER-DOWN-BY-ADDR 命令需要 ip port current-epoch [runid] 参数".to_string()));
+                }
+                let ip = self.extract_string(&arr[2])?;
+                let port = self.extract_string(&arr[3])?.parse::<u16>().map_err(|_| {
+                    AppError::Command("SENTINEL IS-MASTER-DOWN-BY-ADDR port 必须是有效的整数".to_string())
+                })?;
+                let current_epoch = self.extract_string(&arr[4])?.parse::<u64>().map_err(|_| {
+                    AppError::Command("SENTINEL IS-MASTER-DOWN-BY-ADDR current-epoch 必须是有效的整数".to_string())
+                })?;
+                let runid = if arr.len() >= 6 {
+                    self.extract_string(&arr[5])?
+                } else {
+                    "*".to_string()
+                };
+                Ok(Command::SentinelIsMasterDownByAddr { ip, port, current_epoch, runid })
+            }
             _ => Err(AppError::Command(format!("未知的 SENTINEL 子命令: {}", sub))),
         }
     }

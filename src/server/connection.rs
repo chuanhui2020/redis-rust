@@ -423,7 +423,7 @@ pub(crate) async fn handle_connection(
                         }
 
                         // SENTINEL 命令在连接层处理
-                        if matches!(cmd, Command::SentinelMasters | Command::SentinelMaster(_) | Command::SentinelReplicas(_) | Command::SentinelSentinels(_) | Command::SentinelGetMasterAddrByName(_) | Command::SentinelMonitor { .. } | Command::SentinelRemove(_) | Command::SentinelSet { .. } | Command::SentinelFailover(_) | Command::SentinelReset(_) | Command::SentinelCkquorum(_) | Command::SentinelMyId) {
+                        if matches!(cmd, Command::SentinelMasters | Command::SentinelMaster(_) | Command::SentinelReplicas(_) | Command::SentinelSentinels(_) | Command::SentinelGetMasterAddrByName(_) | Command::SentinelMonitor { .. } | Command::SentinelRemove(_) | Command::SentinelSet { .. } | Command::SentinelFailover(_) | Command::SentinelReset(_) | Command::SentinelCkquorum(_) | Command::SentinelMyId | Command::SentinelIsMasterDownByAddr { .. }) {
                             let resp = if sentinel.is_none() {
                                 RespValue::Error("ERR Sentinel mode not enabled".to_string())
                             } else {
@@ -516,6 +516,31 @@ pub(crate) async fn handle_connection(
                                     }
                                     Command::SentinelMyId => {
                                         RespValue::BulkString(Some(Bytes::from(s.runid.clone())))
+                                    }
+                                    Command::SentinelIsMasterDownByAddr { ip, port, current_epoch, runid } => {
+                                        // 查找对应的 master
+                                        let masters = s.get_masters();
+                                        let matched = masters.iter().find(|m| m.ip == ip && m.port == port);
+                                        let down_state = matched.map_or(0i64, |m| if m.sdown { 1 } else { 0 });
+                                        let mut leader_runid = "*".to_string();
+                                        let mut leader_epoch = 0i64;
+
+                                        if let Some(master) = matched {
+                                            // 如果提供了 runid 且不是 *，则尝试投票
+                                            if runid != "*" && !runid.is_empty() {
+                                                let (voted, voted_runid) = s.vote_for(&master.name, current_epoch, &runid);
+                                                if voted {
+                                                    leader_runid = voted_runid;
+                                                    leader_epoch = current_epoch as i64;
+                                                }
+                                            }
+                                        }
+
+                                        RespValue::Array(vec![
+                                            RespValue::Integer(down_state),
+                                            RespValue::BulkString(Some(Bytes::from(leader_runid))),
+                                            RespValue::Integer(leader_epoch),
+                                        ])
                                     }
                                     _ => unreachable!(),
                                 }

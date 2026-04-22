@@ -624,6 +624,8 @@ pub enum Command {
     SentinelCkquorum(String),
     /// SENTINEL MYID
     SentinelMyId,
+    /// SENTINEL is-master-down-by-addr ip port current-epoch runid
+    SentinelIsMasterDownByAddr { ip: String, port: u16, current_epoch: u64, runid: String },
     /// CLUSTER INFO
     ClusterInfo,
     /// CLUSTER NODES

@@ -123,7 +123,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 创建 Sentinel 管理器（仅在 Sentinel 模式下）
     let sentinel = if sentinel_mode {
-        Some(Arc::new(SentinelManager::new()))
+        let s = Arc::new(SentinelManager::new());
+        // 加载已有配置
+        if let Err(e) = s.load_config() {
+            log::warn!("Sentinel 配置加载失败: {}", e);
+        }
+        Some(s)
     } else {
         None
     };
