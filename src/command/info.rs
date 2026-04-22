@@ -23,6 +23,10 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::Hello(_, _, _) => ("HELLO".to_string(), vec![]),
         Command::Monitor => ("MONITOR".to_string(), vec![]),
         Command::CommandInfo => ("COMMAND".to_string(), vec![]),
+        Command::CommandCount => ("COMMAND".to_string(), vec!["COUNT".to_string()]),
+        Command::CommandList(filter) => ("COMMAND".to_string(), vec!["LIST".to_string(), filter.clone().unwrap_or_default()]),
+        Command::CommandDocs(names) => ("COMMAND".to_string(), vec!["DOCS".to_string(), names.join(" ")]),
+        Command::CommandGetKeys(args) => ("COMMAND".to_string(), vec!["GETKEYS".to_string(), args.join(" ")]),
         Command::MGet(keys) => ("MGET".to_string(), keys.clone()),
         Command::MSet(pairs) => ("MSET".to_string(), pairs.iter().map(|(k, _)| k.clone()).collect()),
         Command::Incr(key) => ("INCR".to_string(), vec![key.clone()]),
@@ -175,6 +179,11 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::AclGenPass(_) => ("ACL GENPASS".to_string(), vec![]),
         Command::AclSave => ("ACL SAVE".to_string(), vec![]),
         Command::AclLoad => ("ACL LOAD".to_string(), vec![]),
+        Command::AclDryRun { username, command } => {
+            let mut args = vec![username.clone()];
+            args.extend(command.clone());
+            ("ACL DRYRUN".to_string(), args)
+        }
         Command::ClientSetName(name) => ("CLIENT".to_string(), vec!["SETNAME".to_string(), name.clone()]),
         Command::ClientGetName => ("CLIENT".to_string(), vec!["GETNAME".to_string()]),
         Command::ClientList => ("CLIENT".to_string(), vec!["LIST".to_string()]),

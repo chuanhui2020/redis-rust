@@ -262,6 +262,10 @@ impl CommandExecutor {
             Command::Hello(_protover, _auth, _setname) => executor_admin::execute_hello(self, _protover, _auth, _setname),
             Command::Monitor => executor_admin::execute_monitor(self),
             Command::CommandInfo => executor_admin::execute_command_info(self),
+            Command::CommandCount => executor_admin::execute_command_count(self),
+            Command::CommandList(filter) => executor_admin::execute_command_list(self, filter),
+            Command::CommandDocs(names) => executor_admin::execute_command_docs(self, names),
+            Command::CommandGetKeys(args) => executor_admin::execute_command_get_keys(self, args),
             Command::BgRewriteAof => executor_admin::execute_bg_rewrite_aof(self),
             Command::SetBit(key, offset, value) => executor_bitmap::execute_set_bit(self, key, offset, value),
             Command::GetBit(key, offset) => executor_bitmap::execute_get_bit(self, key, offset),
@@ -435,6 +439,24 @@ impl CommandExecutor {
                 })?;
                 acl.load("users.acl")?;
                 Ok(RespValue::SimpleString("OK".to_string()))
+            }
+            Command::AclDryRun { username, command } => {
+                let acl = self.acl.as_ref().ok_or_else(|| {
+                    AppError::Command("ACL 未启用".to_string())
+                })?;
+                if command.is_empty() {
+                    return Err(AppError::Command("ACL DRYRUN 需要命令参数".to_string()));
+                }
+                let cmd_name = &command[0];
+                let keys: Vec<&str> = command[1..].iter().map(|s| s.as_str()).collect();
+                match acl.check_command(&username, cmd_name, &keys) {
+                    Ok(true) => Ok(RespValue::SimpleString("OK".to_string())),
+                    Ok(false) => Ok(RespValue::Error(format!(
+                        "ERR User {} has no permissions to run the '{}' command",
+                        username, cmd_name
+                    ))),
+                    Err(e) => Err(e),
+                }
             }
             Command::ClientSetName(_) | Command::ClientGetName | Command::ClientList | Command::ClientId
             | Command::ClientInfo | Command::ClientKill { .. } | Command::ClientPause(_, _)

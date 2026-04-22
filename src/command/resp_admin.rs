@@ -151,6 +151,50 @@ pub(crate) fn to_resp_command_info(cmd: &Command) -> RespValue {
     }
 }
 
+pub(crate) fn to_resp_command_count(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::CommandCount => {
+                RespValue::Array(vec![bulk("COMMAND"), bulk("COUNT")])
+        }
+        _ => unreachable!(),
+    }
+}
+
+pub(crate) fn to_resp_command_list(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::CommandList(filter) => {
+                let mut parts = vec![bulk("COMMAND"), bulk("LIST")];
+                if let Some(f) = filter {
+                    parts.push(bulk(f));
+                }
+                RespValue::Array(parts)
+        }
+        _ => unreachable!(),
+    }
+}
+
+pub(crate) fn to_resp_command_docs(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::CommandDocs(names) => {
+                let mut parts = vec![bulk("COMMAND"), bulk("DOCS")];
+                parts.extend(names.iter().map(|n| bulk(n)));
+                RespValue::Array(parts)
+        }
+        _ => unreachable!(),
+    }
+}
+
+pub(crate) fn to_resp_command_get_keys(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::CommandGetKeys(args) => {
+                let mut parts = vec![bulk("COMMAND"), bulk("GETKEYS")];
+                parts.extend(args.iter().map(|a| bulk(a)));
+                RespValue::Array(parts)
+        }
+        _ => unreachable!(),
+    }
+}
+
 pub(crate) fn to_resp_keys(cmd: &Command) -> RespValue {
     match cmd {
         Command::Keys(pattern) => {

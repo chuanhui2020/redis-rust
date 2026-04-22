@@ -53,7 +53,7 @@ impl CommandParser {
             "EXPIRE" => self.parse_expire(&arr),
             "TTL" => self.parse_ttl(&arr),
             "CONFIG" => self.parse_config(&arr),
-            "COMMAND" => Ok(Command::CommandInfo),
+            "COMMAND" => self.parse_command(&arr),
             "MGET" => self.parse_mget(&arr),
             "MSET" => self.parse_mset(&arr),
             "INCR" => self.parse_incr(&arr),
@@ -456,6 +456,41 @@ impl CommandParser {
             AppError::Command("PSYNC offset 必须是有效的整数".to_string())
         })?;
         Ok(Command::Psync { replid, offset })
+    }
+
+    /// 解析 COMMAND 子命令
+    fn parse_command(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() == 1 {
+            return Ok(Command::CommandInfo);
+        }
+        let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
+        match sub.as_str() {
+            "COUNT" => Ok(Command::CommandCount),
+            "LIST" => {
+                // 简化实现：忽略复杂过滤器，仅记录可能的模式
+                let filter = if arr.len() > 2 {
+                    Some(self.extract_string(&arr[arr.len() - 1])?)
+                } else {
+                    None
+                };
+                Ok(Command::CommandList(filter))
+            }
+            "DOCS" => {
+                let names = arr[2..]
+                    .iter()
+                    .map(|v| self.extract_string(v))
+                    .collect::<Result<Vec<String>>>()?;
+                Ok(Command::CommandDocs(names))
+            }
+            "GETKEYS" => {
+                let args = arr[2..]
+                    .iter()
+                    .map(|v| self.extract_string(v))
+                    .collect::<Result<Vec<String>>>()?;
+                Ok(Command::CommandGetKeys(args))
+            }
+            _ => Ok(Command::CommandInfo),
+        }
     }
 
     /// 解析 REPLICAOF 命令：REPLICAOF host port | REPLICAOF NO ONE

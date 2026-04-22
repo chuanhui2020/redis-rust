@@ -36,6 +36,10 @@ impl Command {
             Command::Hello(..) => resp_admin::to_resp_hello(self),
             Command::Monitor => resp_admin::to_resp_monitor(self),
             Command::CommandInfo => resp_admin::to_resp_command_info(self),
+            Command::CommandCount => resp_admin::to_resp_command_count(self),
+            Command::CommandList(..) => resp_admin::to_resp_command_list(self),
+            Command::CommandDocs(..) => resp_admin::to_resp_command_docs(self),
+            Command::CommandGetKeys(..) => resp_admin::to_resp_command_get_keys(self),
             Command::MGet(..) => resp_string::to_resp_m_get(self),
             Command::MSet(..) => resp_string::to_resp_m_set(self),
             Command::Incr(..) => resp_string::to_resp_incr(self),
@@ -472,6 +476,13 @@ impl Command {
             }
             Command::AclLoad => {
                 RespValue::Array(vec![bulk("ACL"), bulk("LOAD")])
+            }
+            Command::AclDryRun { username, command } => {
+                let mut parts = vec![bulk("ACL"), bulk("DRYRUN"), bulk(username)];
+                for arg in command {
+                    parts.push(bulk(arg));
+                }
+                RespValue::Array(parts)
             }
             Command::Sort(key, _, _, _, _, _, _, _) => {
                 let mut parts = vec![bulk("SORT"), bulk(key)];

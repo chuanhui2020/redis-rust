@@ -57,6 +57,14 @@ pub enum Command {
     Monitor,
     /// COMMAND（redis-benchmark 查询支持的命令列表）
     CommandInfo,
+    /// COMMAND COUNT
+    CommandCount,
+    /// COMMAND LIST [FILTERBY MODULE name | ACLCAT cat | PATTERN pattern]
+    CommandList(Option<String>),
+    /// COMMAND DOCS [command-name ...]
+    CommandDocs(Vec<String>),
+    /// COMMAND GETKEYS command [arg ...]
+    CommandGetKeys(Vec<String>),
     /// MGET key [key ...]
     MGet(Vec<String>),
     /// MSET key value [key value ...]
@@ -421,6 +429,8 @@ pub enum Command {
     AclSave,
     /// ACL LOAD
     AclLoad,
+    /// ACL DRYRUN username command [arg ...]
+    AclDryRun { username: String, command: Vec<String> },
     /// CLIENT SETNAME connection-name
     ClientSetName(String),
     /// CLIENT GETNAME

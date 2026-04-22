@@ -150,7 +150,7 @@ pub(crate) async fn handle_connection(
                         // 认证检查：未认证且设置了密码时，只允许特定命令
                         let is_auth_exempt = matches!(
                             cmd,
-                            Command::Auth(_, _) | Command::Quit | Command::Ping(_) | Command::CommandInfo | Command::Hello(_, _, _)
+                            Command::Auth(_, _) | Command::Quit | Command::Ping(_) | Command::CommandInfo | Command::CommandCount | Command::CommandList(_) | Command::CommandDocs(_) | Command::CommandGetKeys(_) | Command::Hello(_, _, _)
                         );
                         if !authenticated && password.is_some() && !is_auth_exempt {
                             let resp = RespValue::Error(
@@ -373,7 +373,7 @@ pub(crate) async fn handle_connection(
                                 let _ = write_resp(&mut stream, &handler, &resp).await;
                                 return Ok(());
                             }
-                            Command::CommandInfo => {
+                            Command::CommandInfo | Command::CommandCount | Command::CommandList(_) | Command::CommandDocs(_) | Command::CommandGetKeys(_) => {
                                 // redis-benchmark 需要，无需认证
                                 match handler.executor.execute(cmd) {
                                     Ok(response) => {

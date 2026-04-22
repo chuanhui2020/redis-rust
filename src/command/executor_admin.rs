@@ -186,6 +186,70 @@ pub(crate) fn execute_command_info(_executor: &CommandExecutor) -> Result<RespVa
                 Ok(RespValue::Array(vec![]))
 }
 
+pub(crate) fn execute_command_count(_executor: &CommandExecutor) -> Result<RespValue> {
+                Ok(RespValue::Integer(220))
+}
+
+pub(crate) fn execute_command_list(_executor: &CommandExecutor, _filter: Option<String>) -> Result<RespValue> {
+                let commands = vec![
+                    "get", "set", "del", "exists", "expire", "ttl", "keys", "scan",
+                    "mget", "mset", "incr", "decr", "append", "strlen",
+                    "lpush", "rpush", "lpop", "rpop", "llen", "lrange", "lindex",
+                    "hset", "hget", "hdel", "hgetall", "hkeys", "hvals", "hlen",
+                    "sadd", "srem", "smembers", "scard", "sinter", "sunion", "sdiff",
+                    "zadd", "zrem", "zrange", "zrank", "zscore", "zcard",
+                    "ping", "echo", "info", "dbsize", "flushall", "flushdb",
+                    "select", "auth", "multi", "exec", "discard", "watch", "unwatch",
+                    "subscribe", "unsubscribe", "publish", "psubscribe", "punsubscribe",
+                    "ssubscribe", "sunsubscribe", "spublish",
+                    "eval", "evalsha", "script",
+                    "role", "replicaof", "slaveof", "replconf", "psync",
+                    "acl", "client", "config", "command", "type", "rename",
+                    "persist", "pexpire", "pttl", "expireat", "pexpireat",
+                    "sort", "object", "debug", "save", "bgsave", "bgrewriteaof",
+                    "shutdown", "lastsave", "time", "randomkey", "copy", "dump", "restore",
+                    "touch", "unlink", "wait",
+                    "setnx", "setex", "psetex", "getset", "getdel", "getex",
+                    "msetnx", "incrby", "decrby", "incrbyfloat", "setrange", "getrange",
+                    "lset", "linsert", "lrem", "ltrim", "lpos", "blpop", "brpop",
+                    "hexists", "hmset", "hmget", "hincrby", "hincrbyfloat", "hsetnx", "hrandfield", "hscan",
+                    "hexpire", "hpexpire", "hexpireat", "hpexpireat", "httl", "hpttl", "hexpiretime", "hpexpiretime", "hpersist",
+                    "sismember", "spop", "srandmember", "smove", "sinterstore", "sunionstore", "sdiffstore", "sscan",
+                    "zcount", "zrangebyscore", "zrevrange", "zrevrank", "zincrby", "zpopmin", "zpopmax",
+                    "zunionstore", "zinterstore", "zscan", "zrangebylex", "zlexcount", "zmscore",
+                    "zdiff", "zdiffstore", "zinter", "zunion", "zrangestore", "zmpop", "zrevrangebyscore", "zrevrangebylex",
+                    "sintercard", "smismember", "zrandmember", "bzpopmin", "bzpopmax", "bzmpop",
+                    "setbit", "getbit", "bitcount", "bitop", "bitpos", "bitfield", "bitfield_ro",
+                    "xadd", "xlen", "xrange", "xrevrange", "xtrim", "xdel", "xread", "xsetid",
+                    "xgroup", "xreadgroup", "xack", "xclaim", "xautoclaim", "xpending",
+                    "xinfo", "pfadd", "pfcount", "pfmerge",
+                    "geoadd", "geodist", "geohash", "geopos", "geosearch", "geosearchstore",
+                    "function", "fcall", "fcall_ro", "eval_ro", "evalsha_ro",
+                    "slowlog", "memory", "latency", "hello", "monitor", "reset", "quit",
+                    "replconf", "role", "swapdb", "renamenx", "substr", "lcs",
+                    "lmove", "rpoplpush", "lmpop", "blmove", "blmpop", "brpoplpush",
+                ];
+                let arr: Vec<RespValue> = commands.iter()
+                    .map(|c| RespValue::BulkString(Some(Bytes::from(*c))))
+                    .collect();
+                Ok(RespValue::Array(arr))
+}
+
+pub(crate) fn execute_command_docs(_executor: &CommandExecutor, _names: Vec<String>) -> Result<RespValue> {
+                Ok(RespValue::Array(vec![]))
+}
+
+pub(crate) fn execute_command_get_keys(_executor: &CommandExecutor, args: Vec<String>) -> Result<RespValue> {
+                if args.is_empty() {
+                    return Err(AppError::Command("COMMAND GETKEYS 需要命令参数".to_string()));
+                }
+                // 简化实现：返回命令后的所有参数作为候选 key
+                let keys: Vec<RespValue> = args[1..].iter()
+                    .map(|k| RespValue::BulkString(Some(Bytes::from(k.clone()))))
+                    .collect();
+                Ok(RespValue::Array(keys))
+}
+
 pub(crate) fn execute_bg_rewrite_aof(_executor: &CommandExecutor) -> Result<RespValue> {
                 // BGREWRITEAOF 在 server.rs 中处理，需要 AOF writer
                 Err(AppError::Command("BGREWRITEAOF 应在连接层处理".to_string()))

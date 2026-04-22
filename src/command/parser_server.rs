@@ -144,6 +144,18 @@ impl CommandParser {
             }
             "SAVE" => Ok(Command::AclSave),
             "LOAD" => Ok(Command::AclLoad),
+            "DRYRUN" => {
+                if arr.len() < 4 {
+                    return Err(AppError::Command(
+                        "ACL DRYRUN 需要用户名和命令名".to_string(),
+                    ));
+                }
+                let username = self.extract_string(&arr[2])?;
+                let command: Vec<String> = arr[3..].iter()
+                    .map(|v| self.extract_string(v))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Command::AclDryRun { username, command })
+            }
             _ => Err(AppError::Command(
                 format!("ACL 未知子命令: {}", sub),
             )),
