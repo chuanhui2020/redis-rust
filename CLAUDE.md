@@ -158,9 +158,9 @@ bash bench.sh
 | Server/Admin | 36（含 COMMAND COUNT/LIST/DOCS/GETKEYS） | 90% | 完成 |
 | 持久化（RDB+AOF） | — | — | 完成 |
 | Lua 脚本 + Functions | — | — | 完成 |
-| Replication | 8（REPLICAOF/ROLE/PSYNC/REPLCONF/WAIT/SYNC/FAILOVER） | — | 完成（全量同步+增量同步+写传播+心跳+断线重连+RDB持久化replid） |
-| Sentinel | 12（SENTINEL MASTERS/MASTER/REPLICAS/SENTINELS/MONITOR/REMOVE/SET/FAILOVER/RESET/CKQUORUM/MYID/GET-MASTER-ADDR-BY-NAME） | — | 完成（SDOWN/ODOWN检测+Leader选举+自动故障转移） |
-| Cluster | 17（CLUSTER INFO/NODES/MYID/SLOTS/SHARDS/MEET/ADDSLOTS/DELSLOTS/SETSLOT/REPLICATE/FAILOVER/RESET/KEYSLOT/COUNTKEYSINSLOT/GETKEYSINSLOT + MIGRATE/ASKING） | — | 完成（16384 slot分片+MOVED/ASK重定向+Gossip+故障检测+CROSSSLOT校验） |
+| Replication | 8（REPLICAOF/ROLE/PSYNC/REPLCONF/WAIT/SYNC/FAILOVER） | — | 生产级（全量/增量同步+写传播+心跳+断线重连+RDB持久化replid+多节点验证通过） |
+| Sentinel | 13（含 is-master-down-by-addr） | — | 生产级（SDOWN/ODOWN+epoch选举+自动故障转移+配置持久化+多节点验证通过） |
+| Cluster | 19（含 MIGRATE/ASKING + CLUSTER SLOTS/COUNTKEYSINSLOT/GETKEYSINSLOT） | — | 生产级（slot分片+MOVED/ASK重定向+Gossip节点发现+拓扑持久化+CROSSSLOT+多节点验证通过） |
 
 **未实现（~14 个命令）：**
 
