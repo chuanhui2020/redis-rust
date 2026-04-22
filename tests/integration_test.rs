@@ -2728,3 +2728,256 @@ async fn test_concurrent_mixed_operations() {
 
     assert!(result.is_ok(), "混合并发操作超时（超过 5 秒）");
 }
+
+
+// ---------- 高级功能测试 ----------
+
+#[tokio::test]
+async fn test_multi_exec_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["MULTI"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["SET", "a", "1"]).await;
+    assert_eq!(resp, RespValue::SimpleString("QUEUED".to_string()));
+
+    let resp = exec(&mut stream, &["SET", "b", "2"]).await;
+    assert_eq!(resp, RespValue::SimpleString("QUEUED".to_string()));
+
+    let resp = exec(&mut stream, &["EXEC"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+            assert_eq!(arr[0], RespValue::SimpleString("OK".to_string()));
+            assert_eq!(arr[1], RespValue::SimpleString("OK".to_string()));
+        }
+        _ => panic!("期望 EXEC 返回数组, 得到 {:?}", resp),
+    }
+
+    let resp = exec(&mut stream, &["GET", "a"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("1"))));
+
+    let resp = exec(&mut stream, &["GET", "b"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("2"))));
+}
+
+#[tokio::test]
+async fn test_multi_empty() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["MULTI"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["EXEC"]).await;
+    match resp {
+        RespValue::Array(arr) => assert!(arr.is_empty()),
+        _ => panic!("期望 EXEC 返回空数组, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_incr_decr() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "counter", "10"]).await;
+
+    let resp = exec(&mut stream, &["INCR", "counter"]).await;
+    assert_eq!(resp, RespValue::Integer(11));
+
+    let resp = exec(&mut stream, &["DECR", "counter"]).await;
+    assert_eq!(resp, RespValue::Integer(10));
+}
+
+#[tokio::test]
+async fn test_incr_nonexistent() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["INCR", "newcounter"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+}
+
+#[tokio::test]
+async fn test_incr_not_integer() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "notnum", "hello"]).await;
+
+    let resp = exec(&mut stream, &["INCR", "notnum"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("整数") || e.contains("integer")),
+        "期望 INCR 非整数报错，得到 {:?}",
+        resp
+    );
+}
+
+#[tokio::test]
+async fn test_mset_mget() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["MSET", "a", "1", "b", "2", "c", "3"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["MGET", "a", "b", "c"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("1"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("2"))));
+            assert_eq!(arr[2], RespValue::BulkString(Some(bytes::Bytes::from("3"))));
+        }
+        _ => panic!("期望 MGET 返回数组, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_mget_partial() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "a", "1"]).await;
+
+    let resp = exec(&mut stream, &["MGET", "a", "missing", "b"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("1"))));
+            assert_eq!(arr[1], RespValue::BulkString(None));
+            assert_eq!(arr[2], RespValue::BulkString(None));
+        }
+        _ => panic!("期望 MGET 返回数组, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_dbsize_and_flushdb() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "a", "1"]).await;
+    exec(&mut stream, &["SET", "b", "2"]).await;
+
+    let resp = exec(&mut stream, &["DBSIZE"]).await;
+    match resp {
+        RespValue::Integer(n) => assert_eq!(n, 2),
+        _ => panic!("期望 DBSIZE 返回 Integer, 得到 {:?}", resp),
+    }
+
+    let resp = exec(&mut stream, &["FLUSHDB"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["DBSIZE"]).await;
+    match resp {
+        RespValue::Integer(n) => assert_eq!(n, 0),
+        _ => panic!("期望 DBSIZE 返回 0, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_select_db() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "selkey", "selval"]).await;
+
+    let resp = exec(&mut stream, &["SELECT", "1"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["GET", "selkey"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+
+    let resp = exec(&mut stream, &["SELECT", "0"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["GET", "selkey"]).await;
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("selval")))
+    );
+}
+
+#[tokio::test]
+async fn test_append_and_strlen() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "appkey", "hello"]).await;
+
+    let resp = exec(&mut stream, &["APPEND", "appkey", "world"]).await;
+    assert_eq!(resp, RespValue::Integer(10));
+
+    let resp = exec(&mut stream, &["GET", "appkey"]).await;
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("helloworld")))
+    );
+
+    let resp = exec(&mut stream, &["STRLEN", "appkey"]).await;
+    assert_eq!(resp, RespValue::Integer(10));
+}
+
+#[tokio::test]
+async fn test_setnx() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SETNX", "nxkey", "val"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["SETNX", "nxkey", "other"]).await;
+    assert_eq!(resp, RespValue::Integer(0));
+
+    let resp = exec(&mut stream, &["GET", "nxkey"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("val"))));
+}
+
+#[tokio::test]
+async fn test_persist() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SET", "perkey", "perval", "EX", "100"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["TTL", "perkey"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n > 0 && n <= 100),
+        _ => panic!("期望 TTL 返回正整数, 得到 {:?}", resp),
+    }
+
+    let resp = exec(&mut stream, &["PERSIST", "perkey"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["TTL", "perkey"]).await;
+    assert_eq!(resp, RespValue::Integer(-1));
+}
