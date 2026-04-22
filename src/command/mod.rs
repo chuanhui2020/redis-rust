@@ -460,6 +460,14 @@ pub enum Command {
     ClientReply(crate::server::ReplyMode),
     /// CLIENT UNBLOCK client-id [TIMEOUT|ERROR]
     ClientUnblock(u64, String),
+    /// CLIENT TRACKING ON|OFF [REDIRECT client-id] [BCAST] [PREFIX prefix ...] [OPTIN] [OPTOUT] [NOLOOP]
+    ClientTracking { on: bool, redirect: Option<u64>, bcast: bool, prefixes: Vec<String>, optin: bool, optout: bool, noloop: bool },
+    /// CLIENT CACHING YES|NO
+    ClientCaching(bool),
+    /// CLIENT GETREDIR
+    ClientGetRedir,
+    /// CLIENT TRACKINGINFO
+    ClientTrackingInfo,
     /// SORT key [BY pattern] [LIMIT offset count] [GET pattern ...] [ASC|DESC] [ALPHA] [STORE destination]
     Sort(String, Option<String>, Vec<String>, Option<isize>, Option<isize>, bool, bool, Option<String>),
     /// UNLINK key [key ...]
@@ -480,6 +488,10 @@ pub enum Command {
     ScriptExists(Vec<String>),
     /// SCRIPT FLUSH
     ScriptFlush,
+    /// SCRIPT DEBUG YES|SYNC|NO
+    ScriptDebug(String),
+    /// SCRIPT HELP
+    ScriptHelp,
     /// FUNCTION LOAD [REPLACE] function-code
     FunctionLoad(String, bool),
     /// FUNCTION DELETE library-name

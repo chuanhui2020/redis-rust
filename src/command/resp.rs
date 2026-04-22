@@ -427,6 +427,39 @@ impl Command {
                     bulk("CLIENT"), bulk("UNBLOCK"), bulk(&id.to_string()), bulk(reason),
                 ])
             }
+            Command::ClientTracking { on, redirect, bcast, prefixes, optin, optout, noloop } => {
+                let mut parts = vec![bulk("CLIENT"), bulk("TRACKING"), bulk(if *on { "ON" } else { "OFF" })];
+                if let Some(r) = redirect {
+                    parts.push(bulk("REDIRECT"));
+                    parts.push(bulk(&r.to_string()));
+                }
+                if *bcast {
+                    parts.push(bulk("BCAST"));
+                }
+                for p in prefixes {
+                    parts.push(bulk("PREFIX"));
+                    parts.push(bulk(p));
+                }
+                if *optin {
+                    parts.push(bulk("OPTIN"));
+                }
+                if *optout {
+                    parts.push(bulk("OPTOUT"));
+                }
+                if *noloop {
+                    parts.push(bulk("NOLOOP"));
+                }
+                RespValue::Array(parts)
+            }
+            Command::ClientCaching(flag) => {
+                RespValue::Array(vec![bulk("CLIENT"), bulk("CACHING"), bulk(if *flag { "YES" } else { "NO" })])
+            }
+            Command::ClientGetRedir => {
+                RespValue::Array(vec![bulk("CLIENT"), bulk("GETREDIR")])
+            }
+            Command::ClientTrackingInfo => {
+                RespValue::Array(vec![bulk("CLIENT"), bulk("TRACKINGINFO")])
+            }
             Command::AclSetUser(username, rules) => {
                 let mut parts = vec![bulk("ACL"), bulk("SETUSER"), bulk(username)];
                 for r in rules {
@@ -502,6 +535,12 @@ impl Command {
             Command::ScriptLoad(..) => resp_admin::to_resp_script_load(self),
             Command::ScriptExists(..) => resp_admin::to_resp_script_exists(self),
             Command::ScriptFlush => resp_admin::to_resp_script_flush(self),
+            Command::ScriptDebug(mode) => {
+                RespValue::Array(vec![bulk("SCRIPT"), bulk("DEBUG"), bulk(mode)])
+            }
+            Command::ScriptHelp => {
+                RespValue::Array(vec![bulk("SCRIPT"), bulk("HELP")])
+            }
             Command::FunctionLoad(..) => resp_admin::to_resp_function_load(self),
             Command::FunctionDelete(..) => resp_admin::to_resp_function_delete(self),
             Command::FunctionList(..) => resp_admin::to_resp_function_list(self),

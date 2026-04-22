@@ -338,6 +338,63 @@ impl CommandParser {
                 };
                 Ok(Command::ClientUnblock(target_id, reason))
             }
+            "TRACKING" => {
+                if arr.len() < 3 {
+                    return Err(AppError::Command("CLIENT TRACKING 需要 ON 或 OFF".to_string()));
+                }
+                let mode = self.extract_string(&arr[2])?.to_ascii_uppercase();
+                let on = match mode.as_str() {
+                    "ON" => true,
+                    "OFF" => false,
+                    _ => return Err(AppError::Command("CLIENT TRACKING 模式必须是 ON 或 OFF".to_string())),
+                };
+                let mut redirect = None;
+                let mut bcast = false;
+                let mut prefixes = Vec::new();
+                let mut optin = false;
+                let mut optout = false;
+                let mut noloop = false;
+                let mut i = 3;
+                while i < arr.len() {
+                    let opt = self.extract_string(&arr[i])?.to_ascii_uppercase();
+                    match opt.as_str() {
+                        "REDIRECT" => {
+                            i += 1;
+                            if i >= arr.len() {
+                                return Err(AppError::Command("REDIRECT 需要 client-id".to_string()));
+                            }
+                            redirect = Some(self.extract_string(&arr[i])?.parse::<u64>().map_err(|_| AppError::Command("无效的 client-id".to_string()))?);
+                        }
+                        "BCAST" => bcast = true,
+                        "PREFIX" => {
+                            i += 1;
+                            if i >= arr.len() {
+                                return Err(AppError::Command("PREFIX 需要前缀值".to_string()));
+                            }
+                            prefixes.push(self.extract_string(&arr[i])?);
+                        }
+                        "OPTIN" => optin = true,
+                        "OPTOUT" => optout = true,
+                        "NOLOOP" => noloop = true,
+                        _ => {}
+                    }
+                    i += 1;
+                }
+                Ok(Command::ClientTracking { on, redirect, bcast, prefixes, optin, optout, noloop })
+            }
+            "CACHING" => {
+                if arr.len() < 3 {
+                    return Err(AppError::Command("CLIENT CACHING 需要 YES 或 NO".to_string()));
+                }
+                let mode = self.extract_string(&arr[2])?.to_ascii_uppercase();
+                match mode.as_str() {
+                    "YES" => Ok(Command::ClientCaching(true)),
+                    "NO" => Ok(Command::ClientCaching(false)),
+                    _ => Err(AppError::Command("CLIENT CACHING 必须是 YES 或 NO".to_string())),
+                }
+            }
+            "GETREDIR" => Ok(Command::ClientGetRedir),
+            "TRACKINGINFO" => Ok(Command::ClientTrackingInfo),
             _ => Err(AppError::Command(
                 format!("CLIENT 未知子命令: {}", sub),
             )),
@@ -507,6 +564,23 @@ impl CommandParser {
                     ));
                 }
                 Ok(Command::ScriptFlush)
+            }
+            "DEBUG" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command(
+                        "SCRIPT DEBUG 命令需要 1 个参数".to_string(),
+                    ));
+                }
+                let mode = self.extract_string(&arr[2])?;
+                Ok(Command::ScriptDebug(mode))
+            }
+            "HELP" => {
+                if arr.len() != 2 {
+                    return Err(AppError::Command(
+                        "SCRIPT HELP 命令不需要参数".to_string(),
+                    ));
+                }
+                Ok(Command::ScriptHelp)
             }
             _ => Err(AppError::Command(
                 format!("SCRIPT 未知子命令: {}", sub),

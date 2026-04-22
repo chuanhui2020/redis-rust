@@ -461,7 +461,9 @@ impl CommandExecutor {
             Command::ClientSetName(_) | Command::ClientGetName | Command::ClientList | Command::ClientId
             | Command::ClientInfo | Command::ClientKill { .. } | Command::ClientPause(_, _)
             | Command::ClientUnpause | Command::ClientNoEvict(_) | Command::ClientNoTouch(_)
-            | Command::ClientReply(_) | Command::ClientUnblock(_, _) => {
+            | Command::ClientReply(_) | Command::ClientUnblock(_, _)
+            | Command::ClientTracking { .. } | Command::ClientCaching(_) | Command::ClientGetRedir
+            | Command::ClientTrackingInfo => {
                 Err(AppError::Command("CLIENT 应在连接层处理".to_string()))
             }
             Command::Quit => {
@@ -472,6 +474,31 @@ impl CommandExecutor {
             Command::ScriptLoad(script) => executor_admin::execute_script_load(self, script),
             Command::ScriptExists(sha1s) => executor_admin::execute_script_exists(self, sha1s),
             Command::ScriptFlush => executor_admin::execute_script_flush(self),
+            Command::ScriptDebug(mode) => {
+                match mode.to_ascii_uppercase().as_str() {
+                    "YES" | "SYNC" | "NO" => Ok(RespValue::SimpleString("OK".to_string())),
+                    _ => Err(AppError::Command("SCRIPT DEBUG 模式必须是 YES、SYNC 或 NO".to_string())),
+                }
+            }
+            Command::ScriptHelp => {
+                let help = vec![
+                    "SCRIPT <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",
+                    "DEBUG (YES|SYNC|NO)",
+                    "    Set the debug mode for subsequent scripts.",
+                    "EXISTS <sha1> [<sha1> ...]",
+                    "    Return information about the existence of the scripts in the script cache.",
+                    "FLUSH [ASYNC|SYNC]",
+                    "    Flush the Lua scripts cache. Very dangerous on replicas.",
+                    "HELP",
+                    "    Print this help.",
+                    "LOAD <script>",
+                    "    Load a script into the scripts cache without executing it.",
+                ];
+                let arr: Vec<RespValue> = help.iter()
+                    .map(|s| RespValue::BulkString(Some(Bytes::from(*s))))
+                    .collect();
+                Ok(RespValue::Array(arr))
+            }
             Command::FunctionLoad(code, replace) => executor_admin::execute_function_load(self, code, replace),
             Command::FunctionDelete(lib) => executor_admin::execute_function_delete(self, lib),
             Command::FunctionList(pattern, withcode) => executor_admin::execute_function_list(self, pattern, withcode),

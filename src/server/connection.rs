@@ -80,6 +80,15 @@ pub(crate) async fn handle_connection(
     let blocked = false;
     let _blocked_reason: Option<String> = None;
 
+    // 客户端追踪状态（简化实现）
+    let mut tracking_enabled = false;
+    let mut tracking_redirect: Option<u64> = None;
+    let mut tracking_bcast = false;
+    let mut tracking_prefixes: Vec<String> = Vec::new();
+    let mut tracking_optin = false;
+    let mut tracking_optout = false;
+    let mut tracking_noloop = false;
+
     let mut executor = match aof.clone() {
         Some(aof_writer) => {
             CommandExecutor::new_with_aof(storage.clone(), aof_writer)
@@ -603,6 +612,72 @@ pub(crate) async fn handle_connection(
                                     return Ok(());
                                 }
                             }
+                            Command::ClientTracking { on, redirect, bcast, prefixes, optin, optout, noloop } => {
+                                tracking_enabled = on;
+                                tracking_redirect = redirect;
+                                tracking_bcast = bcast;
+                                tracking_prefixes = prefixes.clone();
+                                tracking_optin = optin;
+                                tracking_optout = optout;
+                                tracking_noloop = noloop;
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientCaching(_flag) => {
+                                // 简化实现：直接返回 OK
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientGetRedir => {
+                                let redir = tracking_redirect.unwrap_or(-1i64 as u64);
+                                let resp = RespValue::Integer(redir as i64);
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ClientTrackingInfo => {
+                                let mut flags_arr = Vec::new();
+                                if tracking_enabled {
+                                    flags_arr.push(RespValue::BulkString(Some(Bytes::from("on"))));
+                                } else {
+                                    flags_arr.push(RespValue::BulkString(Some(Bytes::from("off"))));
+                                }
+                                if tracking_bcast {
+                                    flags_arr.push(RespValue::BulkString(Some(Bytes::from("bcast"))));
+                                }
+                                if tracking_optin {
+                                    flags_arr.push(RespValue::BulkString(Some(Bytes::from("optin"))));
+                                }
+                                if tracking_optout {
+                                    flags_arr.push(RespValue::BulkString(Some(Bytes::from("optout"))));
+                                }
+                                if tracking_noloop {
+                                    flags_arr.push(RespValue::BulkString(Some(Bytes::from("noloop"))));
+                                }
+                                let mut prefixes_arr = Vec::new();
+                                for p in &tracking_prefixes {
+                                    prefixes_arr.push(RespValue::BulkString(Some(Bytes::from(p.clone()))));
+                                }
+                                let resp = RespValue::Array(vec![
+                                    RespValue::BulkString(Some(Bytes::from("flags"))),
+                                    RespValue::Array(flags_arr),
+                                    RespValue::BulkString(Some(Bytes::from("redirect"))),
+                                    RespValue::Integer(tracking_redirect.map(|r| r as i64).unwrap_or(-1)),
+                                    RespValue::BulkString(Some(Bytes::from("prefixes"))),
+                                    RespValue::Array(prefixes_arr),
+                                ]);
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
                             Command::Ping(message) if is_subscribed => {
                                 // 订阅模式下的 PING
                                 let resp = match message {
@@ -1065,6 +1140,13 @@ pub(crate) async fn handle_connection(
                                 _current_db_index = 0;
                                 reply_mode = ReplyMode::On;
                                 client_flags.clear();
+                                tracking_enabled = false;
+                                tracking_redirect = None;
+                                tracking_bcast = false;
+                                tracking_prefixes.clear();
+                                tracking_optin = false;
+                                tracking_optout = false;
+                                tracking_noloop = false;
                                 in_transaction = false;
                                 tx_queue.clear();
                                 watched.clear();
