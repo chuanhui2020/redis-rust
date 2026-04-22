@@ -117,6 +117,8 @@ pub(crate) async fn handle_connection(
     let tx_storage = storage.clone();
 
     loop {
+        // 内层循环：处理缓冲区中所有可用命令（pipeline 支持）
+        loop {
         // 尝试从缓冲区解析一个完整的 RESP 消息
         let maybe_resp = match handler.parser.parse(&mut buf) {
             Ok(r) => r,
@@ -1197,50 +1199,28 @@ pub(crate) async fn handle_connection(
                 }
             }
             None => {
-                // 缓冲区中数据不完整，需要从网络读取更多数据
-                if buf.capacity() - buf.len() < 1024 {
-                    buf.reserve(4096);
-                }
+                break;
+            }
+        }
+        } // end inner pipeline loop
 
-                if is_subscribed {
-                    // 订阅模式下需要同时监听网络和订阅消息
-                    tokio::select! {
-                        result = stream.read_buf(&mut buf) => {
-                            match result {
-                                Ok(0) => {
-                                    log::debug!("客户端发送 EOF，关闭连接");
-                                    return Ok(());
-                                }
-                                Ok(n) => {
-                                    log::debug!("从网络读取 {} 字节", n);
-                                }
-                                Err(e) => {
-                                    let kind = e.kind();
-                                    if kind == std::io::ErrorKind::ConnectionReset
-                                        || kind == std::io::ErrorKind::BrokenPipe
-                                        || kind == std::io::ErrorKind::ConnectionAborted
-                                    {
-                                        log::debug!("客户端断开连接: {}", e);
-                                    } else {
-                                        log::debug!("读取数据失败: {}", e);
-                                    }
-                                    return Ok(());
-                                }
-                            }
-                        }
-                        maybe_msg = msg_rx.recv() => {
-                            if !super::pubsub::handle_pubsub_message(maybe_msg, &mut stream, &handler).await? {
-                                return Ok(());
-                            }
-                        }
-                    }
-                } else {
-                    let bytes_read = match stream.read_buf(&mut buf).await {
+        // 缓冲区中数据不完整，需要从网络读取更多数据
+        if buf.capacity() - buf.len() < 1024 {
+            buf.reserve(4096);
+        }
+
+        if is_subscribed {
+            // 订阅模式下需要同时监听网络和订阅消息
+            tokio::select! {
+                result = stream.read_buf(&mut buf) => {
+                    match result {
                         Ok(0) => {
                             log::debug!("客户端发送 EOF，关闭连接");
                             return Ok(());
                         }
-                        Ok(n) => n,
+                        Ok(n) => {
+                            log::debug!("从网络读取 {} 字节", n);
+                        }
                         Err(e) => {
                             let kind = e.kind();
                             if kind == std::io::ErrorKind::ConnectionReset
@@ -1249,14 +1229,39 @@ pub(crate) async fn handle_connection(
                             {
                                 log::debug!("客户端断开连接: {}", e);
                             } else {
-                                log::error!("读取数据失败: {}", e);
+                                log::debug!("读取数据失败: {}", e);
                             }
                             return Ok(());
                         }
-                    };
-                    log::debug!("从网络读取 {} 字节", bytes_read);
+                    }
+                }
+                maybe_msg = msg_rx.recv() => {
+                    if !super::pubsub::handle_pubsub_message(maybe_msg, &mut stream, &handler).await? {
+                        return Ok(());
+                    }
                 }
             }
+        } else {
+            let bytes_read = match stream.read_buf(&mut buf).await {
+                Ok(0) => {
+                    log::debug!("客户端发送 EOF，关闭连接");
+                    return Ok(());
+                }
+                Ok(n) => n,
+                Err(e) => {
+                    let kind = e.kind();
+                    if kind == std::io::ErrorKind::ConnectionReset
+                        || kind == std::io::ErrorKind::BrokenPipe
+                        || kind == std::io::ErrorKind::ConnectionAborted
+                    {
+                        log::debug!("客户端断开连接: {}", e);
+                    } else {
+                        log::error!("读取数据失败: {}", e);
+                    }
+                    return Ok(());
+                }
+            };
+            log::debug!("从网络读取 {} 字节", bytes_read);
         }
     }
 }
