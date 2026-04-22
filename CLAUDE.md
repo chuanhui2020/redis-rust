@@ -135,7 +135,7 @@ bash bench.sh
 
 > 每次开发完成后必须更新此章节，保持进度与代码同步。
 
-**已实现（202 个命令）：**
+**已实现（209 个命令）：**
 
 | 分类 | 数量 | 覆盖率 | 状态 |
 |------|------|--------|------|
@@ -150,23 +150,21 @@ bash bench.sh
 | Stream | 24（含消费者组） | 100% | 完成 |
 | Key 管理 | 20 | 100% | 完成 |
 | Sort | 1 | 100% | 完成 |
-| Transaction | 4 | 80% | 缺 UNWATCH |
+| Transaction | 5（含 UNWATCH） | 100% | 完成 |
 | Scripting | 10（EVAL + Functions） | 71% | 缺 SCRIPT DEBUG/HELP |
 | ACL | 8 | 67% | 缺 SAVE/LOAD/DRYRUN |
 | Client | 12 | 71% | 缺 TRACKING/CACHING |
-| Pub/Sub | 5 | 42% | 缺内省命令、Sharded Pub/Sub |
+| Pub/Sub | 8（含 PUBSUB CHANNELS/NUMSUB/NUMPAT） | 67% | 缺 Sharded Pub/Sub |
 | Server/Admin | 32 | 80% | 缺 COMMAND DOCS/LIST/COUNT |
 | 持久化（RDB+AOF） | — | — | 完成 |
 | Lua 脚本 + Functions | — | — | 完成 |
 | Replication | 4（REPLICAOF/ROLE/PSYNC/REPLCONF） | — | 基础完成（全量同步+增量同步+写传播+心跳） |
 
-**未实现（~76 个命令）：**
+**未实现（~73 个命令）：**
 
 | 分类 | 缺失内容 | 优先级 |
 |------|----------|--------|
-| Pub/Sub 内省 | PUBSUB CHANNELS/NUMSUB/NUMPAT | 高 |
 | Sharded Pub/Sub | SPUBLISH/SSUBSCRIBE/SUNSUBSCRIBE | 中 |
-| UNWATCH | 显式取消 WATCH | 高 |
 | ACL 持久化 | ACL SAVE/LOAD | 中 |
 | ACL DRYRUN | 权限测试 | 低 |
 | CLIENT TRACKING | 服务端辅助客户端缓存 | 中 |
@@ -176,4 +174,4 @@ bash bench.sh
 | Sentinel | 全部 10+ 命令 | 暂不实现 |
 | Module | MODULE LOAD/UNLOAD/LIST | 暂不实现 |
 
-**总覆盖率：~73%（206/282），单机功能维度 >95%。**
+**总覆盖率：~74%（209/282），单机功能维度 >95%。**
