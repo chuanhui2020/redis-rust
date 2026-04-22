@@ -76,6 +76,45 @@ impl PubSubManager {
         }
     }
 
+    /// 获取活跃的频道名称，可选按 glob 模式过滤
+    pub fn channels(&self, pattern: Option<&str>) -> Vec<String> {
+        let inner = self.inner.read().unwrap();
+        inner
+            .channels
+            .keys()
+            .filter(|ch| {
+                if let Some(pat) = pattern {
+                    crate::storage::StorageEngine::glob_match(ch, pat)
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// 获取指定频道的订阅者数量
+    pub fn numsub(&self, channels: &[String]) -> Vec<(String, usize)> {
+        let inner = self.inner.read().unwrap();
+        channels
+            .iter()
+            .map(|ch| {
+                let count = inner
+                    .channels
+                    .get(ch.as_str())
+                    .map(|sender| sender.receiver_count())
+                    .unwrap_or(0);
+                (ch.clone(), count)
+            })
+            .collect()
+    }
+
+    /// 获取活跃的模式订阅数量
+    pub fn numpat(&self) -> usize {
+        let inner = self.inner.read().unwrap();
+        inner.patterns.len()
+    }
+
     /// 向频道发布消息，返回收到消息的订阅者数量
     pub fn publish(&self, channel: &str, message: Bytes) -> Result<usize> {
         let mut total = 0usize;
@@ -222,5 +261,48 @@ mod tests {
 
         let count = pubsub.publish("test.a", Bytes::from("x")).unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_channels() {
+        let pubsub = PubSubManager::new();
+        let _rx1 = pubsub.subscribe("news");
+        let _rx2 = pubsub.subscribe("weather");
+        let _rx3 = pubsub.subscribe("news.sport");
+
+        let all = pubsub.channels(None);
+        assert_eq!(all.len(), 3);
+        assert!(all.contains(&"news".to_string()));
+        assert!(all.contains(&"weather".to_string()));
+        assert!(all.contains(&"news.sport".to_string()));
+
+        let filtered = pubsub.channels(Some("news*"));
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.contains(&"news".to_string()));
+        assert!(filtered.contains(&"news.sport".to_string()));
+    }
+
+    #[test]
+    fn test_numsub() {
+        let pubsub = PubSubManager::new();
+        let _rx1 = pubsub.subscribe("news");
+        let _rx2 = pubsub.subscribe("news");
+
+        let result = pubsub.numsub(&["news".to_string(), "weather".to_string()]);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], ("news".to_string(), 2));
+        assert_eq!(result[1], ("weather".to_string(), 0));
+    }
+
+    #[test]
+    fn test_numpat() {
+        let pubsub = PubSubManager::new();
+        assert_eq!(pubsub.numpat(), 0);
+
+        let _rx1 = pubsub.psubscribe("news.*");
+        assert_eq!(pubsub.numpat(), 1);
+
+        let _rx2 = pubsub.psubscribe("weather.*");
+        assert_eq!(pubsub.numpat(), 2);
     }
 }

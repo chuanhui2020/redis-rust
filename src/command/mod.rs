@@ -295,6 +295,12 @@ pub enum Command {
     PSubscribe(Vec<String>),
     /// PUNSUBSCRIBE [pattern ...]
     PUnsubscribe(Vec<String>),
+    /// PUBSUB CHANNELS [pattern]
+    PubSubChannels(Option<String>),
+    /// PUBSUB NUMSUB [channel ...]
+    PubSubNumSub(Vec<String>),
+    /// PUBSUB NUMPAT
+    PubSubNumPat,
     /// MULTI
     Multi,
     /// EXEC
@@ -303,6 +309,8 @@ pub enum Command {
     Discard,
     /// WATCH key [key ...]
     Watch(Vec<String>),
+    /// UNWATCH
+    Unwatch,
     /// BGREWRITEAOF
     BgRewriteAof,
     /// SETBIT key offset value

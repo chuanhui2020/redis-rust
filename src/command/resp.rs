@@ -223,6 +223,23 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
+            Command::PubSubChannels(pattern) => {
+                let mut parts = vec![bulk("PUBSUB"), bulk("CHANNELS")];
+                if let Some(pat) = pattern {
+                    parts.push(bulk(pat));
+                }
+                RespValue::Array(parts)
+            }
+            Command::PubSubNumSub(channels) => {
+                let mut parts = vec![bulk("PUBSUB"), bulk("NUMSUB")];
+                for ch in channels {
+                    parts.push(bulk(ch));
+                }
+                RespValue::Array(parts)
+            }
+            Command::PubSubNumPat => {
+                RespValue::Array(vec![bulk("PUBSUB"), bulk("NUMPAT")])
+            }
             Command::Multi => {
                 RespValue::Array(vec![bulk("MULTI")])
             }
@@ -238,6 +255,9 @@ impl Command {
                     parts.push(bulk(key));
                 }
                 RespValue::Array(parts)
+            }
+            Command::Unwatch => {
+                RespValue::Array(vec![bulk("UNWATCH")])
             }
             Command::BgRewriteAof => resp_admin::to_resp_bg_rewrite_aof(self),
             Command::SetBit(..) => resp_bitmap::to_resp_set_bit(self),

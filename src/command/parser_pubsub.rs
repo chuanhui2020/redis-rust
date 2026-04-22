@@ -59,4 +59,44 @@ impl CommandParser {
         };
         Ok(Command::PUnsubscribe(patterns))
     }
+    pub(crate) fn parse_pubsub(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 2 {
+            return Err(AppError::Command(
+                "PUBSUB 命令需要子命令".to_string(),
+            ));
+        }
+        let subcmd = self.extract_string(&arr[1])?.to_ascii_uppercase();
+        match subcmd.as_str() {
+            "CHANNELS" => {
+                let pattern = if arr.len() > 2 {
+                    Some(self.extract_string(&arr[2])?)
+                } else {
+                    None
+                };
+                Ok(Command::PubSubChannels(pattern))
+            }
+            "NUMSUB" => {
+                let channels = if arr.len() > 2 {
+                    arr[2..]
+                        .iter()
+                        .map(|v| self.extract_string(v))
+                        .collect::<Result<Vec<String>>>()?
+                } else {
+                    vec![]
+                };
+                Ok(Command::PubSubNumSub(channels))
+            }
+            "NUMPAT" => {
+                if arr.len() != 2 {
+                    return Err(AppError::Command(
+                        "PUBSUB NUMPAT 不需要参数".to_string(),
+                    ));
+                }
+                Ok(Command::PubSubNumPat)
+            }
+            _ => Err(AppError::Command(
+                format!("未知的 PUBSUB 子命令: {}", subcmd),
+            )),
+        }
+    }
 }

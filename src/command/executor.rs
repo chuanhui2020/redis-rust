@@ -718,9 +718,18 @@ impl CommandExecutor {
                     String::from_utf8_lossy(&message),
                 )))
             }
+            Command::PubSubChannels(_) | Command::PubSubNumSub(_) | Command::PubSubNumPat => {
+                // PUBSUB 内省命令需要 PubSubManager，在连接层处理
+                Err(AppError::Command(
+                    "PUBSUB 命令应在连接层处理".to_string(),
+                ))
+            }
             Command::Multi | Command::Exec | Command::Discard | Command::Watch(_) => {
                 // 事务命令在 server.rs 中直接处理，不应到达此处
                 Err(AppError::Command("事务命令应在连接层处理".to_string()))
+            }
+            Command::Unwatch => {
+                Ok(RespValue::SimpleString("OK".to_string()))
             }
             Command::ReplConf { args } => {
                 if args.len() >= 2 && args[0].to_uppercase() == "ACK" {

@@ -293,7 +293,7 @@ pub(crate) async fn handle_connection(
                                     return Ok(());
                                 }
                             }
-                            Command::Subscribe(_) | Command::Unsubscribe(_) | Command::PSubscribe(_) | Command::PUnsubscribe(_) | Command::Publish(_, _) => {
+                            Command::Subscribe(_) | Command::Unsubscribe(_) | Command::PSubscribe(_) | Command::PUnsubscribe(_) | Command::Publish(_, _) | Command::PubSubChannels(_) | Command::PubSubNumSub(_) | Command::PubSubNumPat => {
                                 if !super::pubsub::handle_pubsub_command(
                                     cmd,
                                     &mut is_subscribed,

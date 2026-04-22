@@ -172,10 +172,12 @@ impl CommandParser {
             "PUBLISH" => self.parse_publish(&arr),
             "PSUBSCRIBE" => self.parse_psubscribe(&arr),
             "PUNSUBSCRIBE" => self.parse_punsubscribe(&arr),
+            "PUBSUB" => self.parse_pubsub(&arr),
             "MULTI" => self.parse_multi(&arr),
             "EXEC" => self.parse_exec(&arr),
             "DISCARD" => self.parse_discard(&arr),
             "WATCH" => self.parse_watch(&arr),
+            "UNWATCH" => self.parse_unwatch(&arr),
             "BGREWRITEAOF" => self.parse_bgrewriteaof(&arr),
             "SETBIT" => self.parse_setbit(&arr),
             "GETBIT" => self.parse_getbit(&arr),
@@ -332,6 +334,16 @@ impl CommandParser {
             ));
         }
         Ok(Command::Discard)
+    }
+
+    /// 解析 UNWATCH 命令：UNWATCH
+    fn parse_unwatch(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() != 1 {
+            return Err(AppError::Command(
+                "UNWATCH 命令不需要参数".to_string(),
+            ));
+        }
+        Ok(Command::Unwatch)
     }
 
     /// 解析 WATCH 命令：WATCH key [key ...]

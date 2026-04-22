@@ -2040,6 +2040,26 @@ use crate::scripting::ScriptEngine;
             parser.parse(make_bulk_array(&["PUNSUBSCRIBE"])).unwrap(),
             Command::PUnsubscribe(vec![])
         );
+        assert_eq!(
+            parser.parse(make_bulk_array(&["PUBSUB", "CHANNELS"])).unwrap(),
+            Command::PubSubChannels(None)
+        );
+        assert_eq!(
+            parser.parse(make_bulk_array(&["PUBSUB", "CHANNELS", "news.*"])).unwrap(),
+            Command::PubSubChannels(Some("news.*".to_string()))
+        );
+        assert_eq!(
+            parser.parse(make_bulk_array(&["PUBSUB", "NUMSUB"])).unwrap(),
+            Command::PubSubNumSub(vec![])
+        );
+        assert_eq!(
+            parser.parse(make_bulk_array(&["PUBSUB", "NUMSUB", "news", "weather"])).unwrap(),
+            Command::PubSubNumSub(vec!["news".to_string(), "weather".to_string()])
+        );
+        assert_eq!(
+            parser.parse(make_bulk_array(&["PUBSUB", "NUMPAT"])).unwrap(),
+            Command::PubSubNumPat
+        );
     }
 
     #[test]

@@ -176,6 +176,15 @@ pub(crate) async fn handle_transaction_init(
             }
             Ok(true)
         }
+        Command::Unwatch => {
+            watched.clear();
+            let resp = RespValue::SimpleString("OK".to_string());
+            if let Err(e) = write_resp(stream, handler, &resp).await {
+                log::error!("写入响应失败: {}", e);
+                return Ok(false);
+            }
+            Ok(true)
+        }
         _ => Ok(true),
     }
 }
