@@ -293,6 +293,18 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::Wait { numreplicas, timeout } => ("WAIT".to_string(), vec![numreplicas.to_string(), timeout.to_string()]),
         Command::Failover { .. } => ("FAILOVER".to_string(), vec![]),
         Command::FailoverAbort => ("FAILOVER".to_string(), vec!["ABORT".to_string()]),
+        Command::SentinelMasters => ("SENTINEL".to_string(), vec!["MASTERS".to_string()]),
+        Command::SentinelMaster(name) => ("SENTINEL".to_string(), vec!["MASTER".to_string(), name.clone()]),
+        Command::SentinelReplicas(name) => ("SENTINEL".to_string(), vec!["REPLICAS".to_string(), name.clone()]),
+        Command::SentinelSentinels(name) => ("SENTINEL".to_string(), vec!["SENTINELS".to_string(), name.clone()]),
+        Command::SentinelGetMasterAddrByName(name) => ("SENTINEL".to_string(), vec!["GET-MASTER-ADDR-BY-NAME".to_string(), name.clone()]),
+        Command::SentinelMonitor { name, .. } => ("SENTINEL".to_string(), vec!["MONITOR".to_string(), name.clone()]),
+        Command::SentinelRemove(name) => ("SENTINEL".to_string(), vec!["REMOVE".to_string(), name.clone()]),
+        Command::SentinelSet { name, .. } => ("SENTINEL".to_string(), vec!["SET".to_string(), name.clone()]),
+        Command::SentinelFailover(name) => ("SENTINEL".to_string(), vec!["FAILOVER".to_string(), name.clone()]),
+        Command::SentinelReset(pattern) => ("SENTINEL".to_string(), vec!["RESET".to_string(), pattern.clone()]),
+        Command::SentinelCkquorum(name) => ("SENTINEL".to_string(), vec!["CKQUORUM".to_string(), name.clone()]),
+        Command::SentinelMyId => ("SENTINEL".to_string(), vec!["MYID".to_string()]),
         Command::Unknown(name) => (name.clone(), vec![]),
     }
 }

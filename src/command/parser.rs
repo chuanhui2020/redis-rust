@@ -270,6 +270,7 @@ impl CommandParser {
             "SYNC" => Ok(Command::Sync),
             "WAIT" => self.parse_wait(&arr),
             "FAILOVER" => self.parse_failover(&arr),
+            "SENTINEL" => self.parse_sentinel(&arr),
             other => Ok(Command::Unknown(other.to_string())),
         }
     }
@@ -529,6 +530,98 @@ impl CommandParser {
             AppError::Command("WAIT timeout 必须是整数".to_string())
         })?;
         Ok(Command::Wait { numreplicas, timeout })
+    }
+
+    /// 解析 SENTINEL 子命令
+    fn parse_sentinel(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 2 {
+            return Err(AppError::Command("SENTINEL 命令需要子命令".to_string()));
+        }
+        let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
+        match sub.as_str() {
+            "MASTERS" => Ok(Command::SentinelMasters),
+            "MASTER" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("SENTINEL MASTER 命令需要 name 参数".to_string()));
+                }
+                let name = self.extract_string(&arr[2])?;
+                Ok(Command::SentinelMaster(name))
+            }
+            "REPLICAS" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("SENTINEL REPLICAS 命令需要 name 参数".to_string()));
+                }
+                let name = self.extract_string(&arr[2])?;
+                Ok(Command::SentinelReplicas(name))
+            }
+            "SENTINELS" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("SENTINEL SENTINELS 命令需要 name 参数".to_string()));
+                }
+                let name = self.extract_string(&arr[2])?;
+                Ok(Command::SentinelSentinels(name))
+            }
+            "GET-MASTER-ADDR-BY-NAME" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("SENTINEL GET-MASTER-ADDR-BY-NAME 命令需要 name 参数".to_string()));
+                }
+                let name = self.extract_string(&arr[2])?;
+                Ok(Command::SentinelGetMasterAddrByName(name))
+            }
+            "MONITOR" => {
+                if arr.len() != 6 {
+                    return Err(AppError::Command("SENTINEL MONITOR 命令需要 name ip port quorum 参数".to_string()));
+                }
+                let name = self.extract_string(&arr[2])?;
+                let ip = self.extract_string(&arr[3])?;
+                let port = self.extract_string(&arr[4])?.parse::<u16>().map_err(|_| {
+                    AppError::Command("SENTINEL MONITOR port 必须是有效的整数".to_string())
+                })?;
+                let quorum = self.extract_string(&arr[5])?.parse::<u32>().map_err(|_| {
+                    AppError::Command("SENTINEL MONITOR quorum 必须是有效的整数".to_string())
+                })?;
+                Ok(Command::SentinelMonitor { name, ip, port, quorum })
+            }
+            "REMOVE" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("SENTINEL REMOVE 命令需要 name 参数".to_string()));
+                }
+                let name = self.extract_string(&arr[2])?;
+                Ok(Command::SentinelRemove(name))
+            }
+            "SET" => {
+                if arr.len() != 5 {
+                    return Err(AppError::Command("SENTINEL SET 命令需要 name option value 参数".to_string()));
+                }
+                let name = self.extract_string(&arr[2])?;
+                let option = self.extract_string(&arr[3])?;
+                let value = self.extract_string(&arr[4])?;
+                Ok(Command::SentinelSet { name, option, value })
+            }
+            "FAILOVER" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("SENTINEL FAILOVER 命令需要 name 参数".to_string()));
+                }
+                let name = self.extract_string(&arr[2])?;
+                Ok(Command::SentinelFailover(name))
+            }
+            "RESET" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("SENTINEL RESET 命令需要 pattern 参数".to_string()));
+                }
+                let pattern = self.extract_string(&arr[2])?;
+                Ok(Command::SentinelReset(pattern))
+            }
+            "CKQUORUM" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("SENTINEL CKQUORUM 命令需要 name 参数".to_string()));
+                }
+                let name = self.extract_string(&arr[2])?;
+                Ok(Command::SentinelCkquorum(name))
+            }
+            "MYID" => Ok(Command::SentinelMyId),
+            _ => Err(AppError::Command(format!("未知的 SENTINEL 子命令: {}", sub))),
+        }
     }
 
     /// 解析 FAILOVER 命令：FAILOVER [TO host port] [TIMEOUT timeout] [FORCE] | FAILOVER ABORT

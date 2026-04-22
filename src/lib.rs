@@ -11,6 +11,7 @@ pub mod pubsub;
 pub mod rdb;
 pub mod replication;
 pub mod scripting;
+pub mod sentinel;
 pub mod server;
 pub mod slowlog;
 pub mod storage;

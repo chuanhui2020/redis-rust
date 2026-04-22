@@ -9,10 +9,14 @@ use redis_rust::aof::{AofReplayer, AofWriter};
 use redis_rust::pubsub::PubSubManager;
 use redis_rust::replication::ReplicationManager;
 use redis_rust::server::Server;
+use redis_rust::sentinel::SentinelManager;
 use redis_rust::storage::StorageEngine;
 
 /// 服务器默认监听端口
 const DEFAULT_PORT: u16 = 6379;
+
+/// Sentinel 模式默认监听端口
+const SENTINEL_DEFAULT_PORT: u16 = 26379;
 
 /// 后台清理任务的执行间隔（毫秒）
 const CLEANUP_INTERVAL_MS: u64 = 1000;
@@ -31,6 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 解析命令行参数
     let mut port = DEFAULT_PORT;
     let mut no_aof = false;
+    let mut sentinel_mode = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--port" {
@@ -39,11 +44,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         } else if arg == "--no-aof" {
             no_aof = true;
+        } else if arg == "--sentinel" {
+            sentinel_mode = true;
         }
+    }
+    // Sentinel 模式下默认端口为 26379
+    if sentinel_mode && port == DEFAULT_PORT {
+        port = SENTINEL_DEFAULT_PORT;
     }
     let addr = format!("127.0.0.1:{}", port);
 
-    info!("启动 redis-rust 服务器，监听 {}", addr);
+    if sentinel_mode {
+        info!("启动 redis-rust Sentinel 模式，监听 {}", addr);
+    } else {
+        info!("启动 redis-rust 服务器，监听 {}", addr);
+    }
 
     // 创建存储引擎
     let storage = StorageEngine::new();
@@ -94,11 +109,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("从 RDB 恢复复制信息: replid={}, offset={}", replication.get_master_replid(), replication.get_master_repl_offset());
     }
 
+    // 创建 Sentinel 管理器（仅在 Sentinel 模式下）
+    let sentinel = if sentinel_mode {
+        Some(Arc::new(SentinelManager::new()))
+    } else {
+        None
+    };
+
+    // Sentinel 模式下启动监控任务
+    if let Some(ref s) = sentinel {
+        redis_rust::sentinel::monitor::start_monitor(s.clone());
+    }
+
+    // Sentinel 模式下启动发现任务
+    if let Some(ref s) = sentinel {
+        redis_rust::sentinel::discovery::start_discovery(s.clone(), port);
+    }
+
+    // Sentinel 模式下启动 ODOWN 检查任务
+    if let Some(ref s) = sentinel {
+        let _ = redis_rust::sentinel::failover::start_odown_checker(s.clone());
+    }
+
     // 创建 TCP 服务器并启动
-    let server = Server::new(&addr, storage, aof, pubsub, None)
+    let mut server = Server::new(&addr, storage, aof, pubsub, None)
         .with_rdb_path(RDB_PATH)
         .with_acl(acl)
         .with_replication(replication);
+    if let Some(s) = sentinel {
+        server = server.with_sentinel(s);
+    }
     server.run().await?;
 
     Ok(())

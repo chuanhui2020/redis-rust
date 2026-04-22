@@ -600,6 +600,30 @@ pub enum Command {
     Failover { host: Option<String>, port: Option<u16>, timeout: i64, force: bool },
     /// FAILOVER ABORT
     FailoverAbort,
+    /// SENTINEL MASTERS
+    SentinelMasters,
+    /// SENTINEL MASTER name
+    SentinelMaster(String),
+    /// SENTINEL REPLICAS name
+    SentinelReplicas(String),
+    /// SENTINEL SENTINELS name
+    SentinelSentinels(String),
+    /// SENTINEL GET-MASTER-ADDR-BY-NAME name
+    SentinelGetMasterAddrByName(String),
+    /// SENTINEL MONITOR name ip port quorum
+    SentinelMonitor { name: String, ip: String, port: u16, quorum: u32 },
+    /// SENTINEL REMOVE name
+    SentinelRemove(String),
+    /// SENTINEL SET name option value
+    SentinelSet { name: String, option: String, value: String },
+    /// SENTINEL FAILOVER name
+    SentinelFailover(String),
+    /// SENTINEL RESET pattern
+    SentinelReset(String),
+    /// SENTINEL CKQUORUM name
+    SentinelCkquorum(String),
+    /// SENTINEL MYID
+    SentinelMyId,
     /// 未知命令
     Unknown(String),
 }

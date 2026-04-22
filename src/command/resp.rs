@@ -681,6 +681,45 @@ impl Command {
             Command::FailoverAbort => {
                 RespValue::Array(vec![bulk("FAILOVER"), bulk("ABORT")])
             }
+            Command::SentinelMasters => {
+                RespValue::Array(vec![bulk("SENTINEL"), bulk("MASTERS")])
+            }
+            Command::SentinelMaster(name) => {
+                RespValue::Array(vec![bulk("SENTINEL"), bulk("MASTER"), bulk(name)])
+            }
+            Command::SentinelReplicas(name) => {
+                RespValue::Array(vec![bulk("SENTINEL"), bulk("REPLICAS"), bulk(name)])
+            }
+            Command::SentinelSentinels(name) => {
+                RespValue::Array(vec![bulk("SENTINEL"), bulk("SENTINELS"), bulk(name)])
+            }
+            Command::SentinelGetMasterAddrByName(name) => {
+                RespValue::Array(vec![bulk("SENTINEL"), bulk("GET-MASTER-ADDR-BY-NAME"), bulk(name)])
+            }
+            Command::SentinelMonitor { name, ip, port, quorum } => {
+                RespValue::Array(vec![
+                    bulk("SENTINEL"), bulk("MONITOR"), bulk(name), bulk(ip),
+                    bulk(&port.to_string()), bulk(&quorum.to_string()),
+                ])
+            }
+            Command::SentinelRemove(name) => {
+                RespValue::Array(vec![bulk("SENTINEL"), bulk("REMOVE"), bulk(name)])
+            }
+            Command::SentinelSet { name, option, value } => {
+                RespValue::Array(vec![bulk("SENTINEL"), bulk("SET"), bulk(name), bulk(option), bulk(value)])
+            }
+            Command::SentinelFailover(name) => {
+                RespValue::Array(vec![bulk("SENTINEL"), bulk("FAILOVER"), bulk(name)])
+            }
+            Command::SentinelReset(pattern) => {
+                RespValue::Array(vec![bulk("SENTINEL"), bulk("RESET"), bulk(pattern)])
+            }
+            Command::SentinelCkquorum(name) => {
+                RespValue::Array(vec![bulk("SENTINEL"), bulk("CKQUORUM"), bulk(name)])
+            }
+            Command::SentinelMyId => {
+                RespValue::Array(vec![bulk("SENTINEL"), bulk("MYID")])
+            }
             Command::Unknown(cmd_name) => {
                 RespValue::Array(vec![bulk(cmd_name)])
             }

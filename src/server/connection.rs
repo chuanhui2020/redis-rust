@@ -30,6 +30,21 @@ impl Drop for ClientGuard {
     }
 }
 
+/// 将 SentinelInstance 格式化为 Redis 7 兼容的 key-value 数组
+fn sentinel_instance_to_resp(inst: &crate::sentinel::SentinelInstance) -> RespValue {
+    RespValue::Array(vec![
+        RespValue::BulkString(Some(Bytes::from("name"))),
+        RespValue::BulkString(Some(Bytes::from(inst.name.clone()))),
+        RespValue::BulkString(Some(Bytes::from("ip"))),
+        RespValue::BulkString(Some(Bytes::from(inst.ip.clone()))),
+        RespValue::BulkString(Some(Bytes::from("port"))),
+        RespValue::BulkString(Some(Bytes::from(inst.port.to_string()))),
+        RespValue::BulkString(Some(Bytes::from("flags"))),
+        RespValue::BulkString(Some(Bytes::from(if inst.sdown { "s_down,master" } else { "master" }))),
+        RespValue::BulkString(Some(Bytes::from("quorum"))),
+        RespValue::BulkString(Some(Bytes::from(inst.quorum.to_string()))),
+    ])
+}
 
 /// 处理单个客户端连接
 pub(crate) async fn handle_connection(
@@ -46,6 +61,7 @@ pub(crate) async fn handle_connection(
     slowlog: SlowLog,
     acl: Option<crate::acl::AclManager>,
     replication: Option<Arc<crate::replication::ReplicationManager>>,
+    sentinel: Option<Arc<crate::sentinel::SentinelManager>>,
     client_pause: Arc<RwLock<Option<(Instant, String)>>>,
     client_kill_flags: Arc<Mutex<HashSet<u64>>>,
     monitor_tx: tokio::sync::broadcast::Sender<String>,
@@ -257,6 +273,123 @@ pub(crate) async fn handle_connection(
                         };
                         if let Some(remaining) = should_sleep {
                             tokio::time::sleep(tokio::time::Duration::from_millis(remaining.as_millis() as u64)).await;
+                        }
+
+                        // Sentinel 模式命令过滤
+                        if sentinel.is_some() && !crate::sentinel::is_sentinel_allowed_command(&cmd) {
+                            let resp = RespValue::Error(
+                                "ERR unknown command, this is a sentinel node".to_string()
+                            );
+                            if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                log::error!("写入响应失败: {}", e);
+                                return Ok(());
+                            }
+                            continue;
+                        }
+
+                        // SENTINEL 命令在连接层处理
+                        if matches!(cmd, Command::SentinelMasters | Command::SentinelMaster(_) | Command::SentinelReplicas(_) | Command::SentinelSentinels(_) | Command::SentinelGetMasterAddrByName(_) | Command::SentinelMonitor { .. } | Command::SentinelRemove(_) | Command::SentinelSet { .. } | Command::SentinelFailover(_) | Command::SentinelReset(_) | Command::SentinelCkquorum(_) | Command::SentinelMyId) {
+                            let resp = if sentinel.is_none() {
+                                RespValue::Error("ERR Sentinel mode not enabled".to_string())
+                            } else {
+                                let s = sentinel.as_ref().unwrap();
+                                match cmd {
+                                    Command::SentinelMasters => {
+                                        let masters = s.get_masters();
+                                        let arr: Vec<RespValue> = masters.iter()
+                                            .map(|m| sentinel_instance_to_resp(m))
+                                            .collect();
+                                        RespValue::Array(arr)
+                                    }
+                                    Command::SentinelMaster(name) => {
+                                        match s.get_master(&name) {
+                                            Some(m) => sentinel_instance_to_resp(&m),
+                                            None => RespValue::Error("ERR No such master with that name".to_string()),
+                                        }
+                                    }
+                                    Command::SentinelReplicas(name) => {
+                                        match s.get_master(&name) {
+                                            Some(m) => {
+                                                let arr: Vec<RespValue> = m.replicas.iter()
+                                                    .map(|r| {
+                                                        RespValue::Array(vec![
+                                                            RespValue::BulkString(Some(Bytes::from("ip"))),
+                                                            RespValue::BulkString(Some(Bytes::from(r.ip.clone()))),
+                                                            RespValue::BulkString(Some(Bytes::from("port"))),
+                                                            RespValue::BulkString(Some(Bytes::from(r.port.to_string()))),
+                                                            RespValue::BulkString(Some(Bytes::from("flags"))),
+                                                            RespValue::BulkString(Some(Bytes::from(if r.sdown { "slave,s_down" } else { "slave" }))),
+                                                        ])
+                                                    })
+                                                    .collect();
+                                                RespValue::Array(arr)
+                                            }
+                                            None => RespValue::Error("ERR No such master with that name".to_string()),
+                                        }
+                                    }
+                                    Command::SentinelSentinels(name) => {
+                                        match s.get_master(&name) {
+                                            Some(m) => {
+                                                let arr: Vec<RespValue> = m.sentinels.iter()
+                                                    .map(|s| {
+                                                        RespValue::Array(vec![
+                                                            RespValue::BulkString(Some(Bytes::from("ip"))),
+                                                            RespValue::BulkString(Some(Bytes::from(s.ip.clone()))),
+                                                            RespValue::BulkString(Some(Bytes::from("port"))),
+                                                            RespValue::BulkString(Some(Bytes::from(s.port.to_string()))),
+                                                            RespValue::BulkString(Some(Bytes::from("runid"))),
+                                                            RespValue::BulkString(Some(Bytes::from(s.runid.clone()))),
+                                                        ])
+                                                    })
+                                                    .collect();
+                                                RespValue::Array(arr)
+                                            }
+                                            None => RespValue::Error("ERR No such master with that name".to_string()),
+                                        }
+                                    }
+                                    Command::SentinelGetMasterAddrByName(name) => {
+                                        match s.get_master_addr_by_name(&name) {
+                                            Some((ip, port)) => RespValue::Array(vec![
+                                                RespValue::BulkString(Some(Bytes::from(ip))),
+                                                RespValue::BulkString(Some(Bytes::from(port.to_string()))),
+                                            ]),
+                                            None => RespValue::Error("ERR No such master with that name".to_string()),
+                                        }
+                                    }
+                                    Command::SentinelMonitor { name, ip, port, quorum } => {
+                                        s.monitor(name, ip, port, quorum);
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::SentinelRemove(name) => {
+                                        if s.remove(&name) {
+                                            RespValue::Integer(1)
+                                        } else {
+                                            RespValue::Integer(0)
+                                        }
+                                    }
+                                    Command::SentinelSet { .. } => {
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::SentinelFailover(_) => {
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::SentinelReset(_) => {
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::SentinelCkquorum(_) => {
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::SentinelMyId => {
+                                        RespValue::BulkString(Some(Bytes::from(s.runid.clone())))
+                                    }
+                                    _ => unreachable!(),
+                                }
+                            };
+                            if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                log::error!("写入响应失败: {}", e);
+                                return Ok(());
+                            }
+                            continue;
                         }
 
                         match cmd {

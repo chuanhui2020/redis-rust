@@ -934,6 +934,20 @@ impl CommandExecutor {
                 // FAILOVER ABORT 也在连接层处理
                 Err(AppError::Command("FAILOVER ABORT 应在连接层处理".to_string()))
             }
+            Command::SentinelMasters
+            | Command::SentinelMaster(_)
+            | Command::SentinelReplicas(_)
+            | Command::SentinelSentinels(_)
+            | Command::SentinelGetMasterAddrByName(_)
+            | Command::SentinelMonitor { .. }
+            | Command::SentinelRemove(_)
+            | Command::SentinelSet { .. }
+            | Command::SentinelFailover(_)
+            | Command::SentinelReset(_)
+            | Command::SentinelCkquorum(_)
+            | Command::SentinelMyId => {
+                Err(AppError::Command("SENTINEL 应在连接层处理".to_string()))
+            }
             Command::Unknown(cmd_name) => {
                 Ok(RespValue::Error(format!(
                     "ERR unknown command '{}'",
