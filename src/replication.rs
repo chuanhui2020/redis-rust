@@ -1,12 +1,12 @@
 use std::collections::VecDeque;
 use std::io::Write;
-use std::sync::atomic::{AtomicI64, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, Ordering};
 use std::sync::RwLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use rand::Rng;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Notify};
 use crate::error::{AppError, Result};
 use crate::storage::StorageEngine;
 
@@ -17,12 +17,22 @@ pub enum ReplicationRole {
     Slave,
 }
 
+/// 副本连接状态
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReplicaState {
+    Online,
+    Wait,
+}
+
 /// 副本信息
 #[derive(Debug, Clone)]
 pub struct ReplicaInfo {
     pub addr: String,
     pub port: u16,
     pub offset: i64,
+    pub state: ReplicaState,
+    pub last_ack_time: Instant,
+    pub lag: i64,
 }
 
 /// 复制积压缓冲区（环形缓冲区）
@@ -87,6 +97,10 @@ pub struct ReplicationManager {
     master_host: RwLock<Option<String>>,
     /// 主节点端口（从节点模式下有效）
     master_port: RwLock<Option<u16>>,
+    /// 主节点连接状态（从节点模式下有效）
+    master_link_up: AtomicBool,
+    /// 最后一次收到主节点数据的时间
+    master_last_io: RwLock<Option<Instant>>,
     /// 已连接的副本列表
     connected_replicas: RwLock<Vec<ReplicaInfo>>,
     /// 本机监听端口（用于 REPLCONF listening-port）
@@ -95,6 +109,8 @@ pub struct ReplicationManager {
     repl_tx: broadcast::Sender<bytes::Bytes>,
     /// 复制积压缓冲区
     backlog: RwLock<ReplicationBacklog>,
+    /// 副本 ACK 通知（用于 WAIT 命令唤醒）
+    ack_notify: Notify,
 }
 
 impl ReplicationManager {
@@ -107,10 +123,13 @@ impl ReplicationManager {
             master_repl_offset: AtomicI64::new(0),
             master_host: RwLock::new(None),
             master_port: RwLock::new(None),
+            master_link_up: AtomicBool::new(false),
+            master_last_io: RwLock::new(None),
             connected_replicas: RwLock::new(Vec::new()),
             listening_port: AtomicU16::new(0),
             repl_tx,
             backlog: RwLock::new(ReplicationBacklog::new(1_048_576)),
+            ack_notify: Notify::new(),
         }
     }
 
@@ -163,6 +182,7 @@ impl ReplicationManager {
         *role = ReplicationRole::Slave;
         *master_host = Some(host);
         *master_port = Some(port);
+        self.master_link_up.store(false, Ordering::Relaxed);
     }
 
     /// 取消从节点身份，恢复为主节点，并生成新的复制 ID
@@ -175,6 +195,18 @@ impl ReplicationManager {
         *master_replid = Self::generate_replid();
         *master_host = None;
         *master_port = None;
+        self.master_link_up.store(false, Ordering::Relaxed);
+    }
+
+    /// 设置主节点连接状态
+    pub fn set_master_link_up(&self, up: bool) {
+        self.master_link_up.store(up, Ordering::Relaxed);
+    }
+
+    /// 更新最后一次收到主节点数据的时间
+    pub fn touch_master_last_io(&self) {
+        let mut guard = self.master_last_io.write().unwrap();
+        *guard = Some(Instant::now());
     }
 
     /// 获取 INFO replication 段的格式化字符串
@@ -197,10 +229,41 @@ impl ReplicationManager {
             if let Some(p) = port {
                 info.push_str(&format!("master_port:{}\r\n", p));
             }
-            info.push_str("master_link_status:down\r\n");
+            let link_status = if self.master_link_up.load(Ordering::Relaxed) { "up" } else { "down" };
+            info.push_str(&format!("master_link_status:{}\r\n", link_status));
+            let last_io_secs = {
+                let guard = self.master_last_io.read().unwrap();
+                match *guard {
+                    Some(t) => t.elapsed().as_secs() as i64,
+                    None => -1,
+                }
+            };
+            info.push_str(&format!("master_last_io_seconds_ago:{}\r\n", last_io_secs));
+            if !self.master_link_up.load(Ordering::Relaxed) {
+                let down_since = {
+                    let guard = self.master_last_io.read().unwrap();
+                    match *guard {
+                        Some(t) => t.elapsed().as_secs() as i64,
+                        None => -1,
+                    }
+                };
+                info.push_str(&format!("master_link_down_since_seconds:{}\r\n", down_since));
+            }
+            info.push_str(&format!("slave_repl_offset:{}\r\n", self.get_master_repl_offset()));
+            info.push_str("slave_read_only:1\r\n");
         } else {
             let replicas = self.get_connected_replicas();
             info.push_str(&format!("connected_slaves:{}\r\n", replicas.len()));
+            for (i, r) in replicas.iter().enumerate() {
+                let state_str = match r.state {
+                    ReplicaState::Online => "online",
+                    ReplicaState::Wait => "wait",
+                };
+                info.push_str(&format!(
+                    "slave{}:ip={},port={},state={},offset={},lag={}\r\n",
+                    i, r.addr, r.port, state_str, r.offset, r.lag
+                ));
+            }
         }
         info
     }
@@ -218,7 +281,14 @@ impl ReplicationManager {
     /// 注册已连接的副本
     pub fn add_replica(&self, addr: String, port: u16) {
         let mut replicas = self.connected_replicas.write().unwrap();
-        replicas.push(ReplicaInfo { addr, port, offset: 0 });
+        replicas.push(ReplicaInfo {
+            addr,
+            port,
+            offset: 0,
+            state: ReplicaState::Wait,
+            last_ack_time: Instant::now(),
+            lag: 0,
+        });
     }
 
     /// 移除已连接的副本
@@ -229,13 +299,19 @@ impl ReplicationManager {
 
     /// 更新副本偏移量
     pub fn update_replica_offset(&self, addr: &str, port: u16, offset: i64) {
+        let master_offset = self.get_master_repl_offset();
         let mut replicas = self.connected_replicas.write().unwrap();
         for r in replicas.iter_mut() {
             if r.addr == addr && r.port == port {
                 r.offset = offset;
+                r.state = ReplicaState::Online;
+                r.last_ack_time = Instant::now();
+                r.lag = master_offset - offset;
                 break;
             }
         }
+        drop(replicas);
+        self.ack_notify.notify_waiters();
     }
 
     /// 增加主节点复制偏移量
@@ -255,11 +331,92 @@ impl ReplicationManager {
         backlog.get_data_from_offset(offset)
     }
 
-    /// 启动从节点复制，与主节点建立连接并完成全量同步
+    /// 统计 offset >= target_offset 的副本数量
+    pub fn count_replicas_at_offset(&self, target_offset: i64) -> i64 {
+        let replicas = self.connected_replicas.read().unwrap();
+        replicas.iter().filter(|r| r.offset >= target_offset).count() as i64
+    }
+
+    /// 等待指定数量的副本确认写入到 target_offset
+    pub async fn wait_for_replicas(&self, target_offset: i64, numreplicas: i64, timeout_ms: i64) -> i64 {
+        // 立即检查
+        let count = self.count_replicas_at_offset(target_offset);
+        if count >= numreplicas || numreplicas <= 0 {
+            return count;
+        }
+
+        if timeout_ms == 0 {
+            // timeout=0 表示无限等待
+            loop {
+                self.ack_notify.notified().await;
+                let count = self.count_replicas_at_offset(target_offset);
+                if count >= numreplicas {
+                    return count;
+                }
+            }
+        } else {
+            let deadline = tokio::time::Instant::now() + Duration::from_millis(timeout_ms as u64);
+            loop {
+                match tokio::time::timeout_at(deadline, self.ack_notify.notified()).await {
+                    Ok(()) => {
+                        let count = self.count_replicas_at_offset(target_offset);
+                        if count >= numreplicas {
+                            return count;
+                        }
+                    }
+                    Err(_) => {
+                        return self.count_replicas_at_offset(target_offset);
+                    }
+                }
+            }
+        }
+    }
+
+    /// 启动从节点复制，外层循环负责断线重连（指数退避）
     pub async fn start_replication(
         &self,
         storage: StorageEngine,
         master_host: String,
+        master_port: u16,
+    ) -> Result<()> {
+        let mut retry_delay = Duration::from_secs(1);
+        let max_delay = Duration::from_secs(60);
+
+        loop {
+            self.set_master_link_up(false);
+
+            match self
+                .do_replication(&storage, &master_host, master_port)
+                .await
+            {
+                Ok(()) => {
+                    log::info!("主节点连接正常关闭");
+                }
+                Err(e) => {
+                    log::error!("复制连接失败: {}, {}秒后重试", e, retry_delay.as_secs());
+                }
+            }
+
+            self.set_master_link_up(false);
+
+            // 检查是否仍然是从节点（可能已经被 REPLICAOF NO ONE 取消）
+            if matches!(self.get_role(), ReplicationRole::Master) {
+                log::info!("已切换为主节点，停止重连");
+                return Ok(());
+            }
+
+            tokio::time::sleep(retry_delay).await;
+            retry_delay = std::cmp::min(retry_delay * 2, max_delay);
+
+            log::info!("尝试重连主节点 {}:{}", master_host, master_port);
+        }
+    }
+
+    /// 内部复制逻辑：建立连接、握手、同步、接收命令
+    async fn do_replication(
+        &self,
+        storage: &StorageEngine,
+        master_host: &str,
         master_port: u16,
     ) -> Result<()> {
         let addr = format!("{}:{}", master_host, master_port);
@@ -270,7 +427,10 @@ impl ReplicationManager {
         let mut reader = tokio::io::BufReader::new(&mut read_half);
 
         // 1. 发送 PING
-        write_half.write_all(b"*1\r\n$4\r\nPING\r\n").await.map_err(AppError::Io)?;
+        write_half
+            .write_all(b"*1\r\n$4\r\nPING\r\n")
+            .await
+            .map_err(AppError::Io)?;
         let mut line = String::new();
         reader.read_line(&mut line).await.map_err(AppError::Io)?;
         if !line.trim().starts_with("+PONG") {
@@ -284,7 +444,10 @@ impl ReplicationManager {
             port.to_string().len(),
             port
         );
-        write_half.write_all(cmd.as_bytes()).await.map_err(AppError::Io)?;
+        write_half
+            .write_all(cmd.as_bytes())
+            .await
+            .map_err(AppError::Io)?;
         line.clear();
         reader.read_line(&mut line).await.map_err(AppError::Io)?;
         if !line.trim().starts_with("+OK") {
@@ -308,9 +471,22 @@ impl ReplicationManager {
             )));
         }
 
-        // 4. 发送 PSYNC ? -1
+        // 4. 发送 PSYNC：如果已有 replid 和 offset，尝试增量同步
+        let current_replid = self.get_master_replid();
+        let current_offset = self.get_master_repl_offset();
+        let psync_cmd = if current_offset > 0 {
+            format!(
+                "*3\r\n$5\r\nPSYNC\r\n${}\r\n{}\r\n${}\r\n{}\r\n",
+                current_replid.len(),
+                current_replid,
+                current_offset.to_string().len(),
+                current_offset
+            )
+        } else {
+            "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n".to_string()
+        };
         write_half
-            .write_all(b"*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n")
+            .write_all(psync_cmd.as_bytes())
             .await
             .map_err(AppError::Io)?;
         line.clear();
@@ -348,7 +524,7 @@ impl ReplicationManager {
                 let mut file = std::fs::File::create(&temp_path).map_err(AppError::Io)?;
                 file.write_all(&rdb_data).map_err(AppError::Io)?;
             }
-            crate::rdb::load(&storage, &temp_path)?;
+            crate::rdb::load(storage, &temp_path)?;
             let _ = std::fs::remove_file(&temp_path);
 
             // 8. 更新复制状态
@@ -359,9 +535,13 @@ impl ReplicationManager {
             self.master_repl_offset.store(offset, Ordering::Relaxed);
 
             log::info!("全量同步完成，replid: {}, offset: {}", replid, offset);
+            self.set_master_link_up(true);
+            self.touch_master_last_io();
         } else if line.trim().starts_with("+CONTINUE") {
             // 增量同步 - 直接进入命令接收循环
             log::info!("增量同步开始");
+            self.set_master_link_up(true);
+            self.touch_master_last_io();
         } else {
             return Err(AppError::Command(format!(
                 "主节点未响应 FULLRESYNC 或 CONTINUE: {}",
@@ -373,7 +553,7 @@ impl ReplicationManager {
         let parser = crate::protocol::RespParser::new();
         let mut buf = bytes::BytesMut::with_capacity(4096);
         let cmd_parser = crate::command::CommandParser::new();
-        let executor = crate::command::CommandExecutor::new(storage);
+        let executor = crate::command::CommandExecutor::new(storage.clone());
         let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
 
         loop {
@@ -411,13 +591,16 @@ impl ReplicationManager {
                     match result {
                         Ok(0) => {
                             log::info!("主节点连接已关闭");
+                            self.set_master_link_up(false);
                             return Ok(());
                         }
                         Ok(n) => {
                             log::debug!("从主节点读取 {} 字节", n);
+                            self.touch_master_last_io();
                         }
                         Err(e) => {
                             log::error!("读取主节点数据失败: {}", e);
+                            self.set_master_link_up(false);
                             return Err(AppError::Io(e));
                         }
                     }
@@ -436,6 +619,13 @@ impl ReplicationManager {
                 }
             }
         }
+    }
+
+    /// 设置主节点复制 ID 和偏移量（用于从 RDB 恢复）
+    pub fn set_replid_and_offset(&self, replid: String, offset: i64) {
+        let mut master_replid = self.master_replid.write().unwrap();
+        *master_replid = replid;
+        self.master_repl_offset.store(offset, Ordering::Relaxed);
     }
 
     /// 生成 40 字符随机十六进制复制 ID

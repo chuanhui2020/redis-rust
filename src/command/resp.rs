@@ -651,8 +651,35 @@ impl Command {
                 }
                 RespValue::Array(arr)
             }
+            Command::Sync => {
+                RespValue::Array(vec![bulk("SYNC")])
+            }
             Command::Psync { replid, offset } => {
                 RespValue::Array(vec![bulk("PSYNC"), bulk(replid), bulk(&offset.to_string())])
+            }
+            Command::Wait { numreplicas, timeout } => {
+                RespValue::Array(vec![bulk("WAIT"), bulk(&numreplicas.to_string()), bulk(&timeout.to_string())])
+            }
+            Command::Failover { host, port, timeout, force } => {
+                let mut parts = vec![bulk("FAILOVER")];
+                if let Some(h) = host {
+                    parts.push(bulk("TO"));
+                    parts.push(bulk(h));
+                    if let Some(p) = port {
+                        parts.push(bulk(&p.to_string()));
+                    }
+                }
+                if *timeout >= 0 {
+                    parts.push(bulk("TIMEOUT"));
+                    parts.push(bulk(&timeout.to_string()));
+                }
+                if *force {
+                    parts.push(bulk("FORCE"));
+                }
+                RespValue::Array(parts)
+            }
+            Command::FailoverAbort => {
+                RespValue::Array(vec![bulk("FAILOVER"), bulk("ABORT")])
             }
             Command::Unknown(cmd_name) => {
                 RespValue::Array(vec![bulk(cmd_name)])

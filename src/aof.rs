@@ -104,7 +104,7 @@ impl AofReplayer {
             log::info!("检测到混合格式 AOF 文件，先加载 RDB 快照");
             let rdb_start = AOF_RDB_PREAMBLE.len();
             let mut cursor = std::io::Cursor::new(&content[rdb_start..]);
-            crate::rdb::load_from_reader(&storage, &mut cursor, false)?;
+            let _ = crate::rdb::load_from_reader(&storage, &mut cursor, false)?;
 
             // 剩余字节作为 AOF 命令重放
             let rdb_consumed = cursor.position() as usize;

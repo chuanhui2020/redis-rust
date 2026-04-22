@@ -49,15 +49,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage = StorageEngine::new();
 
     // 优先加载 RDB 快照（基础数据）
-    match redis_rust::rdb::load(&storage, RDB_PATH) {
-        Ok(()) => {
+    let rdb_repl_info = match redis_rust::rdb::load(&storage, RDB_PATH) {
+        Ok((replid, offset)) => {
             info!("RDB 快照加载成功");
+            (replid, offset)
         }
         Err(e) => {
             // RDB 文件不存在是正常现象
             log::debug!("RDB 加载跳过: {}", e);
+            (None, None)
         }
-    }
+    };
 
     // 然后加载 AOF（增量数据）
     if !no_aof {
@@ -85,6 +87,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 创建复制管理器
     let replication = Arc::new(ReplicationManager::new());
+
+    // 如果 RDB 中包含复制信息，恢复到复制管理器
+    if let (Some(replid), Some(offset)) = rdb_repl_info {
+        replication.set_replid_and_offset(replid, offset);
+        info!("从 RDB 恢复复制信息: replid={}, offset={}", replication.get_master_replid(), replication.get_master_repl_offset());
+    }
 
     // 创建 TCP 服务器并启动
     let server = Server::new(&addr, storage, aof, pubsub, None)

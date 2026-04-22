@@ -15,6 +15,8 @@ const RDB_MAGIC: &[u8] = b"REDIS-RUST";
 const RDB_VERSION: u32 = 1;
 /// EOF 标记
 const RDB_EOF: u8 = 0xFF;
+/// AUX 标记
+const RDB_AUX: u8 = 0xFE;
 
 /// 值类型标记
 const TYPE_STRING: u8 = 0;
@@ -85,8 +87,15 @@ fn read_bytes(reader: &mut impl Read, len: usize) -> Result<Vec<u8>> {
 }
 
 /// 保存 RDB 快照到任意写入器（不包含文件头魔数/版本号以外的封装）
-/// 此方法会写入完整的 RDB 格式数据（魔数 + 版本 + 数据库段 + EOF + CRC）
-pub fn save_to_writer(storage: &StorageEngine, writer: &mut impl Write) -> Result<()> {
+/// 此方法会写入完整的 RDB 格式数据（魔数 + 版本 + 数据库段 + AUX + EOF + CRC）
+/// repl_id: 可选的复制 ID
+/// repl_offset: 可选的复制偏移量
+pub fn save_to_writer_with_repl(
+    storage: &StorageEngine,
+    writer: &mut impl Write,
+    repl_id: Option<&str>,
+    repl_offset: Option<i64>,
+) -> Result<()> {
     let mut crc_hasher = crc32fast::Hasher::new();
 
     // 写入文件头：魔数 + 版本号
@@ -144,6 +153,14 @@ pub fn save_to_writer(storage: &StorageEngine, writer: &mut impl Write) -> Resul
         }
     }
 
+    // 写入 AUX 段（复制信息）
+    if let (Some(replid), Some(offset)) = (repl_id, repl_offset) {
+        writer.write_all(&[RDB_AUX])?;
+        crc_hasher.update(&[RDB_AUX]);
+        write_aux_string(writer, &mut crc_hasher, "repl-id", replid)?;
+        write_aux_string(writer, &mut crc_hasher, "repl-offset", &offset.to_string())?;
+    }
+
     // 写入 EOF 标记
     writer.write_all(&[RDB_EOF])?;
     crc_hasher.update(&[RDB_EOF]);
@@ -156,11 +173,20 @@ pub fn save_to_writer(storage: &StorageEngine, writer: &mut impl Write) -> Resul
     Ok(())
 }
 
+/// 保存 RDB 快照到任意写入器（不包含复制信息）
+pub fn save_to_writer(storage: &StorageEngine, writer: &mut impl Write) -> Result<()> {
+    save_to_writer_with_repl(storage, writer, None, None)
+}
+
 /// 保存 RDB 快照到文件
-pub fn save(storage: &StorageEngine, path: &str) -> Result<()> {
+pub fn save(storage: &StorageEngine, path: &str, repl_info: Option<(String, i64)>) -> Result<()> {
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
-    save_to_writer(storage, &mut writer)
+    if let Some((ref id, offset)) = repl_info {
+        save_to_writer_with_repl(storage, &mut writer, Some(id.as_str()), Some(offset))
+    } else {
+        save_to_writer_with_repl(storage, &mut writer, None, None)
+    }
 }
 
 /// 写入单个 key-value 到 RDB
@@ -299,9 +325,51 @@ fn write_key_value(
     Ok(())
 }
 
+/// 写入 AUX 字符串键值对
+fn write_aux_string(
+    writer: &mut impl Write,
+    crc: &mut crc32fast::Hasher,
+    key: &str,
+    value: &str,
+) -> Result<()> {
+    let key_bytes = key.as_bytes();
+    let key_len = key_bytes.len() as u32;
+    let key_len_bytes = key_len.to_be_bytes();
+    writer.write_all(&key_len_bytes)?;
+    crc.update(&key_len_bytes);
+    writer.write_all(key_bytes)?;
+    crc.update(key_bytes);
+
+    let val_bytes = value.as_bytes();
+    let val_len = val_bytes.len() as u32;
+    let val_len_bytes = val_len.to_be_bytes();
+    writer.write_all(&val_len_bytes)?;
+    crc.update(&val_len_bytes);
+    writer.write_all(val_bytes)?;
+    crc.update(val_bytes);
+    Ok(())
+}
+
+/// 读取 AUX 字符串
+fn read_aux_string(
+    reader: &mut impl Read,
+    crc: &mut crc32fast::Hasher,
+) -> Result<String> {
+    let len = read_u32(reader)?;
+    crc.update(&len.to_be_bytes());
+    let bytes = read_bytes(reader, len as usize)?;
+    crc.update(&bytes);
+    Ok(String::from_utf8_lossy(&bytes).to_string())
+}
+
 /// 从 RDB 字节流加载数据到 storage
 /// check_trailing: 是否校验 CRC 后文件必须结束（混合格式时应设为 false）
-pub fn load_from_reader(storage: &StorageEngine, reader: &mut impl Read, check_trailing: bool) -> Result<()> {
+/// 返回加载的复制信息 (replid, offset)
+pub fn load_from_reader(
+    storage: &StorageEngine,
+    reader: &mut impl Read,
+    check_trailing: bool,
+) -> Result<(Option<String>, Option<i64>)> {
     // 读取文件头：魔数
     let mut magic_buf = vec![0u8; RDB_MAGIC.len()];
     reader.read_exact(&mut magic_buf)?;
@@ -323,6 +391,9 @@ pub fn load_from_reader(storage: &StorageEngine, reader: &mut impl Read, check_t
     crc_hasher.update(&magic_buf);
     crc_hasher.update(&version.to_be_bytes());
 
+    let mut loaded_replid: Option<String> = None;
+    let mut loaded_offset: Option<i64> = None;
+
     // 读取数据库段，直到遇到 EOF
     loop {
         // 预读一个字节判断是否为 EOF
@@ -340,7 +411,22 @@ pub fn load_from_reader(storage: &StorageEngine, reader: &mut impl Read, check_t
             break;
         }
 
-        // 不是 EOF，说明是 db_index 的高字节
+        // 遇到 AUX 标记，解析辅助字段（读取两对 key-value）
+        if peek_buf[0] == RDB_AUX {
+            crc_hasher.update(&peek_buf);
+            for _ in 0..2 {
+                let key = read_aux_string(reader, &mut crc_hasher)?;
+                let value = read_aux_string(reader, &mut crc_hasher)?;
+                if key == "repl-id" {
+                    loaded_replid = Some(value);
+                } else if key == "repl-offset" {
+                    loaded_offset = value.parse::<i64>().ok();
+                }
+            }
+            continue;
+        }
+
+        // 不是 EOF 或 AUX，说明是 db_index 的高字节
         let db_index = {
             let low_byte = read_u8(reader)?;
             u16::from_be_bytes([peek_buf[0], low_byte])
@@ -373,17 +459,18 @@ pub fn load_from_reader(storage: &StorageEngine, reader: &mut impl Read, check_t
         // 确保文件已读完
         let mut trailing = [0u8; 1];
         match reader.read(&mut trailing) {
-            Ok(0) => Ok(()),
+            Ok(0) => Ok((loaded_replid, loaded_offset)),
             Ok(_) => Err(AppError::Storage("RDB 文件尾部有多余数据".to_string())),
             Err(e) => Err(AppError::Io(e)),
         }
     } else {
-        Ok(())
+        Ok((loaded_replid, loaded_offset))
     }
 }
 
 /// 从 RDB 文件加载数据到 storage
-pub fn load(storage: &StorageEngine, path: &str) -> Result<()> {
+/// 返回加载的复制信息 (replid, offset)
+pub fn load(storage: &StorageEngine, path: &str) -> Result<(Option<String>, Option<i64>)> {
     let file = File::open(path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             AppError::Io(e)
@@ -572,10 +659,12 @@ mod tests {
     fn test_save_load_roundtrip() {
         let storage = create_test_storage();
         let path = "/tmp/test_rdb_1.rdb";
-        save(&storage, path).unwrap();
+        save(&storage, path, None).unwrap();
 
         let loaded = StorageEngine::new();
-        load(&loaded, path).unwrap();
+        let (replid, offset) = load(&loaded, path).unwrap();
+        assert!(replid.is_none());
+        assert!(offset.is_none());
 
         // String
         assert_eq!(loaded.get("str_key").unwrap(), Some(Bytes::from("hello")));
@@ -613,7 +702,7 @@ mod tests {
         storage.set_with_ttl("ttl_key".to_string(), Bytes::from("value"), 100_000).unwrap();
 
         let path = "/tmp/test_rdb_ttl.rdb";
-        save(&storage, path).unwrap();
+        save(&storage, path, None).unwrap();
 
         let loaded = StorageEngine::new();
         load(&loaded, path).unwrap();
@@ -629,7 +718,7 @@ mod tests {
     fn test_save_load_empty() {
         let storage = StorageEngine::new();
         let path = "/tmp/test_rdb_empty.rdb";
-        save(&storage, path).unwrap();
+        save(&storage, path, None).unwrap();
 
         let loaded = StorageEngine::new();
         load(&loaded, path).unwrap();
@@ -655,6 +744,41 @@ mod tests {
         let loaded = StorageEngine::new();
         let result = load(&loaded, path);
         assert!(result.is_err());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_save_load_with_repl_info() {
+        let storage = create_test_storage();
+        let path = "/tmp/test_rdb_repl.rdb";
+        let replid = "abc123def456abc123def456abc123def456abc1";
+        let offset = 12345i64;
+        save(&storage, path, Some((replid.to_string(), offset))).unwrap();
+
+        let loaded = StorageEngine::new();
+        let (loaded_replid, loaded_offset) = load(&loaded, path).unwrap();
+        assert_eq!(loaded_replid, Some(replid.to_string()));
+        assert_eq!(loaded_offset, Some(offset));
+
+        // 验证数据也正确加载
+        assert_eq!(loaded.get("str_key").unwrap(), Some(Bytes::from("hello")));
+
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_load_old_rdb_without_aux() {
+        // 测试旧格式 RDB（没有 AUX 段）仍然可以正常加载
+        let storage = create_test_storage();
+        let path = "/tmp/test_rdb_old.rdb";
+        save(&storage, path, None).unwrap();
+
+        let loaded = StorageEngine::new();
+        let (replid, offset) = load(&loaded, path).unwrap();
+        assert!(replid.is_none());
+        assert!(offset.is_none());
+        assert_eq!(loaded.get("str_key").unwrap(), Some(Bytes::from("hello")));
+
         std::fs::remove_file(path).ok();
     }
 }

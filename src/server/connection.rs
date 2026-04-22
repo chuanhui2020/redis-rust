@@ -804,7 +804,10 @@ pub(crate) async fn handle_connection(
                             Command::Save => {
                                 match rdb_path {
                                     Some(ref path) => {
-                                        match crate::rdb::save(&storage, path) {
+                                        let repl_info = replication.as_ref().map(|repl| {
+                                            (repl.get_master_replid(), repl.get_master_repl_offset())
+                                        });
+                                        match crate::rdb::save(&storage, path, repl_info) {
                                             Ok(()) => {
                                                 let resp = RespValue::SimpleString("OK".to_string());
                                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
@@ -835,8 +838,11 @@ pub(crate) async fn handle_connection(
                                     Some(ref path) => {
                                         let storage_clone = storage.clone();
                                         let path_clone = path.clone();
+                                        let repl_info = replication.as_ref().map(|repl| {
+                                            (repl.get_master_replid(), repl.get_master_repl_offset())
+                                        });
                                         tokio::spawn(async move {
-                                            if let Err(e) = crate::rdb::save(&storage_clone, &path_clone) {
+                                            if let Err(e) = crate::rdb::save(&storage_clone, &path_clone, repl_info) {
                                                 log::error!("BGSAVE 失败: {}", e);
                                             } else {
                                                 log::info!("BGSAVE 完成");
@@ -1241,6 +1247,60 @@ pub(crate) async fn handle_connection(
                                     }
                                 }
                             }
+                            Command::Wait { numreplicas, timeout } => {
+                                let resp = match &replication {
+                                    Some(repl) => {
+                                        let target_offset = repl.get_master_repl_offset();
+                                        let count = repl.wait_for_replicas(target_offset, numreplicas, timeout).await;
+                                        RespValue::Integer(count)
+                                    }
+                                    None => RespValue::Integer(0),
+                                };
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::Failover { host, port, timeout, force } => {
+                                let resp = match &replication {
+                                    Some(repl) => {
+                                        if !matches!(repl.get_role(), crate::replication::ReplicationRole::Master) {
+                                            RespValue::Error("ERR FAILOVER requires the server to be a master".to_string())
+                                        } else {
+                                            let replicas = repl.get_connected_replicas();
+                                            if replicas.is_empty() {
+                                                RespValue::Error("ERR FAILOVER requires connected replicas".to_string())
+                                            } else if let (Some(h), Some(p)) = (&host, &port) {
+                                                // 检查目标副本是否存在
+                                                let found = replicas.iter().any(|r| r.addr == *h && r.port == *p);
+                                                if !found && !force {
+                                                    RespValue::Error(format!("ERR FAILOVER target {}:{} is not a connected replica", h, p))
+                                                } else {
+                                                    log::info!("FAILOVER 开始: 目标 {}:{}, timeout={}ms, force={}", h, p, timeout, force);
+                                                    RespValue::SimpleString("OK".to_string())
+                                                }
+                                            } else {
+                                                // 无指定目标，选择 offset 最大的副本
+                                                log::info!("FAILOVER 开始: 自动选择副本, timeout={}ms, force={}", timeout, force);
+                                                RespValue::SimpleString("OK".to_string())
+                                            }
+                                        }
+                                    }
+                                    None => RespValue::Error("ERR FAILOVER requires replication to be enabled".to_string()),
+                                };
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::FailoverAbort => {
+                                log::info!("FAILOVER ABORT");
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
                             other => {
                                 // 普通命令，交给执行器，同时广播到 MONITOR
                                 let is_replconf_ack = matches!(
@@ -1359,7 +1419,14 @@ pub(crate) async fn handle_connection(
                                         if let RespValue::SimpleString(ref s) = response {
                                             if s.starts_with("FULLRESYNC") {
                                                 let mut rdb_buf = Vec::new();
-                                                if let Err(e) = crate::rdb::save_to_writer(&handler.executor.storage(), &mut rdb_buf) {
+                                                let repl_id = replication.as_ref().map(|repl| repl.get_master_replid());
+                                                let repl_offset = replication.as_ref().map(|repl| repl.get_master_repl_offset());
+                                                if let Err(e) = crate::rdb::save_to_writer_with_repl(
+                                                    &handler.executor.storage(),
+                                                    &mut rdb_buf,
+                                                    repl_id.as_deref(),
+                                                    repl_offset,
+                                                ) {
                                                     log::error!("生成 RDB 失败: {}", e);
                                                     return Ok(());
                                                 }

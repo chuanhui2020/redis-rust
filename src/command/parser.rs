@@ -267,6 +267,9 @@ impl CommandParser {
             "ROLE" => self.parse_role(&arr),
             "REPLICAOF" => self.parse_replicaof(&arr),
             "SLAVEOF" => self.parse_replicaof(&arr),
+            "SYNC" => Ok(Command::Sync),
+            "WAIT" => self.parse_wait(&arr),
+            "FAILOVER" => self.parse_failover(&arr),
             other => Ok(Command::Unknown(other.to_string())),
         }
     }
@@ -510,6 +513,71 @@ impl CommandParser {
             })?;
             Ok(Command::ReplicaOf { host: arg1, port })
         }
+    }
+
+    /// 解析 WAIT 命令：WAIT numreplicas timeout
+    fn parse_wait(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() != 3 {
+            return Err(AppError::Command(
+                "WAIT 命令需要 2 个参数".to_string(),
+            ));
+        }
+        let numreplicas = self.extract_string(&arr[1])?.parse::<i64>().map_err(|_| {
+            AppError::Command("WAIT numreplicas 必须是整数".to_string())
+        })?;
+        let timeout = self.extract_string(&arr[2])?.parse::<i64>().map_err(|_| {
+            AppError::Command("WAIT timeout 必须是整数".to_string())
+        })?;
+        Ok(Command::Wait { numreplicas, timeout })
+    }
+
+    /// 解析 FAILOVER 命令：FAILOVER [TO host port] [TIMEOUT timeout] [FORCE] | FAILOVER ABORT
+    fn parse_failover(&self, arr: &[RespValue]) -> Result<Command> {
+        // FAILOVER ABORT
+        if arr.len() >= 2 {
+            let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
+            if sub == "ABORT" {
+                return Ok(Command::FailoverAbort);
+            }
+        }
+        // FAILOVER [TO host port] [TIMEOUT timeout] [FORCE]
+        let mut host = None;
+        let mut port = None;
+        let mut timeout: i64 = 0;
+        let mut force = false;
+        let mut i = 1;
+        while i < arr.len() {
+            let arg = self.extract_string(&arr[i])?.to_ascii_uppercase();
+            match arg.as_str() {
+                "TO" => {
+                    if i + 2 >= arr.len() {
+                        return Err(AppError::Command("FAILOVER TO 需要 host 和 port".to_string()));
+                    }
+                    host = Some(self.extract_string(&arr[i + 1])?);
+                    port = Some(self.extract_string(&arr[i + 2])?.parse::<u16>().map_err(|_| {
+                        AppError::Command("FAILOVER TO port 必须是整数".to_string())
+                    })?);
+                    i += 3;
+                }
+                "TIMEOUT" => {
+                    if i + 1 >= arr.len() {
+                        return Err(AppError::Command("FAILOVER TIMEOUT 需要值".to_string()));
+                    }
+                    timeout = self.extract_string(&arr[i + 1])?.parse::<i64>().map_err(|_| {
+                        AppError::Command("FAILOVER TIMEOUT 必须是整数".to_string())
+                    })?;
+                    i += 2;
+                }
+                "FORCE" => {
+                    force = true;
+                    i += 1;
+                }
+                _ => {
+                    return Err(AppError::Command(format!("FAILOVER 未知参数: {}", arg)));
+                }
+            }
+        }
+        Ok(Command::Failover { host, port, timeout, force })
     }
 
     /// 从 RespValue 中提取字符串（支持 BulkString 和 SimpleString）

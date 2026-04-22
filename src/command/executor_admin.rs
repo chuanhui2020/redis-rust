@@ -612,7 +612,15 @@ pub(crate) fn execute_p_ttl(executor: &CommandExecutor, key: String) -> Result<R
 }
 
 pub(crate) fn execute_info(executor: &CommandExecutor, section: Option<String>) -> Result<RespValue> {
-                let info = executor.storage.info(section.as_deref())?;
+                let mut info = executor.storage.info(section.as_deref())?;
+                let sec = section.as_deref().map(|s| s.to_ascii_lowercase());
+                let include_repl = sec.is_none() || sec.as_deref() == Some("replication");
+                if include_repl {
+                    if let Some(ref repl) = executor.replication() {
+                        info.push_str("\r\n# Replication\r\n");
+                        info.push_str(&repl.get_info_string());
+                    }
+                }
                 Ok(RespValue::BulkString(Some(Bytes::from(info))))
 }
 

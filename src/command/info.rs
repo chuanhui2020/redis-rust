@@ -288,7 +288,11 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::Psync { replid, offset } => ("PSYNC".to_string(), vec![replid.clone(), offset.to_string()]),
         Command::Role => ("ROLE".to_string(), vec![]),
         Command::ReplicaOf { host, port } => ("REPLICAOF".to_string(), vec![host.clone(), port.to_string()]),
+        Command::Sync => ("SYNC".to_string(), vec![]),
         Command::ReplicaOfNoOne => ("REPLICAOF".to_string(), vec!["NO".to_string(), "ONE".to_string()]),
+        Command::Wait { numreplicas, timeout } => ("WAIT".to_string(), vec![numreplicas.to_string(), timeout.to_string()]),
+        Command::Failover { .. } => ("FAILOVER".to_string(), vec![]),
+        Command::FailoverAbort => ("FAILOVER".to_string(), vec!["ABORT".to_string()]),
         Command::Unknown(name) => (name.clone(), vec![]),
     }
 }

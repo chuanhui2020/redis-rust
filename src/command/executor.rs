@@ -822,6 +822,18 @@ impl CommandExecutor {
                 }
                 Ok(RespValue::SimpleString("OK".to_string()))
             }
+            Command::Sync => {
+                // SYNC 等价于 PSYNC ? -1（强制全量同步）
+                let repl = self.replication.as_ref().ok_or_else(|| {
+                    AppError::Command("复制管理器未初始化".to_string())
+                })?;
+                let master_replid = repl.get_master_replid();
+                let master_offset = repl.get_master_repl_offset();
+                Ok(RespValue::SimpleString(format!(
+                    "FULLRESYNC {} {}",
+                    master_replid, master_offset
+                )))
+            }
             Command::Psync { replid, offset } => {
                 let repl = self.replication.as_ref().ok_or_else(|| {
                     AppError::Command("复制管理器未初始化".to_string())
@@ -829,14 +841,15 @@ impl CommandExecutor {
                 let master_replid = repl.get_master_replid();
                 
                 if offset >= 0 && replid == master_replid {
-                    // 尝试增量同步
+                    // 尝试增量同步：验证 offset 在 backlog 范围内
                     if let Some(_backlog_data) = repl.get_backlog_from_offset(offset) {
-                        // 返回 CONTINUE 响应，连接层会发送积压数据
                         return Ok(RespValue::SimpleString(format!(
                             "CONTINUE {} {}",
                             master_replid, offset
                         )));
                     }
+                    // offset 不在 backlog 范围内，降级为全量同步
+                    log::info!("PSYNC offset {} 不在 backlog 范围内，降级为全量同步", offset);
                 }
                 
                 // 全量同步
@@ -901,6 +914,25 @@ impl CommandExecutor {
                 })?;
                 repl.set_replicaof_no_one();
                 Ok(RespValue::SimpleString("OK".to_string()))
+            }
+            Command::Wait { numreplicas, .. } => {
+                // 非阻塞上下文（事务/AOF 重放）：直接返回当前满足条件的副本数
+                match &self.replication {
+                    Some(repl) => {
+                        let offset = repl.get_master_repl_offset();
+                        let count = repl.count_replicas_at_offset(offset);
+                        Ok(RespValue::Integer(std::cmp::min(count, numreplicas)))
+                    }
+                    None => Ok(RespValue::Integer(0)),
+                }
+            }
+            Command::Failover { .. } => {
+                // FAILOVER 需要在连接层异步处理
+                Err(AppError::Command("FAILOVER 应在连接层处理".to_string()))
+            }
+            Command::FailoverAbort => {
+                // FAILOVER ABORT 也在连接层处理
+                Err(AppError::Command("FAILOVER ABORT 应在连接层处理".to_string()))
             }
             Command::Unknown(cmd_name) => {
                 Ok(RespValue::Error(format!(

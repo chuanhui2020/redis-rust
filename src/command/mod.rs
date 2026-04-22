@@ -592,6 +592,14 @@ pub enum Command {
     ReplicaOf { host: String, port: u16 },
     /// REPLICAOF NO ONE
     ReplicaOfNoOne,
+    /// SYNC
+    Sync,
+    /// WAIT numreplicas timeout
+    Wait { numreplicas: i64, timeout: i64 },
+    /// FAILOVER [TO host port] [TIMEOUT timeout] [FORCE]
+    Failover { host: Option<String>, port: Option<u16>, timeout: i64, force: bool },
+    /// FAILOVER ABORT
+    FailoverAbort,
     /// 未知命令
     Unknown(String),
 }
