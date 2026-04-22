@@ -135,7 +135,7 @@ bash bench.sh
 
 > 每次开发完成后必须更新此章节，保持进度与代码同步。
 
-**已实现（217 个命令）：**
+**已实现（223 个命令）：**
 
 | 分类 | 数量 | 覆盖率 | 状态 |
 |------|------|--------|------|
@@ -152,24 +152,23 @@ bash bench.sh
 | Sort | 1 | 100% | 完成 |
 | Transaction | 5（含 UNWATCH） | 100% | 完成 |
 | Scripting | 10（EVAL + Functions） | 71% | 缺 SCRIPT DEBUG/HELP |
-| ACL | 10（含 SAVE/LOAD） | 83% | 缺 DRYRUN |
+| ACL | 11（含 SAVE/LOAD/DRYRUN） | 92% | 完成 |
 | Client | 12 | 71% | 缺 TRACKING/CACHING |
 | Pub/Sub | 13（含 Sharded Pub/Sub） | 100% | 完成 |
-| Server/Admin | 32 | 80% | 缺 COMMAND DOCS/LIST/COUNT |
+| Server/Admin | 36（含 COMMAND COUNT/LIST/DOCS/GETKEYS） | 90% | 完成 |
 | 持久化（RDB+AOF） | — | — | 完成 |
 | Lua 脚本 + Functions | — | — | 完成 |
 | Replication | 4（REPLICAOF/ROLE/PSYNC/REPLCONF） | — | 基础完成（全量同步+增量同步+写传播+心跳） |
 
-**未实现（~65 个命令）：**
+**未实现（~59 个命令）：**
 
 | 分类 | 缺失内容 | 优先级 |
 |------|----------|--------|
-| ACL DRYRUN | 权限测试 | 低 |
 | CLIENT TRACKING | 服务端辅助客户端缓存 | 中 |
-| COMMAND 内省 | DOCS/LIST/COUNT/GETKEYS | 低 |
+| Scripting 补全 | SCRIPT DEBUG/HELP | 低 |
 | Cluster | 全部 30+ 命令 | 暂不实现（单机架构） |
 | Replication 补全 | SYNC（旧协议）、WAIT、FAILOVER | 低 |
 | Sentinel | 全部 10+ 命令 | 暂不实现 |
 | Module | MODULE LOAD/UNLOAD/LIST | 暂不实现 |
 
-**总覆盖率：~77%（217/282），单机功能维度 >97%。**
+**总覆盖率：~79%（223/282），单机功能维度 >98%。**
