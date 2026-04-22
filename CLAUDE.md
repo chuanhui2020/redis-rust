@@ -158,15 +158,15 @@ bash bench.sh
 | Server/Admin | 36（含 COMMAND COUNT/LIST/DOCS/GETKEYS） | 90% | 完成 |
 | 持久化（RDB+AOF） | — | — | 完成 |
 | Lua 脚本 + Functions | — | — | 完成 |
-| Replication | 4（REPLICAOF/ROLE/PSYNC/REPLCONF） | — | 基础完成（全量同步+增量同步+写传播+心跳） |
+| Replication | 8（REPLICAOF/ROLE/PSYNC/REPLCONF/WAIT/SYNC/FAILOVER） | — | 完成（全量同步+增量同步+写传播+心跳+断线重连+RDB持久化replid） |
+| Sentinel | 12（SENTINEL MASTERS/MASTER/REPLICAS/SENTINELS/MONITOR/REMOVE/SET/FAILOVER/RESET/CKQUORUM/MYID/GET-MASTER-ADDR-BY-NAME） | — | 完成（SDOWN/ODOWN检测+Leader选举+自动故障转移） |
+| Cluster | 17（CLUSTER INFO/NODES/MYID/SLOTS/SHARDS/MEET/ADDSLOTS/DELSLOTS/SETSLOT/REPLICATE/FAILOVER/RESET/KEYSLOT/COUNTKEYSINSLOT/GETKEYSINSLOT + MIGRATE/ASKING） | — | 完成（16384 slot分片+MOVED/ASK重定向+Gossip+故障检测+CROSSSLOT校验） |
 
-**未实现（~51 个命令）：**
+**未实现（~14 个命令）：**
 
 | 分类 | 缺失内容 | 优先级 |
 |------|----------|--------|
-| Cluster | 全部 30+ 命令 | 暂不实现（单机架构） |
-| Replication 补全 | SYNC（旧协议）、WAIT、FAILOVER | 低 |
-| Sentinel | 全部 10+ 命令 | 暂不实现 |
 | Module | MODULE LOAD/UNLOAD/LIST | 暂不实现 |
+| Cluster 补全 | 部分高级命令（CLUSTER LINKS 等） | 低 |
 
-**总覆盖率：~82%（231/282），单机功能维度 >99%。**
+**总覆盖率：~95%（268/282），含 Replication + Sentinel + Cluster 全功能维度。**
