@@ -61,14 +61,25 @@ impl ReplicationBacklog {
 
     /// 追加数据，超出容量时从前端丢弃
     fn append(&mut self, data: &[u8]) {
-        for &byte in data {
-            if self.buffer.len() >= self.max_size {
-                self.buffer.pop_front();
-                self.start_offset += 1;
-            }
-            self.buffer.push_back(byte);
+        if data.is_empty() {
+            return;
         }
-        self.end_offset += data.len() as i64;
+        let data_len = data.len();
+        // 如果单次写入超过容量，只保留最后 max_size 字节
+        let to_append = if data_len > self.max_size {
+            &data[data_len - self.max_size..]
+        } else {
+            data
+        };
+        // 计算需要从前面丢弃多少字节
+        let need_space = self.buffer.len() + to_append.len();
+        if need_space > self.max_size {
+            let to_drop = need_space - self.max_size;
+            self.buffer.drain(..to_drop);
+            self.start_offset += to_drop as i64;
+        }
+        self.buffer.extend(to_append);
+        self.end_offset += data_len as i64;
     }
 
     /// 从指定偏移量获取数据
@@ -162,6 +173,12 @@ impl ReplicationManager {
     /// 获取已连接的副本列表快照
     pub fn get_connected_replicas(&self) -> Vec<ReplicaInfo> {
         self.connected_replicas.read().unwrap().clone()
+    }
+
+    /// 检查是否至少有一个已连接的副本
+    pub fn has_connected_replicas(&self) -> bool {
+        // 快速路径：读取锁检查副本列表是否为空
+        !self.connected_replicas.read().unwrap().is_empty()
     }
 
     /// 设置本机监听端口
@@ -518,21 +535,27 @@ impl ReplicationManager {
             let mut rdb_data = vec![0u8; rdb_len];
             reader.read_exact(&mut rdb_data).await.map_err(AppError::Io)?;
 
-            // 7. 保存到临时文件并加载
+            // 7. 清空现有数据后保存到临时文件并加载
+            if let Err(e) = storage.flush() {
+                log::error!("全量同步前清空数据失败: {}", e);
+                return Err(AppError::Storage(format!("FLUSHALL 失败: {}", e)));
+            }
             let temp_path = format!("temp_rdb_{}.rdb", std::process::id());
             {
                 let mut file = std::fs::File::create(&temp_path).map_err(AppError::Io)?;
                 file.write_all(&rdb_data).map_err(AppError::Io)?;
             }
-            crate::rdb::load(storage, &temp_path)?;
+            let (loaded_replid, loaded_offset) = crate::rdb::load(storage, &temp_path)?;
             let _ = std::fs::remove_file(&temp_path);
 
-            // 8. 更新复制状态
+            // 8. 更新复制状态：优先使用 RDB 中保存的 replid/offset，回退到 FULLRESYNC 响应中的值
+            let final_replid = loaded_replid.unwrap_or_else(|| replid.clone());
+            let final_offset = loaded_offset.unwrap_or(offset);
             {
                 let mut master_replid_guard = self.master_replid.write().unwrap();
-                *master_replid_guard = replid.clone();
+                *master_replid_guard = final_replid.clone();
             }
-            self.master_repl_offset.store(offset, Ordering::Relaxed);
+            self.master_repl_offset.store(final_offset, Ordering::Relaxed);
 
             log::info!("全量同步完成，replid: {}, offset: {}", replid, offset);
             self.set_master_link_up(true);
@@ -557,6 +580,13 @@ impl ReplicationManager {
         let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
 
         loop {
+            // 检查是否已被 REPLICAOF NO ONE 取消，如果是则主动断开
+            if matches!(self.get_role(), ReplicationRole::Master) {
+                log::info!("已切换为主节点，主动断开复制连接");
+                self.set_master_link_up(false);
+                return Ok(());
+            }
+
             // 先处理缓冲区中所有完整命令
             loop {
                 let bytes_before = buf.len();

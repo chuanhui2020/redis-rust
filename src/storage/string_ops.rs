@@ -4,13 +4,46 @@ impl StorageEngine {
     pub fn get(&self, key: &str) -> Result<Option<Bytes>> {
         let dbs = &self.dbs;
         let db = &dbs[self.current_db.load(Ordering::Relaxed).min(15)];
-        let mut map = db
-            .inner
-            .get_shard(key)
+        let shard = db.inner.get_shard(key);
+
+        // 先使用读锁检查键，避免不必要的写锁竞争
+        {
+            let map = shard
+                .read()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+            if let Some(value) = map.get(key) {
+                if !Self::is_expired(value) {
+                    // 键存在且未过期，直接返回值
+                    let result = match value {
+                        StorageValue::String(v) => Ok(Some(v.clone())),
+                        StorageValue::ExpiringString(v, _) => Ok(Some(v.clone())),
+                        _ => {
+                            Err(AppError::Storage(
+                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
+                            ))
+                        }
+                    };
+                    drop(map);
+                    // 内联 touch，只在 maxmemory > 0 时执行
+                    if result.is_ok() && self.maxmemory.load(Ordering::Relaxed) > 0 {
+                        db.access_times.write().unwrap().insert(key.to_string(), Instant::now());
+                        *db.access_counts.write().unwrap().entry(key.to_string()).or_insert(0) += 1;
+                    }
+                    return result;
+                }
+                // 键已过期，需要写锁删除
+            } else {
+                // 键不存在
+                return Ok(None);
+            }
+        }
+
+        // 键已过期，获取写锁删除
+        let mut map = shard
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-
-        // 先检查键是否存在以及是否过期
+        // 双重检查：在获取写锁期间可能已被其他线程删除或更新
         if let Some(value) = map.get(key) {
             if Self::is_expired(value) {
                 map.remove(key);
@@ -18,32 +51,9 @@ impl StorageEngine {
                     let db_idx = self.current_db.load(Ordering::Relaxed);
                     notifier.notify_expired(db_idx, key);
                 }
-                return Ok(None);
             }
         }
-
-        // 取出值
-        let result = match map.get(key) {
-            Some(StorageValue::String(v)) => Ok(Some(v.clone())),
-            Some(StorageValue::ExpiringString(v, _)) => Ok(Some(v.clone())),
-            Some(StorageValue::List(_))
-            | Some(StorageValue::Hash(_))
-            | Some(StorageValue::Set(_))
-            | Some(StorageValue::ZSet(_))
-            | Some(StorageValue::HyperLogLog(_))
-            | Some(StorageValue::Stream(_)) => {
-                Err(AppError::Storage(
-                    "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                ))
-            }
-            None => Ok(None),
-        };
-        // 内联 touch，只在 maxmemory > 0 时执行，复用 db 引用
-        if result.is_ok() && self.maxmemory.load(Ordering::Relaxed) > 0 {
-            db.access_times.write().unwrap().insert(key.to_string(), Instant::now());
-            *db.access_counts.write().unwrap().entry(key.to_string()).or_insert(0) += 1;
-        }
-        result
+        Ok(None)
     }
 
     /// 设置键值对
@@ -359,21 +369,22 @@ impl StorageEngine {
         }
     }
 
-    /// 清空所有数据
+    /// 清空所有数据（所有 16 个数据库）
     pub fn flush(&self) -> Result<()> {
-        let db = self.db();
-        for shard in db.inner.all_shards() {
-            let mut map = shard.write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            map.clear();
+        for db in self.dbs.iter() {
+            for shard in db.inner.all_shards() {
+                let mut map = shard.write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                map.clear();
+            }
+            for shard in db.versions.all_shards() {
+                let mut v = shard.write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                v.clear();
+            }
+            let mut times = db.access_times.write().unwrap();
+            times.clear();
+            let mut counts = db.access_counts.write().unwrap();
+            counts.clear();
         }
-        let db = self.db();
-        for shard in db.versions.all_shards() {
-            let mut v = shard.write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            v.clear();
-        }
-        let db = self.db();
-        let mut times = db.access_times.write().unwrap();
-        times.clear();
         Ok(())
     }
 

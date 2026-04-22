@@ -146,71 +146,125 @@ impl CommandExecutor {
         ))
     }
 
-    /// 将写操作追加到 AOF 文件
+    /// 将写操作追加到 AOF 文件（带写命令检查，供外部调用）
     pub(crate) fn append_to_aof(&self, cmd: &Command) {
         if !cmd.is_write_command() {
             return;
         }
+        self.append_to_aof_unchecked(cmd);
+    }
+
+    /// 内部快速路径：直接将命令追加到 AOF，不重复检查 is_write_command
+    /// 使用 try_lock 减少锁竞争，获取失败时回退到阻塞 lock
+    fn append_to_aof_unchecked(&self, cmd: &Command) {
         if let Some(ref aof) = self.aof {
-            match aof.lock() {
-                Ok(mut writer) => {
-                    if let Err(e) = writer.append(cmd) {
-                        log::error!("AOF 写入失败: {}", e);
+            let mut guard = match aof.try_lock() {
+                Ok(g) => g,
+                Err(std::sync::TryLockError::WouldBlock) => match aof.lock() {
+                    Ok(g) => g,
+                    Err(e) => {
+                        log::error!("AOF writer 锁中毒: {}", e);
+                        return;
                     }
-                }
-                Err(e) => {
+                },
+                Err(std::sync::TryLockError::Poisoned(e)) => {
                     log::error!("AOF writer 锁中毒: {}", e);
+                    return;
                 }
+            };
+            if let Err(e) = guard.append(cmd) {
+                log::error!("AOF 写入失败: {}", e);
             }
         }
     }
 
-    /// 将写命令广播到所有已连接的副本
-    fn propagate_to_replicas(&self, cmd: &Command) {
-        if !cmd.is_write_command() {
-            return;
-        }
+    /// 将写命令广播到所有已连接的副本（内部快速路径，调用者已确认是写命令）
+    fn do_propagate_to_replicas(&self, cmd: &Command) {
         if let Some(ref repl) = self.replication {
-            if matches!(repl.get_role(), crate::replication::ReplicationRole::Master) {
-                let resp_bytes = crate::replication::serialize_command_to_resp(cmd);
-                let len = resp_bytes.len() as i64;
-                // 追加到复制积压缓冲区
-                repl.append_to_backlog(&resp_bytes);
-                // 广播到已连接的副本
-                let _ = repl.get_repl_tx().send(resp_bytes);
-                repl.incr_master_repl_offset(len);
+            if !matches!(repl.get_role(), crate::replication::ReplicationRole::Master) {
+                return;
             }
+            // 优化：没有已连接的副本时，跳过 RESP 序列化、backlog 追加和广播
+            // 这能显著降低无副本场景（或所有副本断开）下的写操作 CPU 开销
+            if !repl.has_connected_replicas() {
+                return;
+            }
+            let resp_bytes = crate::replication::serialize_command_to_resp(cmd);
+            let len = resp_bytes.len() as i64;
+            // 追加到复制积压缓冲区
+            repl.append_to_backlog(&resp_bytes);
+            // 广播到已连接的副本
+            let _ = repl.get_repl_tx().send(resp_bytes);
+            repl.incr_master_repl_offset(len);
         }
     }
 
     /// 执行命令并返回 RESP 结果（自动记录慢查询）
     pub fn execute(&self, cmd: Command) -> Result<RespValue> {
         let start = std::time::Instant::now();
-        let (cmd_name, args) = extract_cmd_info(&cmd);
 
-        // 写操作先记录到 AOF，再执行
-        self.append_to_aof(&cmd);
+        // 预先判断是否为写命令，避免在 AOF 和复制传播中重复调用
+        let is_write = cmd.is_write_command();
 
-        // 保留命令引用用于 keyspace 通知和复制传播
-        let cmd_for_notify = cmd.clone();
+        // 预先判断是否为 LATENCY 命令，用于延迟追踪过滤（避免热路径上提取命令名）
+        let is_latency_cmd = matches!(
+            cmd,
+            Command::LatencyLatest | Command::LatencyHistory(_) | Command::LatencyReset(_)
+        );
+
+        // 写操作先记录到 AOF，再执行（使用快速路径跳过重复检查）
+        if is_write {
+            self.append_to_aof_unchecked(&cmd);
+        }
+
+        // 只在真正需要 keyspace 通知或复制传播时才 clone 命令
+        // keyspace_notifier: 默认 flags==0 时不产生通知，可以跳过 clone
+        let need_keyspace = self.keyspace_notifier.as_ref().map_or(false, |n| {
+            !n.config().is_empty()
+        });
+        let need_replica = is_write && self.replication.as_ref().map_or(false, |r| {
+            matches!(r.get_role(), crate::replication::ReplicationRole::Master)
+                && r.has_connected_replicas()
+        });
+        let cmd_for_notify = if need_keyspace || need_replica {
+            Some(cmd.clone())
+        } else {
+            None
+        };
+
         let result = self.do_execute(cmd);
 
         // 命令执行成功后发送 Keyspace 通知并广播到副本
         if result.is_ok() {
-            if let Some(ref notifier) = self.keyspace_notifier {
-                let db = self.storage.current_db();
-                notifier.notify_command(&cmd_for_notify, db);
+            if let Some(ref cmd_ref) = cmd_for_notify {
+                if need_keyspace {
+                    if let Some(ref notifier) = self.keyspace_notifier {
+                        let db = self.storage.current_db();
+                        notifier.notify_command(cmd_ref, db);
+                    }
+                }
+                if need_replica {
+                    self.do_propagate_to_replicas(cmd_ref);
+                }
             }
-            self.propagate_to_replicas(&cmd_for_notify);
         }
 
         let duration_us = start.elapsed().as_micros() as u64;
+
+        // 慢查询日志：延迟提取命令信息，只在可能超过阈值时才计算
+        // 这避免了高频短命令在热路径上的 String 分配
         if let Some(ref slowlog) = self.slowlog {
-            slowlog.record(&cmd_name, args, duration_us);
+            if duration_us >= slowlog.threshold_us() {
+                let (cmd_name, args) = extract_cmd_info(
+                    cmd_for_notify.as_ref().unwrap_or(&Command::Unknown(String::new()))
+                );
+                slowlog.record(&cmd_name, args, duration_us);
+            }
         }
+
+        // 延迟追踪：使用预先计算的 is_latency_cmd 过滤，避免提取命令名
         if let Some(ref latency) = self.latency {
-            // LATENCY 命令自身不记录延迟，避免 RESET 后立即被重新填充
-            if !cmd_name.starts_with("LATENCY ") {
+            if !is_latency_cmd {
                 let _ = latency.record("command", duration_us / 1000);
             }
         }

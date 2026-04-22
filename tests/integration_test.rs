@@ -5,6 +5,7 @@ use redis_rust::protocol::{RespParser, RespValue};
 use redis_rust::pubsub::PubSubManager;
 use redis_rust::server::Server;
 use redis_rust::storage::StorageEngine;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::{sleep, Duration};
@@ -2980,4 +2981,86 @@ async fn test_persist() {
 
     let resp = exec(&mut stream, &["TTL", "perkey"]).await;
     assert_eq!(resp, RespValue::Integer(-1));
+}
+
+// ---------- 主从复制测试 ----------
+
+#[tokio::test]
+async fn test_replication_basic() {
+    use redis_rust::replication::ReplicationManager;
+    use std::time::Duration;
+
+    // 启动 master
+    let master_storage = StorageEngine::new();
+    let master_repl = Arc::new(ReplicationManager::new());
+    let master_server = Server::new("127.0.0.1:0", master_storage.clone(), None, PubSubManager::new(), None)
+        .with_replication(master_repl.clone());
+    let (master_addr, _master_handle) = master_server.start().await.unwrap();
+    let master_port = master_addr.port();
+
+    // 启动 replica
+    let replica_storage = StorageEngine::new();
+    let replica_repl = Arc::new(ReplicationManager::new());
+    let replica_server = Server::new("127.0.0.1:0", replica_storage.clone(), None, PubSubManager::new(), None)
+        .with_replication(replica_repl.clone());
+    let (replica_addr, _replica_handle) = replica_server.start().await.unwrap();
+
+    // 连接 master 写入数据
+    let mut master_stream = TcpStream::connect(master_addr).await.unwrap();
+    let resp = exec(&mut master_stream, &["SET", "key1", "value1"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // replica 执行 REPLICAOF
+    let mut replica_stream = TcpStream::connect(replica_addr).await.unwrap();
+    let resp = exec(&mut replica_stream, &["REPLICAOF", "127.0.0.1", &master_port.to_string()]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // 等待同步完成：轮询 INFO replication 检查 master_link_status:up
+    let mut synced = false;
+    for _ in 0..50 {
+        sleep(Duration::from_millis(100)).await;
+        let resp = exec(&mut replica_stream, &["INFO", "replication"]).await;
+        if let RespValue::BulkString(Some(data)) = resp {
+            let info = String::from_utf8_lossy(&data);
+            if info.contains("master_link_status:up") {
+                synced = true;
+                break;
+            }
+        }
+    }
+    assert!(synced, "副本未能在 5 秒内完成同步");
+
+    // 验证 replica 能读到 master 写入的数据
+    let resp = exec(&mut replica_stream, &["GET", "key1"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("value1"))));
+
+    // master 再写入一条数据，验证实时复制
+    let resp = exec(&mut master_stream, &["SET", "key2", "value2"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    sleep(Duration::from_millis(200)).await;
+    let resp = exec(&mut replica_stream, &["GET", "key2"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("value2"))));
+
+    // 验证 INFO replication 包含正确字段
+    let resp = exec(&mut replica_stream, &["INFO", "replication"]).await;
+    if let RespValue::BulkString(Some(data)) = resp {
+        let info = String::from_utf8_lossy(&data);
+        assert!(info.contains("role:slave"), "INFO 应包含 role:slave");
+        assert!(info.contains("master_link_status:up"), "INFO 应包含 master_link_status:up");
+        assert!(info.contains("master_host:127.0.0.1"), "INFO 应包含 master_host");
+        assert!(info.contains(&format!("master_port:{}", master_port)), "INFO 应包含 master_port");
+    } else {
+        panic!("INFO replication 应返回 BulkString");
+    }
+
+    // 验证 master 的 INFO replication 包含已连接副本
+    let resp = exec(&mut master_stream, &["INFO", "replication"]).await;
+    if let RespValue::BulkString(Some(data)) = resp {
+        let info = String::from_utf8_lossy(&data);
+        assert!(info.contains("role:master"), "master INFO 应包含 role:master");
+        assert!(info.contains("connected_slaves:1"), "master INFO 应包含 connected_slaves:1");
+    } else {
+        panic!("master INFO replication 应返回 BulkString");
+    }
 }

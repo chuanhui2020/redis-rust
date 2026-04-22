@@ -96,6 +96,11 @@ impl NotifyKeyspaceEvents {
     pub fn should_notify(&self, event_type: u16) -> bool {
         self.flags & event_type != 0
     }
+
+    /// 是否没有任何通知被启用
+    pub fn is_empty(&self) -> bool {
+        self.flags == 0
+    }
 }
 
 impl Default for NotifyKeyspaceEvents {
