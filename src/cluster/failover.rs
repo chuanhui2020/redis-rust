@@ -52,8 +52,10 @@ pub fn start_failure_detector(cluster: Arc<ClusterState>) -> tokio::task::JoinHa
             }
 
             // 检查是否有 PFAIL 节点需要升级为 FAIL
-            // 简化实现：如果本节点是 master 且检测到 PFAIL，直接标记 FAIL
             check_and_promote_fail(&cluster);
+
+            // 尝试故障转移：FAIL master 的 replica 提升为 master
+            try_failover(cluster.clone()).await;
 
             // 更新集群状态
             update_cluster_ok(&cluster);
@@ -78,6 +80,32 @@ fn check_and_promote_fail(cluster: &ClusterState) {
             );
             cluster.remove_node_flag(&node.id, &NodeFlag::PFail);
             cluster.set_node_flag(&node.id, NodeFlag::Fail);
+        }
+    }
+}
+
+/// 尝试故障转移：如果本节点是 FAIL master 的 replica，则提升自己为 master
+async fn try_failover(cluster: Arc<ClusterState>) {
+    let nodes = cluster.get_nodes();
+
+    for node in &nodes {
+        if !node.flags.contains(&NodeFlag::Fail) || !node.flags.contains(&NodeFlag::Master) {
+            continue;
+        }
+
+        // 尝试提升本节点为 master（如果是该 master 的 replica）
+        if cluster.promote_replica_to_master(&node.id) {
+            let epoch = cluster.get_current_epoch();
+            log::warn!(
+                "Cluster: 故障转移完成，本节点已接管 master {} 的所有 slot，epoch={}",
+                node.id, epoch
+            );
+
+            // 通过 Gossip 广播新的拓扑
+            let cluster_clone = cluster.clone();
+            tokio::spawn(async move {
+                super::gossip::broadcast_topology_update(cluster_clone).await;
+            });
         }
     }
 }

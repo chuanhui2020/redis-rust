@@ -1,7 +1,7 @@
 // Cluster 二进制总线协议模块
 // 定义消息格式、编解码逻辑和辅助函数
 
-use super::state::{ClusterNode, ClusterState, NodeFlag};
+use super::state::NodeFlag;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// 消息类型常量

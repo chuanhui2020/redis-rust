@@ -54,8 +54,8 @@ impl RespParser {
 
     /// 编码 RESP 值为字节流
     pub fn encode(&self, value: &RespValue) -> Bytes {
-        let mut result = String::new();
-        self.encode_to_string(value, &mut result);
+        let mut result = Vec::new();
+        self.encode_to_vec(value, &mut result);
         Bytes::from(result)
     }
 
@@ -184,6 +184,8 @@ impl RespParser {
         }
 
         let len = len as usize;
+        // 先备份缓冲区，待所有元素确认完整后再真正消费
+        let original_buf = buf.clone();
         // 消费掉数组头部
         buf.advance(len_end + 2);
 
@@ -193,10 +195,8 @@ impl RespParser {
             match self.parse(buf)? {
                 Some(value) => elements.push(value),
                 None => {
-                    // 数据不完整，需要将已消费的头部数据恢复
-                    // 但由于 buf 已经被 advance，这里简化处理：
-                    // 实际上应该在确认所有元素都能解析后再 advance
-                    // 为简化实现，我们依赖上层循环重新读取
+                    // 数据不完整，恢复缓冲区，等待下次读取更多数据
+                    *buf = original_buf;
                     return Ok(None);
                 }
             }
@@ -237,40 +237,39 @@ impl RespParser {
 
     // ---------- 编码内部方法 ----------
 
-    fn encode_to_string(&self, value: &RespValue, out: &mut String) {
+    fn encode_to_vec(&self, value: &RespValue, out: &mut Vec<u8>) {
         match value {
             RespValue::SimpleString(s) => {
-                out.push('+');
-                out.push_str(s);
-                out.push_str("\r\n");
+                out.push(b'+');
+                out.extend_from_slice(s.as_bytes());
+                out.extend_from_slice(b"\r\n");
             }
             RespValue::Error(e) => {
-                out.push('-');
-                out.push_str(e);
-                out.push_str("\r\n");
+                out.push(b'-');
+                out.extend_from_slice(e.as_bytes());
+                out.extend_from_slice(b"\r\n");
             }
             RespValue::Integer(i) => {
-                out.push(':');
-                out.push_str(&i.to_string());
-                out.push_str("\r\n");
+                out.push(b':');
+                out.extend_from_slice(i.to_string().as_bytes());
+                out.extend_from_slice(b"\r\n");
             }
             RespValue::BulkString(None) => {
-                out.push_str("$-1\r\n");
+                out.extend_from_slice(b"$-1\r\n");
             }
             RespValue::BulkString(Some(data)) => {
-                out.push('$');
-                out.push_str(&data.len().to_string());
-                out.push_str("\r\n");
-                // 将字节数据作为原始字节追加
-                out.push_str(&String::from_utf8_lossy(data));
-                out.push_str("\r\n");
+                out.push(b'$');
+                out.extend_from_slice(data.len().to_string().as_bytes());
+                out.extend_from_slice(b"\r\n");
+                out.extend_from_slice(data);
+                out.extend_from_slice(b"\r\n");
             }
             RespValue::Array(arr) => {
-                out.push('*');
-                out.push_str(&arr.len().to_string());
-                out.push_str("\r\n");
+                out.push(b'*');
+                out.extend_from_slice(arr.len().to_string().as_bytes());
+                out.extend_from_slice(b"\r\n");
                 for item in arr {
-                    self.encode_to_string(item, out);
+                    self.encode_to_vec(item, out);
                 }
             }
         }

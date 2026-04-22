@@ -194,9 +194,19 @@ impl ClusterState {
             return false;
         }
         let mut assignment = self.slot_assignment.write().unwrap();
+        let old_id = assignment[slot].clone();
         assignment[slot] = Some(node_id.to_string());
-        
+        drop(assignment); // 释放锁，避免死锁
+
         let mut nodes = self.nodes.write().unwrap();
+        // 从旧节点移除 slot
+        if let Some(ref old) = old_id {
+            if old != node_id {
+                if let Some(node) = nodes.get_mut(old) {
+                    node.del_slot(slot);
+                }
+            }
+        }
         if let Some(node) = nodes.get_mut(node_id) {
             node.add_slot(slot);
         }
@@ -327,6 +337,245 @@ impl ClusterState {
         }
     }
 
+    /// 设置当前 epoch（当收到更高 epoch 时更新）
+    pub fn set_current_epoch(&self, epoch: u64) {
+        let mut current = self.current_epoch.write().unwrap();
+        if epoch > *current {
+            *current = epoch;
+        }
+    }
+
+    /// 设置本节点 ID（加载 nodes.conf 时使用）
+    pub fn set_myself_id(&self, new_id: String) {
+        let mut myself_id = self.myself_id.write().unwrap();
+        let old_id = myself_id.clone();
+        if old_id == new_id {
+            return;
+        }
+        *myself_id = new_id.clone();
+        drop(myself_id);
+
+        let mut nodes = self.nodes.write().unwrap();
+        if let Some(mut old_node) = nodes.remove(&old_id) {
+            old_node.id = new_id.clone();
+            nodes.insert(new_id.clone(), old_node);
+        }
+        drop(nodes);
+
+        // 更新 slot 分配表中的旧 ID
+        let mut assignment = self.slot_assignment.write().unwrap();
+        for slot_opt in assignment.iter_mut() {
+            if let Some(id) = slot_opt {
+                if id == &old_id {
+                    *slot_opt = Some(new_id.clone());
+                }
+            }
+        }
+    }
+
+    /// 将从节点提升为 master（故障转移时使用）
+    pub fn promote_replica_to_master(&self, failed_master_id: &str) -> bool {
+        let my_id = self.myself_id();
+        let myself = self.myself();
+
+        let myself = match myself {
+            Some(n) => n,
+            None => return false,
+        };
+
+        // 检查本节点是否是指定 master 的从节点
+        if myself.master_id.as_ref() != Some(&failed_master_id.to_string()) {
+            return false;
+        }
+
+        let mut nodes = self.nodes.write().unwrap();
+
+        // 获取故障 master 的 slot 分配
+        let master_slots = if let Some(master) = nodes.get(failed_master_id) {
+            master.slots.clone()
+        } else {
+            return false;
+        };
+
+        let new_epoch = self.incr_epoch();
+
+        // 更新本节点为 master
+        if let Some(node) = nodes.get_mut(&my_id) {
+            node.master_id = None;
+            node.flags.retain(|f| *f != NodeFlag::Slave);
+            if !node.flags.contains(&NodeFlag::Master) {
+                node.flags.push(NodeFlag::Master);
+            }
+            node.slots = master_slots.clone();
+            node.config_epoch = new_epoch;
+        }
+        drop(nodes);
+
+        // 更新 slot 分配表
+        let mut assignment = self.slot_assignment.write().unwrap();
+        for slot in 0..CLUSTER_SLOTS {
+            if master_slots[slot] {
+                assignment[slot] = Some(my_id.clone());
+            }
+        }
+
+        true
+    }
+
+    /// 保存集群拓扑到 nodes.conf 文件
+    pub fn save_nodes_conf(&self, path: &str) -> std::io::Result<()> {
+        let nodes = self.nodes.read().unwrap();
+        let mut lines = Vec::new();
+
+        for node in nodes.values() {
+            let mut parts = Vec::new();
+            parts.push(node.id.clone());
+            parts.push(format!("{}:{}@{}", node.ip, node.port, node.bus_port));
+            parts.push(node.flags_string());
+            parts.push(node.master_id.clone().unwrap_or_else(|| "-".to_string()));
+            parts.push(node.ping_sent.to_string());
+            parts.push(node.pong_recv.to_string());
+            parts.push(node.config_epoch.to_string());
+
+            // 压缩 slot 为范围表示
+            let slots = node.get_slots();
+            if !slots.is_empty() {
+                let mut ranges = Vec::new();
+                let mut i = 0;
+                while i < slots.len() {
+                    let start = slots[i];
+                    let mut end = start;
+                    while i + 1 < slots.len() && slots[i + 1] == end + 1 {
+                        end += 1;
+                        i += 1;
+                    }
+                    if start == end {
+                        ranges.push(start.to_string());
+                    } else {
+                        ranges.push(format!("{}-{}", start, end));
+                    }
+                    i += 1;
+                }
+                parts.push(ranges.join(" "));
+            }
+
+            lines.push(parts.join(" "));
+        }
+
+        let content = lines.join("\n") + "\n";
+        std::fs::write(path, content)
+    }
+
+    /// 更新节点拓扑信息（从总线 UPDATE 消息使用）
+    pub fn update_node_topology(&self, node_id: &str, flags: Vec<NodeFlag>, master_id: Option<String>, epoch: u64, slots: Vec<usize>) {
+        let mut nodes = self.nodes.write().unwrap();
+        if let Some(node) = nodes.get_mut(node_id) {
+            node.flags = flags;
+            node.master_id = master_id;
+            node.config_epoch = epoch;
+            node.slots = vec![false; CLUSTER_SLOTS];
+            for slot in slots {
+                if slot < CLUSTER_SLOTS {
+                    node.add_slot(slot);
+                }
+            }
+        }
+    }
+
+    /// 从 nodes.conf 文件加载集群拓扑
+    pub fn load_nodes_conf(&self, path: &str) -> std::io::Result<()> {
+        let content = std::fs::read_to_string(path)?;
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() < 7 {
+                continue; // 至少需要 id addr flags master_id ping pong epoch
+            }
+
+            let node_id = parts[0].to_string();
+            let addr = parts[1];
+            let flags_str = parts[2];
+            let master_id_str = parts[3];
+            let ping_sent: u64 = parts[4].parse().unwrap_or(0);
+            let pong_recv: u64 = parts[5].parse().unwrap_or(0);
+            let config_epoch: u64 = parts[6].parse().unwrap_or(0);
+
+            // 解析地址 ip:port@bus_port
+            let (ip, port, bus_port) = parse_node_addr(addr);
+
+            let flags = parse_node_flags(flags_str);
+            let is_myself = flags.contains(&NodeFlag::Myself);
+
+            let master_id = if master_id_str == "-" {
+                None
+            } else {
+                Some(master_id_str.to_string())
+            };
+
+            if is_myself {
+                self.set_myself_id(node_id.clone());
+                let mut nodes = self.nodes.write().unwrap();
+                if let Some(node) = nodes.get_mut(&node_id) {
+                    node.ip = ip;
+                    node.port = port;
+                    node.bus_port = bus_port;
+                    node.ping_sent = ping_sent;
+                    node.pong_recv = pong_recv;
+                    node.config_epoch = config_epoch;
+                    node.master_id = master_id.clone();
+                    node.flags = flags;
+
+                    // 加载 slot
+                    node.slots = vec![false; CLUSTER_SLOTS];
+                    for i in 7..parts.len() {
+                        parse_slot_range(parts[i], |slot| {
+                            if slot < CLUSTER_SLOTS {
+                                node.add_slot(slot);
+                            }
+                        });
+                    }
+                }
+                drop(nodes);
+            } else {
+                let mut node = ClusterNode::new(node_id.clone(), ip, port);
+                node.bus_port = bus_port;
+                node.flags = flags;
+                node.master_id = master_id.clone();
+                node.ping_sent = ping_sent;
+                node.pong_recv = pong_recv;
+                node.config_epoch = config_epoch;
+
+                for i in 7..parts.len() {
+                    parse_slot_range(parts[i], |slot| {
+                        if slot < CLUSTER_SLOTS {
+                            node.add_slot(slot);
+                        }
+                    });
+                }
+
+                self.add_node(node);
+            }
+
+            // 更新 slot 分配表
+            if is_myself || master_id.is_none() {
+                let node = self.get_node(&node_id);
+                if let Some(ref n) = node {
+                    for slot in n.get_slots() {
+                        let mut assignment = self.slot_assignment.write().unwrap();
+                        assignment[slot] = Some(node_id.clone());
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// 根据 ClusterMessage 更新本地节点信息
     pub fn update_from_message(&self, msg: &super::protocol::ClusterMessage, peer_ip: &str) {
         let node_id = msg.sender_id.clone();
@@ -430,6 +679,64 @@ impl ClusterState {
 impl Default for ClusterState {
     fn default() -> Self {
         Self::new("127.0.0.1".to_string(), 6379)
+    }
+}
+
+/// 解析节点地址 ip:port@bus_port
+pub(crate) fn parse_node_addr(addr: &str) -> (String, u16, u16) {
+    let mut ip = "127.0.0.1".to_string();
+    let mut port = 6379u16;
+    let mut bus_port = 16379u16;
+
+    if let Some(at_pos) = addr.find('@') {
+        let main = &addr[..at_pos];
+        let bus = &addr[at_pos + 1..];
+        bus_port = bus.parse().unwrap_or(port + 10000);
+        if let Some(colon_pos) = main.find(':') {
+            ip = main[..colon_pos].to_string();
+            port = main[colon_pos + 1..].parse().unwrap_or(6379);
+        }
+    } else if let Some(colon_pos) = addr.find(':') {
+        ip = addr[..colon_pos].to_string();
+        port = addr[colon_pos + 1..].parse().unwrap_or(6379);
+        bus_port = port + 10000;
+    }
+
+    (ip, port, bus_port)
+}
+
+/// 解析节点标志字符串
+pub(crate) fn parse_node_flags(flags_str: &str) -> Vec<NodeFlag> {
+    let mut flags = Vec::new();
+    for f in flags_str.split(',') {
+        match f.trim() {
+            "master" => flags.push(NodeFlag::Master),
+            "slave" => flags.push(NodeFlag::Slave),
+            "myself" => flags.push(NodeFlag::Myself),
+            "fail" => flags.push(NodeFlag::Fail),
+            "fail?" => flags.push(NodeFlag::PFail),
+            "handshake" => flags.push(NodeFlag::Handshake),
+            "noaddr" => flags.push(NodeFlag::NoAddr),
+            _ => {}
+        }
+    }
+    flags
+}
+
+/// 解析 slot 范围字符串并执行回调
+pub(crate) fn parse_slot_range<F>(s: &str, mut callback: F)
+where
+    F: FnMut(usize),
+{
+    if let Some(dash_pos) = s.find('-') {
+        let start: usize = s[..dash_pos].parse().unwrap_or(0);
+        let end: usize = s[dash_pos + 1..].parse().unwrap_or(0);
+        for slot in start..=end {
+            callback(slot);
+        }
+    } else {
+        let slot: usize = s.parse().unwrap_or(0);
+        callback(slot);
     }
 }
 
@@ -537,5 +844,86 @@ mod tests {
         
         node.del_slot(0);
         assert_eq!(node.slot_count(), 1);
+    }
+
+    #[test]
+    fn test_save_and_load_nodes_conf() {
+        let path = "/tmp/redis_rust_test_nodes.conf";
+        let _ = std::fs::remove_file(path);
+
+        // 创建集群状态并分配 slot
+        let state = ClusterState::new("127.0.0.1".to_string(), 6379);
+        let my_id = state.myself_id();
+        state.assign_slot(0, &my_id);
+        state.assign_slot(1, &my_id);
+        state.assign_slot(100, &my_id);
+
+        // 添加另一个节点
+        let other_id = "b".repeat(40);
+        let other_node = ClusterNode::new(other_id.clone(), "192.168.1.2".to_string(), 6380);
+        state.add_node(other_node);
+        state.assign_slot(50, &other_id);
+
+        // 保存到文件
+        assert!(state.save_nodes_conf(path).is_ok());
+
+        // 新实例加载
+        let state2 = ClusterState::new("127.0.0.1".to_string(), 6379);
+        assert!(state2.load_nodes_conf(path).is_ok());
+
+        // 验证 myself ID 被恢复
+        assert_eq!(state2.myself_id(), my_id);
+
+        // 验证 slot 分配
+        assert_eq!(state2.get_slot_node(0), Some(my_id.clone()));
+        assert_eq!(state2.get_slot_node(1), Some(my_id.clone()));
+        assert_eq!(state2.get_slot_node(100), Some(my_id.clone()));
+        assert_eq!(state2.get_slot_node(50), Some(other_id.clone()));
+        assert_eq!(state2.get_slot_node(99), None);
+
+        // 验证其他节点信息
+        let other = state2.get_node(&other_id).unwrap();
+        assert_eq!(other.ip, "192.168.1.2");
+        assert_eq!(other.port, 6380);
+        assert_eq!(other.bus_port, 16380);
+
+        let myself = state2.myself().unwrap();
+        assert!(myself.flags.contains(&NodeFlag::Myself));
+        assert!(myself.flags.contains(&NodeFlag::Master));
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_parse_node_addr() {
+        let (ip, port, bus_port) = parse_node_addr("192.168.1.1:6379@16379");
+        assert_eq!(ip, "192.168.1.1");
+        assert_eq!(port, 6379);
+        assert_eq!(bus_port, 16379);
+
+        let (ip2, port2, bus_port2) = parse_node_addr("127.0.0.1:6380");
+        assert_eq!(ip2, "127.0.0.1");
+        assert_eq!(port2, 6380);
+        assert_eq!(bus_port2, 16380);
+    }
+
+    #[test]
+    fn test_parse_node_flags() {
+        let flags = parse_node_flags("master,myself,fail");
+        assert!(flags.contains(&NodeFlag::Master));
+        assert!(flags.contains(&NodeFlag::Myself));
+        assert!(flags.contains(&NodeFlag::Fail));
+        assert!(!flags.contains(&NodeFlag::Slave));
+    }
+
+    #[test]
+    fn test_parse_slot_range() {
+        let mut slots = Vec::new();
+        parse_slot_range("5", |s| slots.push(s));
+        assert_eq!(slots, vec![5]);
+
+        let mut slots2 = Vec::new();
+        parse_slot_range("3-6", |s| slots2.push(s));
+        assert_eq!(slots2, vec![3, 4, 5, 6]);
     }
 }

@@ -668,6 +668,49 @@ impl StorageEngine {
         self.touch(key);
         Ok(())
     }
+
+    /// 统计指定 slot 中的 key 数量（用于 CLUSTER COUNTKEYSINSLOT）
+    pub fn count_keys_in_slot(&self, slot: usize) -> Result<usize> {
+        let db = self.db();
+        let mut count = 0usize;
+        for shard in db.inner.all_shards() {
+            let map = shard.read().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            for key in map.keys() {
+                if let Some(value) = map.get(key) {
+                    if !Self::is_expired(value) {
+                        let key_slot = crate::cluster::ClusterState::key_slot(key);
+                        if key_slot == slot {
+                            count += 1;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(count)
+    }
+
+    /// 获取指定 slot 中的前 count 个 key（用于 CLUSTER GETKEYSINSLOT）
+    pub fn get_keys_in_slot(&self, slot: usize, count: usize) -> Result<Vec<String>> {
+        let db = self.db();
+        let mut result = Vec::new();
+        for shard in db.inner.all_shards() {
+            let map = shard.read().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            for key in map.keys() {
+                if let Some(value) = map.get(key) {
+                    if !Self::is_expired(value) {
+                        let key_slot = crate::cluster::ClusterState::key_slot(key);
+                        if key_slot == slot {
+                            result.push(key.clone());
+                            if result.len() >= count {
+                                return Ok(result);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(result)
+    }
 }
 
 fn write_u32(buf: &mut Vec<u8>, v: u32) {

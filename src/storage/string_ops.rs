@@ -315,6 +315,7 @@ impl StorageEngine {
     }
 
     /// 删除指定键，返回该键是否存在（未过期的才算存在）
+    /// 支持删除任意类型的键（String、List、Hash、Set、ZSet、HyperLogLog、Stream）
     pub fn del(&self, key: &str) -> Result<bool> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -324,27 +325,32 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        match map.get(key) {
-            Some(value) => {
-                if Self::is_expired(value) {
-                    map.remove(key);
-                    Ok(false)
-                } else {
-                    match value {
-                        StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::Set(_) | StorageValue::ZSet(_) | StorageValue::HyperLogLog(_) | StorageValue::Stream(_) => Err(AppError::Storage(
-                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                        )),
-                        _ => {
-                            map.remove(key);
-                            self.bump_version(key);
-                            self.touch(key);
-                            Ok(true)
-                        }
-                    }
-                }
-            }
-            None => Ok(false),
+        // 先检查键是否存在且未过期
+        let exists_and_not_expired = match map.get(key) {
+            Some(value) => !Self::is_expired(value),
+            None => false,
+        };
+
+        if !exists_and_not_expired {
+            // 若已过期则一并清理
+            map.remove(key);
+            return Ok(false);
         }
+
+        // 删除键并更新版本号
+        map.remove(key);
+        self.bump_version(key);
+
+        // 清理 Hash 字段级过期记录
+        let mut hash_exp = db.hash_field_expirations.write().unwrap();
+        hash_exp.remove(key);
+        drop(hash_exp);
+
+        // 清理阻塞等待者
+        let mut waiters = db.blocking_waiters.write().unwrap();
+        waiters.remove(key);
+
+        Ok(true)
     }
 
     /// 检查键是否存在（过期的不算）

@@ -1,6 +1,7 @@
 // 程序入口，启动 Redis-like 缓存服务器
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use log::info;
 
@@ -116,7 +117,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 创建 Cluster 状态（仅在 Cluster 模式下）
     let cluster = if cluster_enabled {
-        Some(Arc::new(redis_rust::cluster::ClusterState::new("127.0.0.1".to_string(), port)))
+        let c = Arc::new(redis_rust::cluster::ClusterState::new("127.0.0.1".to_string(), port));
+        // 尝试加载已有拓扑
+        if let Err(e) = c.load_nodes_conf("nodes.conf") {
+            log::debug!("nodes.conf 加载失败或不存在: {}", e);
+        } else {
+            log::info!("从 nodes.conf 恢复集群拓扑");
+        }
+        // 启动时立即保存一次，确保文件存在
+        if let Err(e) = c.save_nodes_conf("nodes.conf") {
+            log::warn!("初始 nodes.conf 保存失败: {}", e);
+        }
+        Some(c)
     } else {
         None
     };
@@ -173,6 +185,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if cluster_enabled {
         if let Some(ref c) = cluster {
             redis_rust::cluster::failover::start_failure_detector(c.clone());
+        }
+    }
+
+    // Cluster 模式下定期保存拓扑（每 10 秒）
+    if cluster_enabled {
+        if let Some(ref c) = cluster {
+            let cluster_save = c.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(10));
+                loop {
+                    interval.tick().await;
+                    if let Err(e) = cluster_save.save_nodes_conf("nodes.conf") {
+                        log::warn!("nodes.conf 保存失败: {}", e);
+                    }
+                }
+            });
         }
     }
 

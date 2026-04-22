@@ -1823,7 +1823,8 @@ async fn test_aof_rdb_preamble_integration() {
 
     let storage = StorageEngine::new();
     let aof = Arc::new(Mutex::new(AofWriter::new(path).unwrap()));
-    let server = Server::new("127.0.0.1:0", storage.clone(), Some(aof.clone()), PubSubManager::new(), None);
+    let server = Server::new("127.0.0.1:0", storage.clone(), Some(aof.clone()), PubSubManager::new(), None)
+        .with_rdb_path(path);
     let (addr, handle) = server.start().await.unwrap();
 
     let mut stream = TcpStream::connect(addr).await.unwrap();
@@ -3063,4 +3064,234 @@ async fn test_replication_basic() {
     } else {
         panic!("master INFO replication 应返回 BulkString");
     }
+}
+
+// ---------- Cluster 命令测试 ----------
+
+#[tokio::test]
+async fn test_cluster_slots() {
+    use redis_rust::cluster::ClusterState;
+    use std::sync::Arc;
+
+    let storage = StorageEngine::new();
+    let cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
+    let my_id = cluster.myself_id();
+
+    // 分配连续 slot 0-100 给本节点
+    for slot in 0..=100 {
+        cluster.assign_slot(slot, &my_id);
+    }
+    // 分配连续 slot 200-250 给本节点
+    for slot in 200..=250 {
+        cluster.assign_slot(slot, &my_id);
+    }
+
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_cluster(cluster);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["CLUSTER", "SLOTS"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            // 应该返回两个范围：[0, 100] 和 [200, 250]
+            assert_eq!(arr.len(), 2, "CLUSTER SLOTS 应返回两个范围");
+
+            // 第一个范围
+            match &arr[0] {
+                RespValue::Array(range) => {
+                    assert_eq!(range[0], RespValue::Integer(0));
+                    assert_eq!(range[1], RespValue::Integer(100));
+                    match &range[2] {
+                        RespValue::Array(node_info) => {
+                            assert_eq!(node_info.len(), 3); // ip, port, node_id
+                        }
+                        _ => panic!("CLUSTER SLOTS 第三个元素应为节点信息数组"),
+                    }
+                }
+                _ => panic!("CLUSTER SLOTS 每个范围应为数组"),
+            }
+
+            // 第二个范围
+            match &arr[1] {
+                RespValue::Array(range) => {
+                    assert_eq!(range[0], RespValue::Integer(200));
+                    assert_eq!(range[1], RespValue::Integer(250));
+                }
+                _ => panic!("CLUSTER SLOTS 每个范围应为数组"),
+            }
+        }
+        _ => panic!("CLUSTER SLOTS 应返回数组, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_cluster_countkeysinslot_and_getkeysinslot() {
+    use redis_rust::cluster::ClusterState;
+    use std::sync::Arc;
+
+    let storage = StorageEngine::new();
+    let cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
+
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_cluster(cluster);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // 设置几个 key
+    exec(&mut stream, &["SET", "key1", "val1"]).await;
+    exec(&mut stream, &["SET", "key2", "val2"]).await;
+    exec(&mut stream, &["SET", "key3", "val3"]).await;
+
+    // 获取 key1 的 slot
+    let resp = exec(&mut stream, &["CLUSTER", "KEYSLOT", "key1"]).await;
+    let slot1 = match resp {
+        RespValue::Integer(n) => n as usize,
+        _ => panic!("CLUSTER KEYSLOT 应返回 Integer"),
+    };
+
+    // COUNTKEYSINSLOT
+    let resp = exec(&mut stream, &["CLUSTER", "COUNTKEYSINSLOT", &slot1.to_string()]).await;
+    match resp {
+        RespValue::Integer(n) => {
+            // key1 肯定在这个 slot 里，结果至少为 1
+            assert!(n >= 1, "COUNTKEYSINSLOT 应 >= 1, 得到 {}", n);
+        }
+        _ => panic!("COUNTKEYSINSLOT 应返回 Integer, 得到 {:?}", resp),
+    }
+
+    // GETKEYSINSLOT
+    let resp = exec(&mut stream, &["CLUSTER", "GETKEYSINSLOT", &slot1.to_string(), "10"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            // 结果中应包含 key1
+            let has_key1 = arr.iter().any(|item| {
+                matches!(item, RespValue::BulkString(Some(b)) if &b[..] == b"key1")
+            });
+            assert!(has_key1, "GETKEYSINSLOT 结果应包含 key1");
+        }
+        _ => panic!("GETKEYSINSLOT 应返回数组, 得到 {:?}", resp),
+    }
+
+    // 对一个没有 key 的 slot 测试 COUNTKEYSINSLOT
+    let resp = exec(&mut stream, &["CLUSTER", "COUNTKEYSINSLOT", "16383"]).await;
+    match resp {
+        RespValue::Integer(n) => assert_eq!(n, 0),
+        _ => panic!("COUNTKEYSINSLOT 空 slot 应返回 0"),
+    }
+}
+
+#[tokio::test]
+async fn test_migrate_to_target() {
+    use redis_rust::cluster::ClusterState;
+    use std::sync::Arc;
+
+    // 启动源服务器（带 cluster 模式，否则 MIGRATE 命令走不到连接层处理）
+    let source_storage = StorageEngine::new();
+    let source_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
+    let source_server = Server::new("127.0.0.1:0", source_storage.clone(), None, PubSubManager::new(), None)
+        .with_cluster(source_cluster);
+    let (source_addr, _source_handle) = source_server.start().await.unwrap();
+    let _source_port = source_addr.port();
+
+    // 启动目标服务器
+    let target_storage = StorageEngine::new();
+    let target_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
+    let target_server = Server::new("127.0.0.1:0", target_storage.clone(), None, PubSubManager::new(), None)
+        .with_cluster(target_cluster);
+    let (target_addr, _target_handle) = target_server.start().await.unwrap();
+    let target_port = target_addr.port();
+
+    let mut source_stream = TcpStream::connect(source_addr).await.unwrap();
+
+    // 在源节点写入 key
+    let resp = exec(&mut source_stream, &["SET", "mig_key", "mig_val"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // MIGRATE 到目标节点
+    let resp = exec(
+        &mut source_stream,
+        &[
+            "MIGRATE",
+            "127.0.0.1",
+            &target_port.to_string(),
+            "mig_key",
+            "0",
+            "5000",
+            "REPLACE",
+        ],
+    )
+    .await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // 源节点上 key 应已被删除
+    let resp = exec(&mut source_stream, &["GET", "mig_key"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+
+    // 目标节点上应能读到 key
+    let mut target_stream = TcpStream::connect(target_addr).await.unwrap();
+    let resp = exec(&mut target_stream, &["GET", "mig_key"]).await;
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("mig_val")))
+    );
+}
+
+#[tokio::test]
+async fn test_migrate_copy_mode() {
+    use redis_rust::cluster::ClusterState;
+    use std::sync::Arc;
+
+    // 启动源服务器
+    let source_storage = StorageEngine::new();
+    let source_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
+    let source_server = Server::new("127.0.0.1:0", source_storage.clone(), None, PubSubManager::new(), None)
+        .with_cluster(source_cluster);
+    let (source_addr, _source_handle) = source_server.start().await.unwrap();
+
+    // 启动目标服务器
+    let target_storage = StorageEngine::new();
+    let target_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
+    let target_server = Server::new("127.0.0.1:0", target_storage.clone(), None, PubSubManager::new(), None)
+        .with_cluster(target_cluster);
+    let (target_addr, _target_handle) = target_server.start().await.unwrap();
+    let target_port = target_addr.port();
+
+    let mut source_stream = TcpStream::connect(source_addr).await.unwrap();
+
+    // 在源节点写入 key
+    let resp = exec(&mut source_stream, &["SET", "copy_key", "copy_val"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // COPY 模式 MIGRATE
+    let resp = exec(
+        &mut source_stream,
+        &[
+            "MIGRATE",
+            "127.0.0.1",
+            &target_port.to_string(),
+            "copy_key",
+            "0",
+            "5000",
+            "COPY",
+            "REPLACE",
+        ],
+    )
+    .await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // 源节点上 key 应仍然存在
+    let resp = exec(&mut source_stream, &["GET", "copy_key"]).await;
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("copy_val")))
+    );
+
+    // 目标节点上也应能读到 key
+    let mut target_stream = TcpStream::connect(target_addr).await.unwrap();
+    let resp = exec(&mut target_stream, &["GET", "copy_key"]).await;
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("copy_val")))
+    );
 }

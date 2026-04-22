@@ -80,6 +80,240 @@ fn format_cluster_nodes(cluster: &crate::cluster::ClusterState) -> String {
     result
 }
 
+/// 构建 CLUSTER SLOTS 的 RESP 输出
+fn build_cluster_slots(cluster: &crate::cluster::ClusterState) -> Vec<RespValue> {
+    let mut result = Vec::new();
+    let mut start = None;
+    let mut current_node_id: Option<String> = None;
+
+    for slot in 0..crate::cluster::state::CLUSTER_SLOTS {
+        let node_id = cluster.get_slot_node(slot);
+        match (current_node_id.as_ref(), node_id.as_ref()) {
+            (Some(cur), Some(new_id)) if cur == new_id => {}
+            _ => {
+                // 结束当前范围
+                if let (Some(s), Some(ref node_id)) = (start, current_node_id) {
+                    let end = slot.saturating_sub(1);
+                    if let Some(node) = cluster.get_node(&node_id) {
+                        let mut range_arr = vec![
+                            RespValue::Integer(s as i64),
+                            RespValue::Integer(end as i64),
+                            RespValue::Array(vec![
+                                RespValue::BulkString(Some(Bytes::from(node.ip.clone()))),
+                                RespValue::Integer(node.port as i64),
+                                RespValue::BulkString(Some(Bytes::from(node.id.clone()))),
+                            ]),
+                        ];
+                        // 添加副本节点
+                        for replica in cluster.get_nodes() {
+                            if replica.master_id.as_ref() == Some(node_id) {
+                                range_arr.push(RespValue::Array(vec![
+                                    RespValue::BulkString(Some(Bytes::from(replica.ip.clone()))),
+                                    RespValue::Integer(replica.port as i64),
+                                    RespValue::BulkString(Some(Bytes::from(replica.id.clone()))),
+                                ]));
+                            }
+                        }
+                        result.push(RespValue::Array(range_arr));
+                    }
+                }
+                start = node_id.as_ref().map(|_| slot);
+                current_node_id = node_id;
+            }
+        }
+    }
+
+    // 处理最后一个范围
+    if let (Some(s), Some(ref node_id)) = (start, current_node_id) {
+        let end = crate::cluster::state::CLUSTER_SLOTS.saturating_sub(1);
+        if let Some(node) = cluster.get_node(&node_id) {
+            let mut range_arr = vec![
+                RespValue::Integer(s as i64),
+                RespValue::Integer(end as i64),
+                RespValue::Array(vec![
+                    RespValue::BulkString(Some(Bytes::from(node.ip.clone()))),
+                    RespValue::Integer(node.port as i64),
+                    RespValue::BulkString(Some(Bytes::from(node.id.clone()))),
+                ]),
+            ];
+            for replica in cluster.get_nodes() {
+                if replica.master_id.as_ref() == Some(&node_id) {
+                    range_arr.push(RespValue::Array(vec![
+                        RespValue::BulkString(Some(Bytes::from(replica.ip.clone()))),
+                        RespValue::Integer(replica.port as i64),
+                        RespValue::BulkString(Some(Bytes::from(replica.id.clone()))),
+                    ]));
+                }
+            }
+            result.push(RespValue::Array(range_arr));
+        }
+    }
+
+    result
+}
+
+/// 构建 CLUSTER SHARDS 的 RESP 输出（Redis 7 新格式）
+fn build_cluster_shards(cluster: &crate::cluster::ClusterState) -> Vec<RespValue> {
+    let mut shards = Vec::new();
+    let mut processed_masters = std::collections::HashSet::new();
+
+    for node in cluster.get_nodes() {
+        if !node.flags.contains(&crate::cluster::state::NodeFlag::Master) {
+            continue;
+        }
+        if !processed_masters.insert(node.id.clone()) {
+            continue;
+        }
+
+        let slots = node.get_slots();
+        if slots.is_empty() {
+            continue;
+        }
+
+        // 将 slot 分组为连续范围
+        let mut slot_ranges = Vec::new();
+        let mut s = slots[0];
+        let mut e = slots[0];
+        for &slot in &slots[1..] {
+            if slot == e + 1 {
+                e = slot;
+            } else {
+                slot_ranges.push(RespValue::Integer(s as i64));
+                slot_ranges.push(RespValue::Integer(e as i64));
+                s = slot;
+                e = slot;
+            }
+        }
+        slot_ranges.push(RespValue::Integer(s as i64));
+        slot_ranges.push(RespValue::Integer(e as i64));
+
+        // 构建节点数组
+        let mut nodes_arr = Vec::new();
+
+        // 主节点
+        let mut master_info = Vec::new();
+        master_info.push(RespValue::BulkString(Some(Bytes::from("id"))));
+        master_info.push(RespValue::BulkString(Some(Bytes::from(node.id.clone()))));
+        master_info.push(RespValue::BulkString(Some(Bytes::from("endpoint"))));
+        master_info.push(RespValue::BulkString(Some(Bytes::from(node.ip.clone()))));
+        master_info.push(RespValue::BulkString(Some(Bytes::from("ip"))));
+        master_info.push(RespValue::BulkString(Some(Bytes::from(node.ip.clone()))));
+        master_info.push(RespValue::BulkString(Some(Bytes::from("port"))));
+        master_info.push(RespValue::Integer(node.port as i64));
+        master_info.push(RespValue::BulkString(Some(Bytes::from("role"))));
+        master_info.push(RespValue::BulkString(Some(Bytes::from("master"))));
+        nodes_arr.push(RespValue::Array(master_info));
+
+        // 副本节点
+        for replica in cluster.get_nodes() {
+            if replica.master_id.as_ref() == Some(&node.id) {
+                let mut replica_info = Vec::new();
+                replica_info.push(RespValue::BulkString(Some(Bytes::from("id"))));
+                replica_info.push(RespValue::BulkString(Some(Bytes::from(replica.id.clone()))));
+                replica_info.push(RespValue::BulkString(Some(Bytes::from("endpoint"))));
+                replica_info.push(RespValue::BulkString(Some(Bytes::from(replica.ip.clone()))));
+                replica_info.push(RespValue::BulkString(Some(Bytes::from("ip"))));
+                replica_info.push(RespValue::BulkString(Some(Bytes::from(replica.ip.clone()))));
+                replica_info.push(RespValue::BulkString(Some(Bytes::from("port"))));
+                replica_info.push(RespValue::Integer(replica.port as i64));
+                replica_info.push(RespValue::BulkString(Some(Bytes::from("role"))));
+                replica_info.push(RespValue::BulkString(Some(Bytes::from("slave"))));
+                nodes_arr.push(RespValue::Array(replica_info));
+            }
+        }
+
+        let shard = RespValue::Array(vec![
+            RespValue::BulkString(Some(Bytes::from("slots"))),
+            RespValue::Array(slot_ranges),
+            RespValue::BulkString(Some(Bytes::from("nodes"))),
+            RespValue::Array(nodes_arr),
+        ]);
+        shards.push(shard);
+    }
+
+    shards
+}
+
+/// 向目标节点发送 RESTORE 命令，返回成功迁移的 key 列表
+/// 向目标节点发送 RESTORE 命令，将本地 key 迁移到目标节点
+/// 返回成功迁移的 key 列表
+async fn migrate_keys_to_target(
+    host: &str,
+    port: u16,
+    keys: &[String],
+    _copy: bool,
+    replace: bool,
+    storage: &StorageEngine,
+    timeout_ms: u64,
+) -> std::result::Result<Vec<String>, String> {
+    let addr = format!("{}:{}", host, port);
+    let timeout = Duration::from_millis(timeout_ms.max(1000));
+    let mut target_stream = tokio::time::timeout(timeout, TcpStream::connect(&addr))
+        .await
+        .map_err(|_| "IOERR error or timeout connecting to the client".to_string())?
+        .map_err(|e| format!("IOERR {}", e))?;
+
+    let parser = RespParser::new();
+    let mut buf = BytesMut::with_capacity(4096);
+    let mut migrated = Vec::new();
+
+    for key in keys {
+        let data = match storage.dump(key) {
+            Ok(Some(d)) => d,
+            Ok(None) => continue,
+            Err(e) => return Err(format!("ERR {}", e)),
+        };
+        let ttl = storage.pttl(key).unwrap_or(-1);
+        let ttl_ms = if ttl < 0 { 0u64 } else { ttl as u64 };
+
+        // 构建 RESTORE 命令
+        let mut cmd_parts = vec![
+            RespValue::BulkString(Some(Bytes::from("RESTORE"))),
+            RespValue::BulkString(Some(Bytes::from(key.clone()))),
+            RespValue::BulkString(Some(Bytes::from(ttl_ms.to_string()))),
+            RespValue::BulkString(Some(Bytes::from(data))),
+        ];
+        if replace {
+            cmd_parts.push(RespValue::BulkString(Some(Bytes::from("REPLACE"))));
+        }
+        let restore_cmd = RespValue::Array(cmd_parts);
+        let encoded = parser.encode(&restore_cmd);
+
+        target_stream.write_all(&encoded).await
+            .map_err(|e| format!("IOERR {}", e))?;
+
+        // 读取响应
+        let resp = loop {
+            match parser.parse(&mut buf) {
+                Ok(Some(r)) => break r,
+                Ok(None) => {
+                    let n = tokio::time::timeout(timeout, target_stream.read_buf(&mut buf)).await
+                        .map_err(|_| "IOERR timeout reading from target".to_string())?
+                        .map_err(|e| format!("IOERR {}", e))?;
+                    if n == 0 {
+                        return Err("IOERR target closed connection".to_string());
+                    }
+                }
+                Err(e) => return Err(format!("ERR protocol error: {}", e)),
+            }
+        };
+
+        match resp {
+            RespValue::SimpleString(ref s) if s == "OK" => {
+                migrated.push(key.clone());
+            }
+            RespValue::Error(ref e) => {
+                return Err(format!("ERR Target node returned error: {}", e));
+            }
+            _ => {
+                return Err("ERR Unexpected response from target node".to_string());
+            }
+        }
+    }
+
+    Ok(migrated)
+}
+
 /// 将 SentinelInstance 格式化为 Redis 7 兼容的 key-value 数组
 fn sentinel_instance_to_resp(inst: &crate::sentinel::SentinelInstance) -> RespValue {
     RespValue::Array(vec![
@@ -569,12 +803,10 @@ pub(crate) async fn handle_connection(
                                         RespValue::BulkString(Some(Bytes::from(c.myself_id())))
                                     }
                                     Command::ClusterSlots => {
-                                        // 简化为空数组
-                                        RespValue::Array(vec![])
+                                        RespValue::Array(build_cluster_slots(c))
                                     }
                                     Command::ClusterShards => {
-                                        // 简化为空数组
-                                        RespValue::Array(vec![])
+                                        RespValue::Array(build_cluster_shards(c))
                                     }
                                     Command::ClusterMeet { ip, port } => {
                                         let meet_ip = ip.clone();
@@ -605,6 +837,8 @@ pub(crate) async fn handle_connection(
                                         for slot in slots {
                                             c.assign_slot(slot, &my_id);
                                         }
+                                        // ADDSLOTS 后自动保存拓扑
+                                        let _ = c.save_nodes_conf("nodes.conf");
                                         RespValue::SimpleString("OK".to_string())
                                     }
                                     Command::ClusterDelSlots(slots) => {
@@ -642,7 +876,32 @@ pub(crate) async fn handle_connection(
                                         RespValue::SimpleString("OK".to_string())
                                     }
                                     Command::ClusterFailover(_) => {
-                                        RespValue::SimpleString("OK".to_string())
+                                        let _my_id = c.myself_id();
+                                        let myself = c.myself();
+                                        if let Some(node) = myself {
+                                            if node.flags.contains(&crate::cluster::state::NodeFlag::Slave) {
+                                                if let Some(ref master_id) = node.master_id {
+                                                    if c.promote_replica_to_master(master_id) {
+                                                        let epoch = c.get_current_epoch();
+                                                        log::warn!("CLUSTER FAILOVER: 本节点已提升为 master，接管 master {} 的 slot，epoch={}", master_id, epoch);
+                                                        // 广播拓扑更新
+                                                        let cluster_clone = cluster.clone().unwrap();
+                                                        tokio::spawn(async move {
+                                                            crate::cluster::gossip::broadcast_topology_update(cluster_clone).await;
+                                                        });
+                                                        RespValue::SimpleString("OK".to_string())
+                                                    } else {
+                                                        RespValue::Error("ERR FAILOVER failed".to_string())
+                                                    }
+                                                } else {
+                                                    RespValue::Error("ERR Node is replica but has no master".to_string())
+                                                }
+                                            } else {
+                                                RespValue::Error("ERR Node is not a replica".to_string())
+                                            }
+                                        } else {
+                                            RespValue::Error("ERR Myself node not found".to_string())
+                                        }
                                     }
                                     Command::ClusterReset(_) => {
                                         RespValue::SimpleString("OK".to_string())
@@ -651,11 +910,31 @@ pub(crate) async fn handle_connection(
                                         let slot = crate::cluster::ClusterState::key_slot(&key);
                                         RespValue::Integer(slot as i64)
                                     }
-                                    Command::ClusterCountKeysInSlot(_) => {
-                                        RespValue::Integer(0)
+                                    Command::ClusterCountKeysInSlot(slot) => {
+                                        // 遍历当前 db 所有 key，统计匹配 slot 的数量
+                                        match storage.keys("*") {
+                                            Ok(keys) => {
+                                                let count = keys.iter()
+                                                    .filter(|k| crate::cluster::ClusterState::key_slot(k) == slot)
+                                                    .count();
+                                                RespValue::Integer(count as i64)
+                                            }
+                                            Err(e) => RespValue::Error(format!("ERR {}", e)),
+                                        }
                                     }
-                                    Command::ClusterGetKeysInSlot(_, _) => {
-                                        RespValue::Array(vec![])
+                                    Command::ClusterGetKeysInSlot(slot, count) => {
+                                        // 遍历当前 db 所有 key，返回匹配 slot 的前 count 个
+                                        match storage.keys("*") {
+                                            Ok(keys) => {
+                                                let arr: Vec<RespValue> = keys.into_iter()
+                                                    .filter(|k| crate::cluster::ClusterState::key_slot(k) == slot)
+                                                    .take(count)
+                                                    .map(|k| RespValue::BulkString(Some(Bytes::from(k))))
+                                                    .collect();
+                                                RespValue::Array(arr)
+                                            }
+                                            Err(e) => RespValue::Error(format!("ERR {}", e)),
+                                        }
                                     }
                                     _ => unreachable!(),
                                 }
@@ -1609,28 +1888,35 @@ pub(crate) async fn handle_connection(
                                     }
                                 }
                             }
-                            Command::Migrate { host, port, keys, db: _, timeout: _, copy, replace: _ } => {
-                                // 简化实现：记录日志并删除本地 key（如果不是 COPY 模式）
-                                let mut migrated = 0i64;
-                                for key in &keys {
-                                    if let Ok(Some(_data)) = handler.executor.storage().dump(key) {
-                                        let ttl = handler.executor.storage().pttl(key).unwrap_or(-1);
-                                        let ttl_ms = if ttl < 0 { 0u64 } else { ttl as u64 };
-                                        log::info!("MIGRATE key {} 到 {}:{}, ttl={}ms", key, host, port, ttl_ms);
+                            // MIGRATE 命令：通过 TCP 连接目标节点，发送 RESTORE 进行真正的网络数据迁移
+                            Command::Migrate { host, port, keys, db: _, timeout, copy, replace } => {
+                                match migrate_keys_to_target(&host, port, &keys, copy, replace, &handler.executor.storage(), timeout).await {
+                                    Ok(migrated_keys) => {
+                                        // 非 COPY 模式下，目标节点返回 OK 后删除本地 key
                                         if !copy {
-                                            let _ = handler.executor.storage().del(key);
+                                            for key in &migrated_keys {
+                                                if let Err(e) = handler.executor.storage().del(key) {
+                                                    log::warn!("MIGRATE 后删除本地 key {} 失败: {}", key, e);
+                                                }
+                                            }
                                         }
-                                        migrated += 1;
+                                        let resp = if migrated_keys.is_empty() {
+                                            RespValue::Error("ERR no such key".to_string())
+                                        } else {
+                                            RespValue::SimpleString("OK".to_string())
+                                        };
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
                                     }
-                                }
-                                let resp = if migrated > 0 {
-                                    RespValue::SimpleString("OK".to_string())
-                                } else {
-                                    RespValue::Error("ERR no such key".to_string())
-                                };
-                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                    log::error!("写入响应失败: {}", e);
-                                    return Ok(());
+                                    Err(err_msg) => {
+                                        let resp = RespValue::Error(err_msg.to_string());
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                            log::error!("写入响应失败: {}", e);
+                                            return Ok(());
+                                        }
+                                    }
                                 }
                             }
                             Command::Asking => {
