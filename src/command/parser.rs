@@ -616,6 +616,7 @@ impl CommandParser {
                 })?;
                 Ok(Command::ClusterSetConfigEpoch(epoch))
             }
+            "MYSHARDID" => Ok(Command::ClusterMyShardId),
             _ => Err(AppError::Command(format!("未知的 CLUSTER 子命令: {}", sub))),
         }
     }

@@ -1023,10 +1023,11 @@ impl CommandExecutor {
             | Command::ClusterFlushSlots
             | Command::ClusterSaveConfig
             | Command::ClusterSetConfigEpoch(_)
-            | Command::ReadOnly
-            | Command::ReadWrite => {
+            | Command::ClusterMyShardId => {
                 Err(AppError::Command("CLUSTER 应在连接层处理".to_string()))
             }
+            Command::ReadOnly => Ok(RespValue::SimpleString("OK".to_string())),
+            Command::ReadWrite => Ok(RespValue::SimpleString("OK".to_string())),
             Command::Unknown(cmd_name) => {
                 Ok(RespValue::Error(format!(
                     "ERR unknown command '{}'",

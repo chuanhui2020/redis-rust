@@ -806,6 +806,9 @@ impl Command {
             Command::ClusterSetConfigEpoch(epoch) => {
                 RespValue::Array(vec![bulk("CLUSTER"), bulk("SET-CONFIG-EPOCH"), bulk(&epoch.to_string())])
             }
+            Command::ClusterMyShardId => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("MYSHARDID")])
+            }
             Command::Migrate { host, port, keys, db, timeout, copy, replace } => {
                 let mut parts = vec![bulk("MIGRATE"), bulk(host), bulk(&port.to_string())];
                 if keys.len() == 1 {

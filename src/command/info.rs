@@ -328,6 +328,7 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::ClusterFlushSlots => ("CLUSTER".to_string(), vec!["FLUSHSLOTS".to_string()]),
         Command::ClusterSaveConfig => ("CLUSTER".to_string(), vec!["SAVECONFIG".to_string()]),
         Command::ClusterSetConfigEpoch(_) => ("CLUSTER".to_string(), vec!["SET-CONFIG-EPOCH".to_string()]),
+        Command::ClusterMyShardId => ("CLUSTER".to_string(), vec!["MYSHARDID".to_string()]),
         Command::Migrate { keys, .. } => ("MIGRATE".to_string(), keys.clone()),
         Command::Asking => ("ASKING".to_string(), vec![]),
         Command::Unknown(name) => (name.clone(), vec![]),

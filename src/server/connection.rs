@@ -860,7 +860,7 @@ pub(crate) async fn handle_connection(
                         }
 
                         // CLUSTER 命令在连接层处理
-                        if matches!(cmd, Command::ClusterInfo | Command::ClusterNodes | Command::ClusterMyId | Command::ClusterSlots | Command::ClusterShards | Command::ClusterMeet { .. } | Command::ClusterAddSlots(_) | Command::ClusterDelSlots(_) | Command::ClusterSetSlot { .. } | Command::ClusterReplicate(_) | Command::ClusterFailover(_) | Command::ClusterReset(_) | Command::ClusterKeySlot(_) | Command::ClusterCountKeysInSlot(_) | Command::ClusterGetKeysInSlot(_, _) | Command::ClusterLinks | Command::ClusterCountFailureReports(_) | Command::ClusterFlushSlots | Command::ClusterSaveConfig | Command::ClusterSetConfigEpoch(_)) {
+                        if matches!(cmd, Command::ClusterInfo | Command::ClusterNodes | Command::ClusterMyId | Command::ClusterSlots | Command::ClusterShards | Command::ClusterMeet { .. } | Command::ClusterAddSlots(_) | Command::ClusterDelSlots(_) | Command::ClusterSetSlot { .. } | Command::ClusterReplicate(_) | Command::ClusterFailover(_) | Command::ClusterReset(_) | Command::ClusterKeySlot(_) | Command::ClusterCountKeysInSlot(_) | Command::ClusterGetKeysInSlot(_, _) | Command::ClusterLinks | Command::ClusterCountFailureReports(_) | Command::ClusterFlushSlots | Command::ClusterSaveConfig | Command::ClusterSetConfigEpoch(_) | Command::ClusterMyShardId) {
                             let resp = if let Some(c) = cluster.as_ref() {
                                 match cmd {
                                     Command::ClusterInfo => {
@@ -1082,6 +1082,9 @@ pub(crate) async fn handle_connection(
                                     Command::ClusterSetConfigEpoch(epoch) => {
                                         c.set_current_epoch(epoch);
                                         RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::ClusterMyShardId => {
+                                        RespValue::BulkString(Some(Bytes::from(c.myself_id())))
                                     }
                                     _ => unreachable!(),
                                 }
