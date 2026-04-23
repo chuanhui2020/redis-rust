@@ -70,10 +70,11 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             map.insert(key.clone(), StorageValue::String(value));
-        }
-        let new_ver = self.version_counter.fetch_add(1, Ordering::Relaxed).saturating_add(1);
-        if let Ok(mut versions) = db.versions.get_shard(&key).write() {
-            versions.insert(key.clone(), new_ver);
+            // version bump 合并到同一个 shard 锁作用域内减少锁竞争
+            let new_ver = self.version_counter.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+            if let Ok(mut versions) = db.versions.get_shard(&key).write() {
+                versions.insert(key.clone(), new_ver);
+            }
         }
         if has_maxmem {
             db.access_times.write().unwrap().insert(key.clone(), Instant::now());
