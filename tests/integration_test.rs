@@ -3681,3 +3681,391 @@ async fn test_xautoclaim_justid() {
         } else { panic!("期望 entries 数组"); }
     } else { panic!("期望数组响应"); }
 }
+
+// ---------- ACL 命令测试 ----------
+
+#[tokio::test]
+async fn test_acl_setuser_getuser() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_acl(redis_rust::acl::AclManager::new());
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // SETUSER 创建用户
+    let resp = exec(&mut stream, &["ACL", "SETUSER", "alice", "on", ">secret", "+get", "+set", "allkeys"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // GETUSER 查询用户
+    let resp = exec(&mut stream, &["ACL", "GETUSER", "alice"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert!(!arr.is_empty());
+            let has_on = arr.iter().any(|v| matches!(v, RespValue::BulkString(Some(b)) if &b[..] == b"on"));
+            assert!(has_on, "ACL GETUSER 应包含 on 规则");
+        }
+        _ => panic!("期望 ACL GETUSER 返回数组, 得到 {:?}", resp),
+    }
+
+    // GETUSER 不存在的用户
+    let resp = exec(&mut stream, &["ACL", "GETUSER", "nobody"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+}
+
+#[tokio::test]
+async fn test_acl_deluser() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_acl(redis_rust::acl::AclManager::new());
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // 创建用户
+    let resp = exec(&mut stream, &["ACL", "SETUSER", "bob", "on", "nopass"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // 删除用户
+    let resp = exec(&mut stream, &["ACL", "DELUSER", "bob"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    // 再次删除返回 0
+    let resp = exec(&mut stream, &["ACL", "DELUSER", "bob"]).await;
+    assert_eq!(resp, RespValue::Integer(0));
+
+    // 不能删除 default 用户
+    let resp = exec(&mut stream, &["ACL", "DELUSER", "default"]).await;
+    assert_eq!(resp, RespValue::Integer(0));
+}
+
+#[tokio::test]
+async fn test_acl_list() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_acl(redis_rust::acl::AclManager::new());
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ACL", "LIST"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert!(!arr.is_empty());
+            let has_default = arr.iter().any(|v| {
+                if let RespValue::BulkString(Some(b)) = v {
+                    String::from_utf8_lossy(b).contains("user default")
+                } else {
+                    false
+                }
+            });
+            assert!(has_default, "ACL LIST 应包含 default 用户");
+        }
+        _ => panic!("期望 ACL LIST 返回数组, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_acl_whoami() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_acl(redis_rust::acl::AclManager::new());
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ACL", "WHOAMI"]).await;
+    assert_eq!(resp, RespValue::SimpleString("default".to_string()));
+}
+
+#[tokio::test]
+async fn test_acl_auth() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_acl(redis_rust::acl::AclManager::new());
+    let (addr, _handle) = server.start().await.unwrap();
+
+    // 创建带密码的用户
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+    let resp = exec(&mut stream, &["ACL", "SETUSER", "carol", "on", ">mypassword", "+@read", "+auth", "allkeys"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // 连接 1：正确密码认证
+    let mut conn1 = TcpStream::connect(addr).await.unwrap();
+    let resp = exec(&mut conn1, &["AUTH", "carol", "mypassword"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // 连接 2：错误密码
+    let mut conn2 = TcpStream::connect(addr).await.unwrap();
+    let resp = exec(&mut conn2, &["AUTH", "carol", "wrongpass"]).await;
+    assert_eq!(resp, RespValue::Error("ERR invalid password".to_string()));
+
+    // 连接 3：不存在的用户
+    let mut conn3 = TcpStream::connect(addr).await.unwrap();
+    let resp = exec(&mut conn3, &["AUTH", "nobody", "pass"]).await;
+    assert_eq!(resp, RespValue::Error("ERR invalid password".to_string()));
+
+    // 连接 4：default 用户是 nopass，任意密码都能通过
+    let mut conn4 = TcpStream::connect(addr).await.unwrap();
+    let resp = exec(&mut conn4, &["AUTH", "default", "anything"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+}
+
+// ---------- Transaction 边界测试 ----------
+
+#[tokio::test]
+async fn test_watch_optimistic_lock() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+
+    // 连接 A：WATCH + MULTI + SET
+    let mut stream_a = TcpStream::connect(addr).await.unwrap();
+    send_cmd(&mut stream_a, &["SET", "w", "old"]).await;
+    let _ = recv_resp(&mut stream_a).await;
+
+    send_cmd(&mut stream_a, &["WATCH", "w"]).await;
+    let _ = recv_resp(&mut stream_a).await;
+
+    // 连接 B：在 A 的 WATCH 之后修改 key
+    let mut stream_b = TcpStream::connect(addr).await.unwrap();
+    send_cmd(&mut stream_b, &["SET", "w", "modified"]).await;
+    let _ = recv_resp(&mut stream_b).await;
+
+    // 连接 A：MULTI → SET → EXEC（应失败，返回 nil）
+    send_cmd(&mut stream_a, &["MULTI"]).await;
+    let _ = recv_resp(&mut stream_a).await;
+
+    send_cmd(&mut stream_a, &["SET", "w", "new"]).await;
+    let _ = recv_resp(&mut stream_a).await;
+
+    send_cmd(&mut stream_a, &["EXEC"]).await;
+    let resp = recv_resp(&mut stream_a).await;
+    assert_eq!(resp, RespValue::BulkString(None), "WATCH 被修改后 EXEC 应返回 nil");
+
+    // 验证值是连接 B 修改的
+    send_cmd(&mut stream_a, &["GET", "w"]).await;
+    let resp = recv_resp(&mut stream_a).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("modified"))));
+}
+
+#[tokio::test]
+async fn test_unwatch() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // 设置初始值
+    send_cmd(&mut stream, &["SET", "k", "v"]).await;
+    let _ = recv_resp(&mut stream).await;
+
+    // WATCH
+    send_cmd(&mut stream, &["WATCH", "k"]).await;
+    let resp = recv_resp(&mut stream).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // UNWATCH 取消监视
+    send_cmd(&mut stream, &["UNWATCH"]).await;
+    let resp = recv_resp(&mut stream).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // MULTI → SET → EXEC（应成功，因为 UNWATCH 取消了监视）
+    send_cmd(&mut stream, &["MULTI"]).await;
+    let _ = recv_resp(&mut stream).await;
+
+    send_cmd(&mut stream, &["SET", "k", "v2"]).await;
+    let _ = recv_resp(&mut stream).await;
+
+    send_cmd(&mut stream, &["EXEC"]).await;
+    let resp = recv_resp(&mut stream).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0], RespValue::SimpleString("OK".to_string()));
+        }
+        _ => panic!("期望 EXEC 成功, 得到 {:?}", resp),
+    }
+
+    send_cmd(&mut stream, &["GET", "k"]).await;
+    let resp = recv_resp(&mut stream).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v2"))));
+}
+
+// ---------- Pub/Sub 测试 ----------
+
+#[tokio::test]
+async fn test_subscribe_publish_receive() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+
+    // 订阅者连接
+    let mut sub_stream = TcpStream::connect(addr).await.unwrap();
+
+    // 订阅频道
+    send_cmd(&mut sub_stream, &["SUBSCRIBE", "mychannel"]).await;
+    let resp = recv_resp(&mut sub_stream).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("subscribe"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("mychannel"))));
+            assert_eq!(arr[2], RespValue::Integer(1));
+        }
+        _ => panic!("期望 subscribe 确认数组, 得到 {:?}", resp),
+    }
+
+    // 发布者连接
+    let mut pub_stream = TcpStream::connect(addr).await.unwrap();
+    send_cmd(&mut pub_stream, &["PUBLISH", "mychannel", "hello"]).await;
+    let resp = recv_resp(&mut pub_stream).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    // 订阅者收到消息
+    let resp = recv_resp(&mut sub_stream).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("message"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("mychannel"))));
+            assert_eq!(arr[2], RespValue::BulkString(Some(bytes::Bytes::from("hello"))));
+        }
+        _ => panic!("期望 message 推送数组, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_psubscribe_pattern() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+
+    // 模式订阅者
+    let mut sub_stream = TcpStream::connect(addr).await.unwrap();
+    send_cmd(&mut sub_stream, &["PSUBSCRIBE", "events.*"]).await;
+    let resp = recv_resp(&mut sub_stream).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("psubscribe"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("events.*"))));
+            assert_eq!(arr[2], RespValue::Integer(1));
+        }
+        _ => panic!("期望 psubscribe 确认数组, 得到 {:?}", resp),
+    }
+
+    // 发布到匹配频道
+    let mut pub_stream = TcpStream::connect(addr).await.unwrap();
+    send_cmd(&mut pub_stream, &["PUBLISH", "events.login", "user1"]).await;
+    let resp = recv_resp(&mut pub_stream).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    // 订阅者收到 pmessage
+    let resp = recv_resp(&mut sub_stream).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 4);
+            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("pmessage"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("events.*"))));
+            assert_eq!(arr[2], RespValue::BulkString(Some(bytes::Bytes::from("events.login"))));
+            assert_eq!(arr[3], RespValue::BulkString(Some(bytes::Bytes::from("user1"))));
+        }
+        _ => panic!("期望 pmessage 推送数组, 得到 {:?}", resp),
+    }
+
+    // 发布到不匹配频道
+    send_cmd(&mut pub_stream, &["PUBLISH", "other", "data"]).await;
+    let resp = recv_resp(&mut pub_stream).await;
+    assert_eq!(resp, RespValue::Integer(0));
+}
+
+#[tokio::test]
+async fn test_pubsub_channels() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // 无订阅者时应为空数组
+    let resp = exec(&mut stream, &["PUBSUB", "CHANNELS"]).await;
+    assert_eq!(resp, RespValue::Array(vec![]));
+
+    // 订阅者连接
+    let mut sub_stream = TcpStream::connect(addr).await.unwrap();
+    send_cmd(&mut sub_stream, &["SUBSCRIBE", "ch1"]).await;
+    let _ = recv_resp(&mut sub_stream).await;
+
+    // 另一个订阅者
+    let mut sub_stream2 = TcpStream::connect(addr).await.unwrap();
+    send_cmd(&mut sub_stream2, &["SUBSCRIBE", "ch2"]).await;
+    let _ = recv_resp(&mut sub_stream2).await;
+
+    // PUBSUB CHANNELS 应列出活跃频道
+    let resp = exec(&mut stream, &["PUBSUB", "CHANNELS"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+            let names: Vec<String> = arr.iter().filter_map(|v| {
+                if let RespValue::BulkString(Some(b)) = v {
+                    Some(String::from_utf8_lossy(b).to_string())
+                } else {
+                    None
+                }
+            }).collect();
+            assert!(names.contains(&"ch1".to_string()));
+            assert!(names.contains(&"ch2".to_string()));
+        }
+        _ => panic!("期望 PUBSUB CHANNELS 返回数组, 得到 {:?}", resp),
+    }
+
+    // PUBSUB CHANNELS ch* 应过滤
+    let resp = exec(&mut stream, &["PUBSUB", "CHANNELS", "ch*"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+        }
+        _ => panic!("期望 PUBSUB CHANNELS 过滤返回数组, 得到 {:?}", resp),
+    }
+
+    // PUBSUB CHANNELS no* 应为空
+    let resp = exec(&mut stream, &["PUBSUB", "CHANNELS", "no*"]).await;
+    assert_eq!(resp, RespValue::Array(vec![]));
+}
+
+#[tokio::test]
+async fn test_pubsub_numsub() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // 无订阅者
+    let resp = exec(&mut stream, &["PUBSUB", "NUMSUB", "ch1", "ch2"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 4);
+            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("ch1"))));
+            assert_eq!(arr[1], RespValue::Integer(0));
+            assert_eq!(arr[2], RespValue::BulkString(Some(bytes::Bytes::from("ch2"))));
+            assert_eq!(arr[3], RespValue::Integer(0));
+        }
+        _ => panic!("期望 PUBSUB NUMSUB 返回数组, 得到 {:?}", resp),
+    }
+
+    // 订阅者连接
+    let mut sub_stream = TcpStream::connect(addr).await.unwrap();
+    send_cmd(&mut sub_stream, &["SUBSCRIBE", "ch1"]).await;
+    let _ = recv_resp(&mut sub_stream).await;
+
+    // ch1 有一个订阅者
+    let resp = exec(&mut stream, &["PUBSUB", "NUMSUB", "ch1", "ch2"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 4);
+            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("ch1"))));
+            assert_eq!(arr[1], RespValue::Integer(1));
+            assert_eq!(arr[2], RespValue::BulkString(Some(bytes::Bytes::from("ch2"))));
+            assert_eq!(arr[3], RespValue::Integer(0));
+        }
+        _ => panic!("期望 PUBSUB NUMSUB 返回数组, 得到 {:?}", resp),
+    }
+}
