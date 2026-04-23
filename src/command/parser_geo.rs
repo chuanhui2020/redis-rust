@@ -210,6 +210,280 @@ impl CommandParser {
     }
 
 
+    /// 解析 GEORADIUS 命令：GEORADIUS key longitude latitude radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC] [STORE key] [STOREDIST key]
+    pub(crate) fn parse_georadius(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 6 {
+            return Err(AppError::Command(
+                "GEORADIUS 命令参数数量错误".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let lon: f64 = self.extract_string(&arr[2])?.parse().map_err(|_| {
+            AppError::Command("GEORADIUS 的 longitude 必须是数字".to_string())
+        })?;
+        let lat: f64 = self.extract_string(&arr[3])?.parse().map_err(|_| {
+            AppError::Command("GEORADIUS 的 latitude 必须是数字".to_string())
+        })?;
+        let radius: f64 = self.extract_string(&arr[4])?.parse().map_err(|_| {
+            AppError::Command("GEORADIUS 的 radius 必须是数字".to_string())
+        })?;
+        let unit = self.extract_string(&arr[5])?.to_ascii_lowercase();
+        let radius_m = match unit.as_str() {
+            "m" => radius,
+            "km" => radius * 1000.0,
+            "mi" => radius * 1609.344,
+            "ft" => radius * 0.3048,
+            _ => return Err(AppError::Command("GEORADIUS 单位必须是 m|km|mi|ft".to_string())),
+        };
+
+        let mut idx = 6;
+        let mut withcoord = false;
+        let mut withdist = false;
+        let mut withhash = false;
+        let mut count = 0usize;
+        let mut order: Option<String> = None;
+        let mut store_key: Option<String> = None;
+        let mut store_dist_key: Option<String> = None;
+
+        while idx < arr.len() {
+            let flag = self.extract_string(&arr[idx])?.to_ascii_uppercase();
+            if flag == "WITHCOORD" {
+                withcoord = true;
+                idx += 1;
+            } else if flag == "WITHDIST" {
+                withdist = true;
+                idx += 1;
+            } else if flag == "WITHHASH" {
+                withhash = true;
+                idx += 1;
+            } else if flag == "COUNT" {
+                idx += 1;
+                if idx >= arr.len() {
+                    return Err(AppError::Command("GEORADIUS COUNT 缺少数量".to_string()));
+                }
+                count = self.extract_string(&arr[idx])?.parse().map_err(|_| {
+                    AppError::Command("GEORADIUS COUNT 必须是整数".to_string())
+                })?;
+                idx += 1;
+            } else if flag == "ASC" || flag == "DESC" {
+                order = Some(flag);
+                idx += 1;
+            } else if flag == "STORE" {
+                idx += 1;
+                if idx >= arr.len() {
+                    return Err(AppError::Command("GEORADIUS STORE 缺少 key".to_string()));
+                }
+                store_key = Some(self.extract_string(&arr[idx])?);
+                idx += 1;
+            } else if flag == "STOREDIST" {
+                idx += 1;
+                if idx >= arr.len() {
+                    return Err(AppError::Command("GEORADIUS STOREDIST 缺少 key".to_string()));
+                }
+                store_dist_key = Some(self.extract_string(&arr[idx])?);
+                idx += 1;
+            } else {
+                return Err(AppError::Command(format!("GEORADIUS 未知参数: {}", flag)));
+            }
+        }
+
+        Ok(Command::GeoRadius(
+            key, lon, lat, radius_m, unit, withcoord, withdist, withhash, count, order, store_key, store_dist_key,
+        ))
+    }
+
+    /// 解析 GEORADIUSBYMEMBER 命令：GEORADIUSBYMEMBER key member radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC]
+    pub(crate) fn parse_georadiusbymember(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 5 {
+            return Err(AppError::Command(
+                "GEORADIUSBYMEMBER 命令参数数量错误".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let member = self.extract_string(&arr[2])?;
+        let radius: f64 = self.extract_string(&arr[3])?.parse().map_err(|_| {
+            AppError::Command("GEORADIUSBYMEMBER 的 radius 必须是数字".to_string())
+        })?;
+        let unit = self.extract_string(&arr[4])?.to_ascii_lowercase();
+        let radius_m = match unit.as_str() {
+            "m" => radius,
+            "km" => radius * 1000.0,
+            "mi" => radius * 1609.344,
+            "ft" => radius * 0.3048,
+            _ => return Err(AppError::Command("GEORADIUSBYMEMBER 单位必须是 m|km|mi|ft".to_string())),
+        };
+
+        let mut idx = 5;
+        let mut withcoord = false;
+        let mut withdist = false;
+        let mut withhash = false;
+        let mut count = 0usize;
+        let mut order: Option<String> = None;
+
+        while idx < arr.len() {
+            let flag = self.extract_string(&arr[idx])?.to_ascii_uppercase();
+            if flag == "WITHCOORD" {
+                withcoord = true;
+                idx += 1;
+            } else if flag == "WITHDIST" {
+                withdist = true;
+                idx += 1;
+            } else if flag == "WITHHASH" {
+                withhash = true;
+                idx += 1;
+            } else if flag == "COUNT" {
+                idx += 1;
+                if idx >= arr.len() {
+                    return Err(AppError::Command("GEORADIUSBYMEMBER COUNT 缺少数量".to_string()));
+                }
+                count = self.extract_string(&arr[idx])?.parse().map_err(|_| {
+                    AppError::Command("GEORADIUSBYMEMBER COUNT 必须是整数".to_string())
+                })?;
+                idx += 1;
+            } else if flag == "ASC" || flag == "DESC" {
+                order = Some(flag);
+                idx += 1;
+            } else {
+                return Err(AppError::Command(format!("GEORADIUSBYMEMBER 未知参数: {}", flag)));
+            }
+        }
+
+        Ok(Command::GeoRadiusByMember(
+            key, member, radius_m, unit, withcoord, withdist, withhash, count, order,
+        ))
+    }
+
+    /// 解析 GEORADIUS_RO 命令：GEORADIUS_RO key longitude latitude radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC]
+    pub(crate) fn parse_georadius_ro(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 6 {
+            return Err(AppError::Command(
+                "GEORADIUS_RO 命令参数数量错误".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let lon: f64 = self.extract_string(&arr[2])?.parse().map_err(|_| {
+            AppError::Command("GEORADIUS_RO 的 longitude 必须是数字".to_string())
+        })?;
+        let lat: f64 = self.extract_string(&arr[3])?.parse().map_err(|_| {
+            AppError::Command("GEORADIUS_RO 的 latitude 必须是数字".to_string())
+        })?;
+        let radius: f64 = self.extract_string(&arr[4])?.parse().map_err(|_| {
+            AppError::Command("GEORADIUS_RO 的 radius 必须是数字".to_string())
+        })?;
+        let unit = self.extract_string(&arr[5])?.to_ascii_lowercase();
+        let radius_m = match unit.as_str() {
+            "m" => radius,
+            "km" => radius * 1000.0,
+            "mi" => radius * 1609.344,
+            "ft" => radius * 0.3048,
+            _ => return Err(AppError::Command("GEORADIUS_RO 单位必须是 m|km|mi|ft".to_string())),
+        };
+
+        let mut idx = 6;
+        let mut withcoord = false;
+        let mut withdist = false;
+        let mut withhash = false;
+        let mut count = 0usize;
+        let mut order: Option<String> = None;
+
+        while idx < arr.len() {
+            let flag = self.extract_string(&arr[idx])?.to_ascii_uppercase();
+            if flag == "WITHCOORD" {
+                withcoord = true;
+                idx += 1;
+            } else if flag == "WITHDIST" {
+                withdist = true;
+                idx += 1;
+            } else if flag == "WITHHASH" {
+                withhash = true;
+                idx += 1;
+            } else if flag == "COUNT" {
+                idx += 1;
+                if idx >= arr.len() {
+                    return Err(AppError::Command("GEORADIUS_RO COUNT 缺少数量".to_string()));
+                }
+                count = self.extract_string(&arr[idx])?.parse().map_err(|_| {
+                    AppError::Command("GEORADIUS_RO COUNT 必须是整数".to_string())
+                })?;
+                idx += 1;
+            } else if flag == "ASC" || flag == "DESC" {
+                order = Some(flag);
+                idx += 1;
+            } else if flag == "STORE" || flag == "STOREDIST" {
+                return Err(AppError::Command(format!("GEORADIUS_RO 不支持 {}", flag)));
+            } else {
+                return Err(AppError::Command(format!("GEORADIUS_RO 未知参数: {}", flag)));
+            }
+        }
+
+        Ok(Command::GeoRadiusRo(
+            key, lon, lat, radius_m, unit, withcoord, withdist, withhash, count, order,
+        ))
+    }
+
+    /// 解析 GEORADIUSBYMEMBER_RO 命令：GEORADIUSBYMEMBER_RO key member radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC]
+    pub(crate) fn parse_georadiusbymember_ro(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 5 {
+            return Err(AppError::Command(
+                "GEORADIUSBYMEMBER_RO 命令参数数量错误".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let member = self.extract_string(&arr[2])?;
+        let radius: f64 = self.extract_string(&arr[3])?.parse().map_err(|_| {
+            AppError::Command("GEORADIUSBYMEMBER_RO 的 radius 必须是数字".to_string())
+        })?;
+        let unit = self.extract_string(&arr[4])?.to_ascii_lowercase();
+        let radius_m = match unit.as_str() {
+            "m" => radius,
+            "km" => radius * 1000.0,
+            "mi" => radius * 1609.344,
+            "ft" => radius * 0.3048,
+            _ => return Err(AppError::Command("GEORADIUSBYMEMBER_RO 单位必须是 m|km|mi|ft".to_string())),
+        };
+
+        let mut idx = 5;
+        let mut withcoord = false;
+        let mut withdist = false;
+        let mut withhash = false;
+        let mut count = 0usize;
+        let mut order: Option<String> = None;
+
+        while idx < arr.len() {
+            let flag = self.extract_string(&arr[idx])?.to_ascii_uppercase();
+            if flag == "WITHCOORD" {
+                withcoord = true;
+                idx += 1;
+            } else if flag == "WITHDIST" {
+                withdist = true;
+                idx += 1;
+            } else if flag == "WITHHASH" {
+                withhash = true;
+                idx += 1;
+            } else if flag == "COUNT" {
+                idx += 1;
+                if idx >= arr.len() {
+                    return Err(AppError::Command("GEORADIUSBYMEMBER_RO COUNT 缺少数量".to_string()));
+                }
+                count = self.extract_string(&arr[idx])?.parse().map_err(|_| {
+                    AppError::Command("GEORADIUSBYMEMBER_RO COUNT 必须是整数".to_string())
+                })?;
+                idx += 1;
+            } else if flag == "ASC" || flag == "DESC" {
+                order = Some(flag);
+                idx += 1;
+            } else if flag == "STORE" || flag == "STOREDIST" {
+                return Err(AppError::Command(format!("GEORADIUSBYMEMBER_RO 不支持 {}", flag)));
+            } else {
+                return Err(AppError::Command(format!("GEORADIUSBYMEMBER_RO 未知参数: {}", flag)));
+            }
+        }
+
+        Ok(Command::GeoRadiusByMemberRo(
+            key, member, radius_m, unit, withcoord, withdist, withhash, count, order,
+        ))
+    }
+
     /// 解析 GEOSEARCHSTORE 命令
     pub(crate) fn parse_geosearchstore(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 8 {

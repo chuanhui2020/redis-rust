@@ -220,6 +220,10 @@ impl CommandParser {
             "GEOPOS" => self.parse_geopos(&arr),
             "GEOSEARCH" => self.parse_geosearch(&arr),
             "GEOSEARCHSTORE" => self.parse_geosearchstore(&arr),
+            "GEORADIUS" => self.parse_georadius(&arr),
+            "GEORADIUSBYMEMBER" => self.parse_georadiusbymember(&arr),
+            "GEORADIUS_RO" => self.parse_georadius_ro(&arr),
+            "GEORADIUSBYMEMBER_RO" => self.parse_georadiusbymember_ro(&arr),
             "SELECT" => self.parse_select(&arr),
             "AUTH" => self.parse_auth(&arr),
             "ACL" => self.parse_acl(&arr),
@@ -278,6 +282,7 @@ impl CommandParser {
             "SLAVEOF" => self.parse_replicaof(&arr),
             "SYNC" => Ok(Command::Sync),
             "WAIT" => self.parse_wait(&arr),
+            "WAITAOF" => self.parse_waitaof(&arr),
             "FAILOVER" => self.parse_failover(&arr),
             "SENTINEL" => self.parse_sentinel(&arr),
             "MIGRATE" => self.parse_migrate(&arr),
@@ -492,6 +497,25 @@ impl CommandParser {
             AppError::Command("WAIT timeout 必须是整数".to_string())
         })?;
         Ok(Command::Wait { numreplicas, timeout })
+    }
+
+    /// 解析 WAITAOF 命令：WAITAOF numlocal numreplicas timeout
+    fn parse_waitaof(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() != 4 {
+            return Err(AppError::Command(
+                "WAITAOF 命令需要 3 个参数".to_string(),
+            ));
+        }
+        let numlocal = self.extract_string(&arr[1])?.parse::<i64>().map_err(|_| {
+            AppError::Command("WAITAOF numlocal 必须是整数".to_string())
+        })?;
+        let numreplicas = self.extract_string(&arr[2])?.parse::<i64>().map_err(|_| {
+            AppError::Command("WAITAOF numreplicas 必须是整数".to_string())
+        })?;
+        let timeout = self.extract_string(&arr[3])?.parse::<i64>().map_err(|_| {
+            AppError::Command("WAITAOF timeout 必须是整数".to_string())
+        })?;
+        Ok(Command::WaitAof { numlocal, numreplicas, timeout })
     }
 
     /// 解析 CLUSTER 子命令

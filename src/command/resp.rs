@@ -376,6 +376,112 @@ impl Command {
             Command::GeoSearchStore(_, _, _, _, _, _, _, _, _) => {
                 RespValue::Array(vec![bulk("GEOSEARCHSTORE")])
             }
+            Command::GeoRadius(key, lon, lat, radius_m, unit, withcoord, withdist, withhash, count, order, store_key, store_dist_key) => {
+                let original_radius = match unit.as_str() {
+                    "m" => *radius_m,
+                    "km" => *radius_m / 1000.0,
+                    "mi" => *radius_m / 1609.344,
+                    "ft" => *radius_m / 0.3048,
+                    _ => *radius_m,
+                };
+                let mut parts = vec![
+                    bulk("GEORADIUS"), bulk(key),
+                    bulk(&format!("{:.17}", lon).trim_end_matches('0').trim_end_matches('.')),
+                    bulk(&format!("{:.17}", lat).trim_end_matches('0').trim_end_matches('.')),
+                    bulk(&format!("{:.17}", original_radius).trim_end_matches('0').trim_end_matches('.')),
+                    bulk(unit),
+                ];
+                if *withcoord { parts.push(bulk("WITHCOORD")); }
+                if *withdist { parts.push(bulk("WITHDIST")); }
+                if *withhash { parts.push(bulk("WITHHASH")); }
+                if *count > 0 {
+                    parts.push(bulk("COUNT"));
+                    parts.push(bulk(&count.to_string()));
+                }
+                if let Some(o) = order { parts.push(bulk(o)); }
+                if let Some(k) = store_key { parts.push(bulk("STORE")); parts.push(bulk(k)); }
+                if let Some(k) = store_dist_key { parts.push(bulk("STOREDIST")); parts.push(bulk(k)); }
+                RespValue::Array(parts)
+            }
+            Command::GeoRadiusByMember(key, member, radius_m, unit, withcoord, withdist, withhash, count, order) => {
+                let original_radius = match unit.as_str() {
+                    "m" => *radius_m,
+                    "km" => *radius_m / 1000.0,
+                    "mi" => *radius_m / 1609.344,
+                    "ft" => *radius_m / 0.3048,
+                    _ => *radius_m,
+                };
+                let mut parts = vec![
+                    bulk("GEORADIUSBYMEMBER"), bulk(key), bulk(member),
+                    bulk(&format!("{:.17}", original_radius).trim_end_matches('0').trim_end_matches('.')),
+                    bulk(unit),
+                ];
+                if *withcoord { parts.push(bulk("WITHCOORD")); }
+                if *withdist { parts.push(bulk("WITHDIST")); }
+                if *withhash { parts.push(bulk("WITHHASH")); }
+                if *count > 0 {
+                    parts.push(bulk("COUNT"));
+                    parts.push(bulk(&count.to_string()));
+                }
+                if let Some(o) = order { parts.push(bulk(o)); }
+                RespValue::Array(parts)
+            }
+            Command::GeoRadiusRo(key, lon, lat, radius_m, unit, withcoord, withdist, withhash, count, order) => {
+                let original_radius = match unit.as_str() {
+                    "m" => *radius_m,
+                    "km" => *radius_m / 1000.0,
+                    "mi" => *radius_m / 1609.344,
+                    "ft" => *radius_m / 0.3048,
+                    _ => *radius_m,
+                };
+                let mut parts = vec![
+                    bulk("GEORADIUS_RO"), bulk(key),
+                    bulk(&format!("{:.17}", lon).trim_end_matches('0').trim_end_matches('.')),
+                    bulk(&format!("{:.17}", lat).trim_end_matches('0').trim_end_matches('.')),
+                    bulk(&format!("{:.17}", original_radius).trim_end_matches('0').trim_end_matches('.')),
+                    bulk(unit),
+                ];
+                if *withcoord { parts.push(bulk("WITHCOORD")); }
+                if *withdist { parts.push(bulk("WITHDIST")); }
+                if *withhash { parts.push(bulk("WITHHASH")); }
+                if *count > 0 {
+                    parts.push(bulk("COUNT"));
+                    parts.push(bulk(&count.to_string()));
+                }
+                if let Some(o) = order { parts.push(bulk(o)); }
+                RespValue::Array(parts)
+            }
+            Command::GeoRadiusByMemberRo(key, member, radius_m, unit, withcoord, withdist, withhash, count, order) => {
+                let original_radius = match unit.as_str() {
+                    "m" => *radius_m,
+                    "km" => *radius_m / 1000.0,
+                    "mi" => *radius_m / 1609.344,
+                    "ft" => *radius_m / 0.3048,
+                    _ => *radius_m,
+                };
+                let mut parts = vec![
+                    bulk("GEORADIUSBYMEMBER_RO"), bulk(key), bulk(member),
+                    bulk(&format!("{:.17}", original_radius).trim_end_matches('0').trim_end_matches('.')),
+                    bulk(unit),
+                ];
+                if *withcoord { parts.push(bulk("WITHCOORD")); }
+                if *withdist { parts.push(bulk("WITHDIST")); }
+                if *withhash { parts.push(bulk("WITHHASH")); }
+                if *count > 0 {
+                    parts.push(bulk("COUNT"));
+                    parts.push(bulk(&count.to_string()));
+                }
+                if let Some(o) = order { parts.push(bulk(o)); }
+                RespValue::Array(parts)
+            }
+            Command::WaitAof { numlocal, numreplicas, timeout } => {
+                RespValue::Array(vec![
+                    bulk("WAITAOF"),
+                    bulk(&numlocal.to_string()),
+                    bulk(&numreplicas.to_string()),
+                    bulk(&timeout.to_string()),
+                ])
+            }
             Command::Select(..) => resp_admin::to_resp_select(self),
             Command::Auth(..) => resp_admin::to_resp_auth(self),
             Command::ClientSetName(name) => {
@@ -954,6 +1060,8 @@ impl Command {
                 | Command::PfMerge(_, _)
                 | Command::GeoAdd(_, _)
                 | Command::GeoSearchStore(_, _, _, _, _, _, _, _, _)
+                | Command::GeoRadius(_, _, _, _, _, _, _, _, _, _, Some(_), _)
+                | Command::GeoRadius(_, _, _, _, _, _, _, _, _, _, _, Some(_))
                 | Command::Sort(_, _, _, _, _, _, _, Some(_))
                 | Command::Unlink(_)
                 | Command::Copy(_, _, _)

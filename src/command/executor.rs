@@ -363,6 +363,43 @@ impl CommandExecutor {
             Command::GeoPos(key, members) => executor_geo::execute_geo_pos(self, key, members),
             Command::GeoSearch(key, center_lon, center_lat, by_radius, by_box, order, count, withcoord, withdist, withhash) => executor_geo::execute_geo_search(self, key, center_lon, center_lat, by_radius, by_box, order, count, withcoord, withdist, withhash),
             Command::GeoSearchStore(destination, source, center_lon, center_lat, by_radius, by_box, order, count, storedist) => executor_geo::execute_geo_search_store(self, destination, source, center_lon, center_lat, by_radius, by_box, order, count, storedist),
+            Command::GeoRadius(key, lon, lat, radius_m, _unit, withcoord, withdist, withhash, count, order, store_key, store_dist_key) => {
+                // 若指定 STORE 或 STOREDIST，转为 GEOSEARCHSTORE 执行
+                if let Some(dest) = store_key {
+                    executor_geo::execute_geo_search_store(self, dest.clone(), key.clone(), lon, lat, Some(radius_m), None, order.clone(), count, false)
+                } else if let Some(dest) = store_dist_key {
+                    executor_geo::execute_geo_search_store(self, dest.clone(), key.clone(), lon, lat, Some(radius_m), None, order.clone(), count, true)
+                } else {
+                    executor_geo::execute_geo_search(self, key.clone(), lon, lat, Some(radius_m), None, order.clone(), count, withcoord, withdist, withhash)
+                }
+            }
+            Command::GeoRadiusByMember(key, member, radius_m, _unit, withcoord, withdist, withhash, count, order) => {
+                // 先查询成员坐标，再转为 GEOSEARCH 执行
+                let positions = self.storage.geopos(&key, &[member.clone()])?;
+                if let Some(Some((lon, lat))) = positions.into_iter().next() {
+                    executor_geo::execute_geo_search(self, key.clone(), lon, lat, Some(radius_m), None, order.clone(), count, withcoord, withdist, withhash)
+                } else {
+                    Ok(RespValue::Array(vec![]))
+                }
+            }
+            Command::GeoRadiusRo(key, lon, lat, radius_m, _unit, withcoord, withdist, withhash, count, order) => {
+                executor_geo::execute_geo_search(self, key.clone(), lon, lat, Some(radius_m), None, order.clone(), count, withcoord, withdist, withhash)
+            }
+            Command::GeoRadiusByMemberRo(key, member, radius_m, _unit, withcoord, withdist, withhash, count, order) => {
+                let positions = self.storage.geopos(&key, &[member.clone()])?;
+                if let Some(Some((lon, lat))) = positions.into_iter().next() {
+                    executor_geo::execute_geo_search(self, key.clone(), lon, lat, Some(radius_m), None, order.clone(), count, withcoord, withdist, withhash)
+                } else {
+                    Ok(RespValue::Array(vec![]))
+                }
+            }
+            Command::WaitAof { numlocal, .. } => {
+                // 简化实现：本地 AOF 已确认，replica 暂不支持
+                Ok(RespValue::Array(vec![
+                    RespValue::Integer(numlocal),
+                    RespValue::Integer(0),
+                ]))
+            }
             Command::Select(index) => executor_admin::execute_select(self, index),
             Command::Auth(_, _) => {
                 Err(AppError::Command("AUTH 应在连接层处理".to_string()))

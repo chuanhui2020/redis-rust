@@ -419,6 +419,16 @@ pub enum Command {
     GeoSearch(String, f64, f64, Option<f64>, Option<(f64, f64)>, Option<String>, usize, bool, bool, bool),
     /// GEOSEARCHSTORE destination source [FROMMEMBER|FROMLONLAT ...] [BYRADIUS|BYBOX ...] [ASC|DESC] [COUNT count] [STOREDIST]
     GeoSearchStore(String, String, f64, f64, Option<f64>, Option<(f64, f64)>, Option<String>, usize, bool),
+    /// GEORADIUS key longitude latitude radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC] [STORE key] [STOREDIST key]
+    GeoRadius(String, f64, f64, f64, String, bool, bool, bool, usize, Option<String>, Option<String>, Option<String>),
+    /// GEORADIUSBYMEMBER key member radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC]
+    GeoRadiusByMember(String, String, f64, String, bool, bool, bool, usize, Option<String>),
+    /// GEORADIUS_RO key longitude latitude radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC]
+    GeoRadiusRo(String, f64, f64, f64, String, bool, bool, bool, usize, Option<String>),
+    /// GEORADIUSBYMEMBER_RO key member radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC]
+    GeoRadiusByMemberRo(String, String, f64, String, bool, bool, bool, usize, Option<String>),
+    /// WAITAOF numlocal numreplicas timeout
+    WaitAof { numlocal: i64, numreplicas: i64, timeout: i64 },
     /// SELECT index
     Select(usize),
     /// AUTH [username] password

@@ -1504,6 +1504,189 @@ use crate::scripting::ScriptEngine;
     }
 
     #[test]
+    fn test_parse_georadius_commands() {
+        let parser = CommandParser::new();
+
+        // GEORADIUS 基础解析
+        let cmd = parser.parse(make_bulk_array(&["GEORADIUS", "k", "0", "0", "100", "km"])).unwrap();
+        match cmd {
+            Command::GeoRadius(key, lon, lat, radius_m, unit, withcoord, withdist, withhash, count, order, store_key, store_dist_key) => {
+                assert_eq!(key, "k");
+                assert_eq!(lon, 0.0);
+                assert_eq!(lat, 0.0);
+                assert!((radius_m - 100000.0).abs() < 1.0);
+                assert_eq!(unit, "km");
+                assert!(!withcoord);
+                assert!(!withdist);
+                assert!(!withhash);
+                assert_eq!(count, 0);
+                assert!(order.is_none());
+                assert!(store_key.is_none());
+                assert!(store_dist_key.is_none());
+            }
+            _ => panic!("期望 GeoRadius"),
+        }
+
+        // GEORADIUS 带选项
+        let cmd = parser.parse(make_bulk_array(&["GEORADIUS", "k", "0", "0", "100", "km", "WITHCOORD", "WITHDIST", "COUNT", "5", "ASC", "STORE", "dst"])).unwrap();
+        match cmd {
+            Command::GeoRadius(_, _, _, _, _, withcoord, withdist, withhash, count, order, store_key, store_dist_key) => {
+                assert!(withcoord);
+                assert!(withdist);
+                assert!(!withhash);
+                assert_eq!(count, 5);
+                assert_eq!(order, Some("ASC".to_string()));
+                assert_eq!(store_key, Some("dst".to_string()));
+                assert!(store_dist_key.is_none());
+            }
+            _ => panic!("期望 GeoRadius"),
+        }
+
+        // GEORADIUSBYMEMBER
+        let cmd = parser.parse(make_bulk_array(&["GEORADIUSBYMEMBER", "k", "member", "50", "m", "WITHHASH", "DESC"])).unwrap();
+        match cmd {
+            Command::GeoRadiusByMember(key, member, radius_m, unit, withcoord, withdist, withhash, count, order) => {
+                assert_eq!(key, "k");
+                assert_eq!(member, "member");
+                assert_eq!(radius_m, 50.0);
+                assert_eq!(unit, "m");
+                assert!(!withcoord);
+                assert!(!withdist);
+                assert!(withhash);
+                assert_eq!(count, 0);
+                assert_eq!(order, Some("DESC".to_string()));
+            }
+            _ => panic!("期望 GeoRadiusByMember"),
+        }
+
+        // GEORADIUS_RO
+        let cmd = parser.parse(make_bulk_array(&["GEORADIUS_RO", "k", "1", "2", "10", "mi"])).unwrap();
+        match cmd {
+            Command::GeoRadiusRo(key, lon, lat, _radius_m, unit, _withcoord, _withdist, _withhash, count, order) => {
+                assert_eq!(key, "k");
+                assert_eq!(lon, 1.0);
+                assert_eq!(lat, 2.0);
+                assert_eq!(unit, "mi");
+                assert_eq!(count, 0);
+                assert!(order.is_none());
+            }
+            _ => panic!("期望 GeoRadiusRo"),
+        }
+
+        // GEORADIUSBYMEMBER_RO
+        let cmd = parser.parse(make_bulk_array(&["GEORADIUSBYMEMBER_RO", "k", "m", "10", "ft", "COUNT", "3"])).unwrap();
+        match cmd {
+            Command::GeoRadiusByMemberRo(key, member, _radius_m, unit, _withcoord, _withdist, _withhash, count, _order) => {
+                assert_eq!(key, "k");
+                assert_eq!(member, "m");
+                assert_eq!(count, 3);
+                assert_eq!(unit, "ft");
+            }
+            _ => panic!("期望 GeoRadiusByMemberRo"),
+        }
+
+        // GEORADIUS_RO 不支持 STORE
+        assert!(parser.parse(make_bulk_array(&["GEORADIUS_RO", "k", "0", "0", "100", "km", "STORE", "dst"])).is_err());
+
+        // WAITAOF
+        let cmd = parser.parse(make_bulk_array(&["WAITAOF", "1", "0", "1000"])).unwrap();
+        match cmd {
+            Command::WaitAof { numlocal, numreplicas, timeout } => {
+                assert_eq!(numlocal, 1);
+                assert_eq!(numreplicas, 0);
+                assert_eq!(timeout, 1000);
+            }
+            _ => panic!("期望 WaitAof"),
+        }
+    }
+
+    #[test]
+    fn test_execute_georadius_and_waitaof() {
+        let storage = StorageEngine::new();
+        let executor = CommandExecutor::new(storage);
+
+        // 准备数据
+        executor.execute(Command::GeoAdd(
+            "cities".to_string(),
+            vec![
+                (116.4074, 39.9042, "北京".to_string()),
+                (121.4737, 31.2304, "上海".to_string()),
+            ],
+        )).unwrap();
+
+        // GEORADIUS 基础查询（半径 2000km，覆盖北京和上海）
+        let resp = executor.execute(Command::GeoRadius(
+            "cities".to_string(), 116.4074, 39.9042, 2000000.0, "m".to_string(),
+            false, false, false, 0, None, None, None,
+        )).unwrap();
+        match resp {
+            RespValue::Array(arr) => {
+                assert_eq!(arr.len(), 2);
+            }
+            other => panic!("期望 Array，得到 {:?}", other),
+        }
+
+        // GEORADIUS_RO
+        let resp = executor.execute(Command::GeoRadiusRo(
+            "cities".to_string(), 116.4074, 39.9042, 2000000.0, "m".to_string(),
+            false, false, false, 0, None,
+        )).unwrap();
+        match resp {
+            RespValue::Array(arr) => {
+                assert_eq!(arr.len(), 2);
+            }
+            other => panic!("期望 Array，得到 {:?}", other),
+        }
+
+        // GEORADIUSBYMEMBER
+        let resp = executor.execute(Command::GeoRadiusByMember(
+            "cities".to_string(), "北京".to_string(), 2000000.0, "m".to_string(),
+            false, false, false, 0, None,
+        )).unwrap();
+        match resp {
+            RespValue::Array(arr) => {
+                assert_eq!(arr.len(), 2);
+            }
+            other => panic!("期望 Array，得到 {:?}", other),
+        }
+
+        // GEORADIUSBYMEMBER_RO
+        let resp = executor.execute(Command::GeoRadiusByMemberRo(
+            "cities".to_string(), "北京".to_string(), 2000000.0, "m".to_string(),
+            false, false, false, 0, None,
+        )).unwrap();
+        match resp {
+            RespValue::Array(arr) => {
+                assert_eq!(arr.len(), 2);
+            }
+            other => panic!("期望 Array，得到 {:?}", other),
+        }
+
+        // GEORADIUSBYMEMBER 成员不存在
+        let resp = executor.execute(Command::GeoRadiusByMember(
+            "cities".to_string(), "不存在".to_string(), 2000000.0, "m".to_string(),
+            false, false, false, 0, None,
+        )).unwrap();
+        match resp {
+            RespValue::Array(arr) => {
+                assert_eq!(arr.len(), 0);
+            }
+            other => panic!("期望 Array，得到 {:?}", other),
+        }
+
+        // WAITAOF
+        let resp = executor.execute(Command::WaitAof { numlocal: 1, numreplicas: 0, timeout: 1000 }).unwrap();
+        match resp {
+            RespValue::Array(arr) => {
+                assert_eq!(arr.len(), 2);
+                assert_eq!(arr[0], RespValue::Integer(1));
+                assert_eq!(arr[1], RespValue::Integer(0));
+            }
+            other => panic!("期望 Array，得到 {:?}", other),
+        }
+    }
+
+    #[test]
     fn test_execute_pfadd_pfcount() {
         let storage = StorageEngine::new();
         let executor = CommandExecutor::new(storage);
