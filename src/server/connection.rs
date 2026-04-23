@@ -915,6 +915,13 @@ pub(crate) async fn handle_connection(
                                         } else if c.get_node(&node_id).is_none() {
                                             RespValue::Error("ERR I don't know about node ".to_string() + &node_id)
                                         } else {
+                                            // 获取 master 的 ip 和 port，用于后续启动复制
+                                            let (master_ip, master_port) = if let Some(target) = c.get_node(&node_id) {
+                                                (target.ip.clone(), target.port)
+                                            } else {
+                                                (String::new(), 0)
+                                            };
+                                            
                                             // 设置本节点为指定 master 的 replica
                                             let mut nodes = c.nodes_write();
                                             if let Some(node) = nodes.get_mut(&my_id) {
@@ -926,6 +933,19 @@ pub(crate) async fn handle_connection(
                                                 node.slots = vec![false; crate::cluster::state::CLUSTER_SLOTS];
                                             }
                                             drop(nodes);
+                                            
+                                            // 启动后台复制任务
+                                            if let Some(ref repl) = replication {
+                                                repl.set_replicaof(master_ip.clone(), master_port);
+                                                let repl_clone = repl.clone();
+                                                let storage_clone = handler.executor.storage();
+                                                tokio::spawn(async move {
+                                                    if let Err(e) = repl_clone.start_replication(storage_clone, master_ip, master_port).await {
+                                                        log::error!("复制任务失败: {}", e);
+                                                    }
+                                                });
+                                            }
+                                            
                                             RespValue::SimpleString("OK".to_string())
                                         }
                                     }
@@ -1000,7 +1020,14 @@ pub(crate) async fn handle_connection(
                             continue;
                         }
 
-                        // Cluster 模式 MOVED/ASK 重定向检查
+                        // Cluster 模式 MOVED/ASK 重定向检查（豁免复制相关命令）
+                        let is_repl_cmd = matches!(cmd,
+                            Command::ReplConf { .. } | Command::Psync { .. } |
+                            Command::Sync | Command::Ping(_) | Command::Info(_) |
+                            Command::ReplicaOf { .. } | Command::ReplicaOfNoOne |
+                            Command::ReadOnly | Command::ReadWrite
+                        );
+                        if !is_repl_cmd {
                         if let Some(ref cluster) = cluster {
                             let (_, keys) = crate::command::extract_cmd_info(&cmd);
                             if let Some(first_key) = keys.first() {
@@ -1068,6 +1095,7 @@ pub(crate) async fn handle_connection(
                                 }
                             }
                         }
+                        } // end !is_repl_cmd
 
                         match cmd {
                             Command::Multi | Command::Watch(_) | Command::Exec | Command::Discard => {
