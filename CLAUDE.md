@@ -162,11 +162,10 @@ bash bench.sh
 | Sentinel | 13（含 is-master-down-by-addr） | — | 生产级（SDOWN/ODOWN+epoch选举+自动故障转移+配置持久化+多节点验证通过） |
 | Cluster | 21（含 READONLY/READWRITE + MIGRATE/ASKING） | — | 生产级（slot分片+MOVED/ASK重定向+Gossip slot传播+数据复制集成+自动故障转移+READONLY replica读取+六节点验证通过） |
 
-**未实现（~12 个命令）：**
+**未实现（~3 个命令）：**
 
 | 分类 | 缺失内容 | 优先级 |
 |------|----------|--------|
 | Module | MODULE LOAD/UNLOAD/LIST | 暂不实现 |
-| Cluster 补全 | 部分高级命令（CLUSTER LINKS 等） | 低 |
 
 **总覆盖率：~96%（270/282），含 Replication + Sentinel + Cluster 全功能维度。**
