@@ -2331,7 +2331,7 @@ pub(crate) async fn handle_connection(
 
         // pipeline 内循环结束，flush 缓冲区
         if let Err(e) = stream.flush().await {
-            log::error!("flush 失败: {}", e);
+            log::debug!("flush 失败: {}", e);
             return Ok(());
         }
 
