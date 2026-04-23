@@ -46,6 +46,10 @@ pub struct ClusterNode {
 impl ClusterNode {
     /// 创建新节点
     pub fn new(id: String, ip: String, port: u16) -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
         Self {
             id,
             ip,
@@ -55,7 +59,7 @@ impl ClusterNode {
             master_id: None,
             slots: vec![false; CLUSTER_SLOTS],
             ping_sent: 0,
-            pong_recv: 0,
+            pong_recv: now,
             config_epoch: 0,
         }
     }
@@ -169,6 +173,11 @@ impl ClusterState {
     /// 获取所有节点
     pub fn get_nodes(&self) -> Vec<ClusterNode> {
         self.nodes.read().unwrap().values().cloned().collect()
+    }
+
+    /// 获取节点写锁
+    pub fn nodes_write(&self) -> std::sync::RwLockWriteGuard<'_, HashMap<String, ClusterNode>> {
+        self.nodes.write().unwrap()
     }
 
     /// 获取指定节点
@@ -388,35 +397,34 @@ impl ClusterState {
             return false;
         }
 
-        let mut nodes = self.nodes.write().unwrap();
-
-        // 获取故障 master 的 slot 分配
-        let master_slots = if let Some(master) = nodes.get(failed_master_id) {
-            master.slots.clone()
-        } else {
+        // 从 slot_assignment 表获取故障 master 的 slot
+        let failed_slots = self.slots_for_node(failed_master_id);
+        if failed_slots.is_empty() {
             return false;
-        };
+        }
 
         let new_epoch = self.incr_epoch();
 
         // 更新本节点为 master
+        let mut nodes = self.nodes.write().unwrap();
         if let Some(node) = nodes.get_mut(&my_id) {
             node.master_id = None;
             node.flags.retain(|f| *f != NodeFlag::Slave);
             if !node.flags.contains(&NodeFlag::Master) {
                 node.flags.push(NodeFlag::Master);
             }
-            node.slots = master_slots.clone();
+            node.slots = vec![false; CLUSTER_SLOTS];
+            for &slot in &failed_slots {
+                node.add_slot(slot);
+            }
             node.config_epoch = new_epoch;
         }
         drop(nodes);
 
         // 更新 slot 分配表
         let mut assignment = self.slot_assignment.write().unwrap();
-        for slot in 0..CLUSTER_SLOTS {
-            if master_slots[slot] {
-                assignment[slot] = Some(my_id.clone());
-            }
+        for slot in &failed_slots {
+            assignment[*slot] = Some(my_id.clone());
         }
 
         true
@@ -472,10 +480,19 @@ impl ClusterState {
         if node_id == my_id {
             return;
         }
+        // 过滤掉 Myself flag，它不应该从远程节点传播
+        let mut flags: Vec<NodeFlag> = flags.into_iter().filter(|f| *f != NodeFlag::Myself).collect();
         let mut nodes = self.nodes.write().unwrap();
         if let Some(node) = nodes.get_mut(node_id) {
             if epoch < node.config_epoch {
                 return;
+            }
+            // 保留本地的 PFAIL/FAIL 标记，不被远程 gossip 覆盖
+            if node.flags.contains(&NodeFlag::PFail) && !flags.contains(&NodeFlag::PFail) {
+                flags.push(NodeFlag::PFail);
+            }
+            if node.flags.contains(&NodeFlag::Fail) && !flags.contains(&NodeFlag::Fail) {
+                flags.push(NodeFlag::Fail);
             }
             node.flags = flags;
             node.master_id = master_id;
@@ -619,6 +636,21 @@ impl ClusterState {
     pub fn assigned_slots_count(&self) -> usize {
         let assignment = self.slot_assignment.read().unwrap();
         assignment.iter().filter(|s| s.is_some()).count()
+    }
+
+    /// 从 slot_assignment 表查询指定节点拥有的 slot 数量
+    pub fn slots_count_for_node(&self, node_id: &str) -> usize {
+        let assignment = self.slot_assignment.read().unwrap();
+        assignment.iter().filter(|s| s.as_deref() == Some(node_id)).count()
+    }
+
+    /// 从 slot_assignment 表查询指定节点拥有的 slot 列表
+    pub fn slots_for_node(&self, node_id: &str) -> Vec<usize> {
+        let assignment = self.slot_assignment.read().unwrap();
+        assignment.iter().enumerate()
+            .filter(|(_, s)| s.as_deref() == Some(node_id))
+            .map(|(i, _)| i)
+            .collect()
     }
 
     /// 获取集群信息字符串（用于 CLUSTER INFO）

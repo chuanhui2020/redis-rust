@@ -72,8 +72,8 @@ fn check_and_promote_fail(cluster: &ClusterState) {
             continue;
         }
 
-        // 简化实现：如果节点是 master 且有 slot，标记为 FAIL
-        if node.flags.contains(&NodeFlag::Master) && node.slot_count() > 0 {
+        // 用 slot_assignment 表判断节点是否持有 slot
+        if node.flags.contains(&NodeFlag::Master) && cluster.slots_count_for_node(&node.id) > 0 {
             log::error!(
                 "Cluster: 节点 {} ({}:{}) 标记为 FAIL",
                 node.id, node.ip, node.port

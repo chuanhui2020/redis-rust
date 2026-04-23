@@ -811,12 +811,18 @@ pub(crate) async fn handle_connection(
                                     }
                                     Command::ClusterMeet { ip, port } => {
                                         let meet_ip = ip.clone();
-                                        let node = crate::cluster::ClusterNode::new(
-                                            crate::cluster::ClusterState::generate_node_id(),
-                                            ip,
-                                            port,
-                                        );
-                                        c.add_node(node);
+                                        // 检查是否已有相同地址的节点，避免重复
+                                        let existing = c.get_nodes().iter()
+                                            .find(|n| n.ip == ip && n.port == port)
+                                            .map(|n| n.id.clone());
+                                        if existing.is_none() {
+                                            let node = crate::cluster::ClusterNode::new(
+                                                crate::cluster::ClusterState::generate_node_id(),
+                                                ip,
+                                                port,
+                                            );
+                                            c.add_node(node);
+                                        }
                                         
                                         // 向对端总线端口发送 PING，让对端也发现本节点
                                         if let Some(me) = c.myself() {
@@ -873,8 +879,26 @@ pub(crate) async fn handle_connection(
                                         }
                                         RespValue::SimpleString("OK".to_string())
                                     }
-                                    Command::ClusterReplicate(_) => {
-                                        RespValue::SimpleString("OK".to_string())
+                                    Command::ClusterReplicate(node_id) => {
+                                        let my_id = c.myself_id();
+                                        if node_id == my_id {
+                                            RespValue::Error("ERR Can't replicate myself".to_string())
+                                        } else if c.get_node(&node_id).is_none() {
+                                            RespValue::Error("ERR I don't know about node ".to_string() + &node_id)
+                                        } else {
+                                            // 设置本节点为指定 master 的 replica
+                                            let mut nodes = c.nodes_write();
+                                            if let Some(node) = nodes.get_mut(&my_id) {
+                                                node.flags.retain(|f| *f != crate::cluster::state::NodeFlag::Master);
+                                                if !node.flags.contains(&crate::cluster::state::NodeFlag::Slave) {
+                                                    node.flags.push(crate::cluster::state::NodeFlag::Slave);
+                                                }
+                                                node.master_id = Some(node_id);
+                                                node.slots = vec![false; crate::cluster::state::CLUSTER_SLOTS];
+                                            }
+                                            drop(nodes);
+                                            RespValue::SimpleString("OK".to_string())
+                                        }
                                     }
                                     Command::ClusterFailover(_) => {
                                         let _my_id = c.myself_id();

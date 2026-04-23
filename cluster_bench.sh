@@ -496,10 +496,20 @@ $REDIS_CLI -p 7001 SET "$FAILOVER_KEY" "$FAILOVER_VAL" >/dev/null 2>&1 || true
 
 PID_7001=${PIDS[0]}
 
+# 通过端口号找到 Windows PID 并杀掉
+kill_by_port() {
+    local port=$1
+    local pid
+    pid=$(netstat -ano 2>/dev/null | grep "LISTENING" | grep ":${port} " | awk '{print $NF}' | head -1)
+    if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+        taskkill //F //PID "$pid" >/dev/null 2>&1 || true
+        return 0
+    fi
+    return 1
+}
+
 log_info "Kill 掉 Master 7001 (PID: $PID_7001)..."
-if [ -n "$PID_7001" ] && kill -0 "$PID_7001" 2>/dev/null; then
-    taskkill //F //PID "$PID_7001" >/dev/null 2>&1 || true
-fi
+kill_by_port 7001
 
 FAILOVER_START=$(date +%s)
 
