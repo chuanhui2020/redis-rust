@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use tokio::io::BufWriter;
 use tokio::net::TcpStream;
 use crate::command::Command;
 use crate::error::Result;
@@ -14,7 +15,7 @@ pub(crate) async fn handle_in_transaction(
     tx_queue: &mut Vec<Command>,
     watched: &mut HashMap<String, u64>,
     tx_storage: &StorageEngine,
-    stream: &mut TcpStream,
+    stream: &mut BufWriter<TcpStream>,
     handler: &ConnectionHandler,
     reply_mode: &mut ReplyMode,
     pubsub: &PubSubManager,
@@ -123,7 +124,7 @@ pub(crate) async fn handle_transaction_init(
     tx_queue: &mut Vec<Command>,
     watched: &mut HashMap<String, u64>,
     tx_storage: &StorageEngine,
-    stream: &mut TcpStream,
+    stream: &mut BufWriter<TcpStream>,
     handler: &ConnectionHandler,
 ) -> Result<bool> {
     match cmd {

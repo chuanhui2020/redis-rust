@@ -640,16 +640,11 @@ impl StorageEngine {
         Self::check_and_remove_expired(&mut map, key);
         let h = match map.get(key) {
             Some(v) => {
-                            Self::check_hash_type(v)?;
-
-                            match v {
-
-                                StorageValue::Hash(h) => h.clone(),
-
-                                _ => unreachable!(),
-
-                            }
-
+                Self::check_hash_type(v)?;
+                match v {
+                    StorageValue::Hash(h) => h,
+                    _ => unreachable!(),
+                }
             }
             None => return Ok(vec![None; fields.len()]),
         };

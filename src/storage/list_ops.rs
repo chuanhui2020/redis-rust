@@ -208,16 +208,11 @@ impl StorageEngine {
         Self::check_and_remove_expired(&mut map, key);
         let list = match map.get(key) {
             Some(v) => {
-                            Self::check_list_type(v)?;
-
-                            match v {
-
-                                StorageValue::List(l) => l.clone(),
-
-                                _ => unreachable!(),
-
-                            }
-
+                Self::check_list_type(v)?;
+                match v {
+                    StorageValue::List(l) => l,
+                    _ => unreachable!(),
+                }
             }
             None => return Ok(vec![]),
         };
@@ -263,16 +258,11 @@ impl StorageEngine {
         Self::check_and_remove_expired(&mut map, key);
         let list = match map.get(key) {
             Some(v) => {
-                            Self::check_list_type(v)?;
-
-                            match v {
-
-                                StorageValue::List(l) => l.clone(),
-
-                                _ => unreachable!(),
-
-                            }
-
+                Self::check_list_type(v)?;
+                match v {
+                    StorageValue::List(l) => l,
+                    _ => unreachable!(),
+                }
             }
             None => return Ok(None),
         };
@@ -640,16 +630,11 @@ impl StorageEngine {
                             Self::check_list_type(v)?;
 
                             let list = match v {
-
-                                StorageValue::List(l) => l.clone(),
-
+                                StorageValue::List(l) => l,
                                 _ => unreachable!(),
-
                             };
 
-
                             let mut result = Vec::new();
-
                             let len = list.len() as i64;
 
                             let check_limit = if maxlen > 0 { maxlen } else { len };

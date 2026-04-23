@@ -86,7 +86,19 @@ async fn handle_bus_connection(
                     let remote_ip = parts[2];
                     let remote_port: u16 = parts[3].parse().unwrap_or(0);
                     let remote_epoch: u64 = parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
-                    
+                    let remote_flags_str = parts.get(5).copied().unwrap_or("master");
+                    let remote_master_id_str = parts.get(6).copied().unwrap_or("-");
+
+                    // 解析 slot 范围
+                    let mut remote_slots = Vec::new();
+                    for i in 7..parts.len() {
+                        super::state::parse_slot_range(parts[i], |slot| {
+                            if slot < super::state::CLUSTER_SLOTS {
+                                remote_slots.push(slot);
+                            }
+                        });
+                    }
+
                     // 如果是未知节点，自动添加到集群状态
                     if cluster.get_node(remote_id).is_none() && remote_port > 0 {
                         let existing_id = cluster.get_nodes().iter()
@@ -105,15 +117,27 @@ async fn handle_bus_connection(
                         cluster.add_node(new_node);
                     }
 
+                    // 更新远程节点的拓扑信息
+                    let remote_flags = super::state::parse_node_flags(remote_flags_str);
+                    let remote_master_id = if remote_master_id_str == "-" { None } else { Some(remote_master_id_str.to_string()) };
+                    cluster.update_node_topology(remote_id, remote_flags, remote_master_id, remote_epoch, remote_slots.clone());
+                    for slot in &remote_slots {
+                        cluster.assign_slot(*slot, remote_id);
+                    }
+
                     // 如果远程 epoch 更高，更新本地 epoch
                     if remote_epoch > cluster.get_current_epoch() {
                         cluster.set_current_epoch(remote_epoch);
                     }
-                    
-                    // 回复 PONG，携带自己的节点信息和当前 epoch
+
+                    // 回复 PONG，携带自己的节点信息、slot 范围
                     let my_node = cluster.myself();
                     if let Some(node) = my_node {
-                        let response = format!("PONG {} {} {} {}\n", node.id, node.ip, node.port, cluster.get_current_epoch());
+                        let my_slots = node.get_slots();
+                        let slot_ranges = super::gossip::format_slot_ranges(&my_slots);
+                        let flags = node.flags_string();
+                        let master_id = node.master_id.clone().unwrap_or_else(|| "-".to_string());
+                        let response = format!("PONG {} {} {} {} {} {} {}\n", node.id, node.ip, node.port, cluster.get_current_epoch(), flags, master_id, slot_ranges);
                         stream.write_all(response.as_bytes()).await?;
                     }
                 }

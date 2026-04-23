@@ -59,11 +59,11 @@ pub fn start_gossip(cluster: Arc<ClusterState>) -> tokio::task::JoinHandle<()> {
 }
 
 /// 向节点的集群总线端口发送 PING
-/// 消息格式：PING <my_node_id> <my_ip> <my_port> <current_epoch>\n
-/// 期望响应：PONG <remote_node_id> <remote_ip> <remote_port> <current_epoch>\n
+/// 消息格式：PING <my_node_id> <my_ip> <my_port> <current_epoch> <flags> <master_id> [slot_ranges...]\n
+/// 期望响应：PONG <remote_node_id> <remote_ip> <remote_port> <current_epoch> <flags> <master_id> [slot_ranges...]\n
 pub async fn send_cluster_ping(
-    ip: &str, 
-    bus_port: u16, 
+    ip: &str,
+    bus_port: u16,
     my_id: &str,
     my_ip: &str,
     my_port: u16,
@@ -72,29 +72,45 @@ pub async fn send_cluster_ping(
     let addr = format!("{}:{}", ip, bus_port);
     let timeout = Duration::from_millis(500);
     let mut stream = tokio::time::timeout(timeout, TcpStream::connect(&addr)).await??;
-    
-    // 发送 PING 消息，携带自己的节点信息和当前 epoch
+
     let epoch = cluster.get_current_epoch();
-    let msg = format!("PING {} {} {} {}\n", my_id, my_ip, my_port, epoch);
+    let my_node = cluster.myself().ok_or("no myself node")?;
+    let flags = my_node.flags_string();
+    let master_id = my_node.master_id.clone().unwrap_or_else(|| "-".to_string());
+    let slot_ranges = format_slot_ranges(&my_node.get_slots());
+
+    let msg = format!("PING {} {} {} {} {} {} {}\n", my_id, my_ip, my_port, epoch, flags, master_id, slot_ranges);
     stream.write_all(msg.as_bytes()).await?;
-    
-    // 读取 PONG 响应
-    let mut buf = [0u8; 256];
+
+    let mut buf = [0u8; 1024];
     let n = tokio::time::timeout(timeout, stream.read(&mut buf)).await??;
     let response = String::from_utf8_lossy(&buf[..n]);
-    
-    // 解析 PONG 响应中的节点信息
+
     if let Some(line) = response.lines().next() {
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 4 && parts[0] == "PONG" {
+        if parts.len() >= 7 && parts[0] == "PONG" {
             let remote_id = parts[1];
             let remote_ip = parts[2];
             let remote_port: u16 = parts[3].parse().unwrap_or(0);
-            let remote_epoch: u64 = parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
-            
-            // 如果远程节点未知，自动添加到集群状态
+            let remote_epoch: u64 = parts[4].parse().unwrap_or(0);
+            let remote_flags_str = parts[5];
+            let remote_master_id_str = parts[6];
+
+            let remote_flags = super::state::parse_node_flags(remote_flags_str);
+            let remote_master_id = if remote_master_id_str == "-" { None } else { Some(remote_master_id_str.to_string()) };
+
+            // 解析 slot 范围
+            let mut remote_slots = Vec::new();
+            for i in 7..parts.len() {
+                super::state::parse_slot_range(parts[i], |slot| {
+                    if slot < super::state::CLUSTER_SLOTS {
+                        remote_slots.push(slot);
+                    }
+                });
+            }
+
+            // 添加或更新远程节点
             if cluster.get_node(remote_id).is_none() && remote_port > 0 {
-                // 检查是否已有相同地址但不同 ID 的节点，避免重复
                 let existing_id = cluster.get_nodes().iter()
                     .find(|n| n.ip == remote_ip && n.port == remote_port)
                     .map(|n| n.id.clone());
@@ -107,16 +123,45 @@ pub async fn send_cluster_ping(
                 cluster.add_node(new_node);
             }
 
-            // 如果远程 epoch 更高，更新本地 epoch
+            // 更新节点拓扑（flags、master_id、slots）
+            cluster.update_node_topology(remote_id, remote_flags, remote_master_id, remote_epoch, remote_slots.clone());
+            for slot in &remote_slots {
+                cluster.assign_slot(*slot, remote_id);
+            }
+
             if remote_epoch > cluster.get_current_epoch() {
                 cluster.set_current_epoch(remote_epoch);
             }
-            
+
             return Ok(());
         }
     }
-    
+
     Err(format!("期望 PONG，收到: {}", response.trim()).into())
+}
+
+/// 将 slot 列表格式化为范围字符串（如 "0-5460 5462"）
+pub fn format_slot_ranges(slots: &[usize]) -> String {
+    if slots.is_empty() {
+        return String::new();
+    }
+    let mut ranges = Vec::new();
+    let mut i = 0;
+    while i < slots.len() {
+        let start = slots[i];
+        let mut end = start;
+        while i + 1 < slots.len() && slots[i + 1] == end + 1 {
+            end += 1;
+            i += 1;
+        }
+        if start == end {
+            ranges.push(start.to_string());
+        } else {
+            ranges.push(format!("{}-{}", start, end));
+        }
+        i += 1;
+    }
+    ranges.join(" ")
 }
 
 /// 广播拓扑更新给所有已知节点（故障转移后使用）

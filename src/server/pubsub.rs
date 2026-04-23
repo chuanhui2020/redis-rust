@@ -1,3 +1,4 @@
+use tokio::io::BufWriter;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use crate::command::Command;
@@ -13,7 +14,7 @@ pub(crate) async fn handle_pubsub_command(
     sub_state: &mut SubscriptionState,
     msg_tx: &mpsc::UnboundedSender<ClientMessage>,
     pubsub: &PubSubManager,
-    stream: &mut TcpStream,
+    stream: &mut BufWriter<TcpStream>,
     handler: &ConnectionHandler,
 ) -> Result<bool> {
     match cmd {
@@ -308,7 +309,7 @@ pub(crate) async fn handle_pubsub_command(
 
 pub(crate) async fn handle_pubsub_message(
     maybe_msg: Option<ClientMessage>,
-    stream: &mut TcpStream,
+    stream: &mut BufWriter<TcpStream>,
     handler: &ConnectionHandler,
 ) -> Result<bool> {
     match maybe_msg {

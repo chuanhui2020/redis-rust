@@ -1,4 +1,4 @@
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::net::TcpStream;
 use crate::protocol::{RespParser, RespValue};
 use crate::command::{CommandParser, CommandExecutor};
@@ -18,7 +18,7 @@ pub struct ConnectionHandler {
 
 /// 将 RESP 值编码并写入流
 pub(crate) async fn write_resp(
-    stream: &mut TcpStream,
+    stream: &mut BufWriter<TcpStream>,
     handler: &ConnectionHandler,
     resp: &RespValue,
 ) -> std::io::Result<()> {
@@ -28,7 +28,7 @@ pub(crate) async fn write_resp(
 
 /// 根据回复模式发送响应
 pub(crate) async fn send_reply(
-    stream: &mut TcpStream,
+    stream: &mut BufWriter<TcpStream>,
     handler: &ConnectionHandler,
     resp: &RespValue,
     reply_mode: &mut ReplyMode,

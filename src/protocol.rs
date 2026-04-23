@@ -1,6 +1,7 @@
 // RESP (REdis Serialization Protocol) 协议解析模块
 
 use bytes::{Buf, Bytes, BytesMut};
+use itoa;
 
 use crate::error::{AppError, Result};
 
@@ -54,7 +55,7 @@ impl RespParser {
 
     /// 编码 RESP 值为字节流
     pub fn encode(&self, value: &RespValue) -> Bytes {
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(64);
         self.encode_to_vec(value, &mut result);
         Bytes::from(result)
     }
@@ -73,17 +74,36 @@ impl RespParser {
         None
     }
 
+    fn parse_integer_from_bytes(buf: &[u8]) -> std::result::Result<i64, AppError> {
+        let mut neg = false;
+        let mut val: i64 = 0;
+        let mut i = 0;
+        if i < buf.len() && buf[i] == b'-' {
+            neg = true;
+            i += 1;
+        }
+        if i >= buf.len() {
+            return Err(AppError::Protocol("整数解析失败: 空".to_string()));
+        }
+        while i < buf.len() {
+            let b = buf[i];
+            if b < b'0' || b > b'9' {
+                return Err(AppError::Protocol(format!("整数解析失败: 非法字符 {}", b as char)));
+            }
+            val = val * 10 + (b - b'0') as i64;
+            i += 1;
+        }
+        Ok(if neg { -val } else { val })
+    }
+
     /// 解析简单字符串：+OK\r\n
     fn parse_simple_string(&self, buf: &mut BytesMut) -> Result<Option<RespValue>> {
-        // 查找 \r\n
         let end = match self.find_crlf(buf, 1) {
             Some(pos) => pos,
-            None => return Ok(None), // 数据不完整
+            None => return Ok(None),
         };
 
-        // 提取字符串内容（跳过开头的 + 和结尾的 \r\n）
         let content = String::from_utf8_lossy(&buf[1..end]).to_string();
-        // 消费已解析的数据
         buf.advance(end + 2);
         Ok(Some(RespValue::SimpleString(content)))
     }
@@ -107,28 +127,20 @@ impl RespParser {
             None => return Ok(None),
         };
 
-        let num_str = String::from_utf8_lossy(&buf[1..end]);
-        let num = num_str
-            .parse::<i64>()
-            .map_err(|e| AppError::Protocol(format!("整数解析失败: {}", e)))?;
+        let num = Self::parse_integer_from_bytes(&buf[1..end])?;
         buf.advance(end + 2);
         Ok(Some(RespValue::Integer(num)))
     }
 
     /// 解析批量字符串：$6\r\nfoobar\r\n 或 $-1\r\n
     fn parse_bulk_string(&self, buf: &mut BytesMut) -> Result<Option<RespValue>> {
-        // 第一步：解析长度行
         let len_end = match self.find_crlf(buf, 1) {
             Some(pos) => pos,
             None => return Ok(None),
         };
 
-        let len_str = String::from_utf8_lossy(&buf[1..len_end]);
-        let len: i64 = len_str
-            .parse()
-            .map_err(|e| AppError::Protocol(format!("批量字符串长度解析失败: {}", e)))?;
+        let len = Self::parse_integer_from_bytes(&buf[1..len_end])?;
 
-        // $-1 表示 Null Bulk String
         if len == -1 {
             buf.advance(len_end + 2);
             return Ok(Some(RespValue::BulkString(None)));
@@ -142,16 +154,13 @@ impl RespParser {
         }
 
         let len = len as usize;
-        // 数据起始位置：长度行之后的 \r\n 之后
         let data_start = len_end + 2;
-        // 数据结束位置：data_start + len + 2（\r\n）
         let total_needed = data_start + len + 2;
 
         if buf.len() < total_needed {
-            return Ok(None); // 数据不完整
+            return Ok(None);
         }
 
-        // 提取数据
         let data = Bytes::copy_from_slice(&buf[data_start..data_start + len]);
         buf.advance(total_needed);
         Ok(Some(RespValue::BulkString(Some(data))))
@@ -159,18 +168,13 @@ impl RespParser {
 
     /// 解析数组：*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n 或 *-1\r\n
     fn parse_array(&self, buf: &mut BytesMut) -> Result<Option<RespValue>> {
-        // 第一步：解析数组长度行
         let len_end = match self.find_crlf(buf, 1) {
             Some(pos) => pos,
             None => return Ok(None),
         };
 
-        let len_str = String::from_utf8_lossy(&buf[1..len_end]);
-        let len: i64 = len_str
-            .parse()
-            .map_err(|e| AppError::Protocol(format!("数组长度解析失败: {}", e)))?;
+        let len = Self::parse_integer_from_bytes(&buf[1..len_end])?;
 
-        // *-1 表示 Null Array
         if len == -1 {
             buf.advance(len_end + 2);
             return Ok(Some(RespValue::Array(vec![])));
@@ -184,18 +188,14 @@ impl RespParser {
         }
 
         let len = len as usize;
-        // 先备份缓冲区，待所有元素确认完整后再真正消费
         let original_buf = buf.clone();
-        // 消费掉数组头部
         buf.advance(len_end + 2);
 
-        // 逐个解析数组元素
         let mut elements = Vec::with_capacity(len);
         for _ in 0..len {
             match self.parse(buf)? {
                 Some(value) => elements.push(value),
                 None => {
-                    // 数据不完整，恢复缓冲区，等待下次读取更多数据
                     *buf = original_buf;
                     return Ok(None);
                 }
@@ -238,6 +238,7 @@ impl RespParser {
     // ---------- 编码内部方法 ----------
 
     fn encode_to_vec(&self, value: &RespValue, out: &mut Vec<u8>) {
+        let mut itoa_buf = itoa::Buffer::new();
         match value {
             RespValue::SimpleString(s) => {
                 out.push(b'+');
@@ -251,7 +252,7 @@ impl RespParser {
             }
             RespValue::Integer(i) => {
                 out.push(b':');
-                out.extend_from_slice(i.to_string().as_bytes());
+                out.extend_from_slice(itoa_buf.format(*i).as_bytes());
                 out.extend_from_slice(b"\r\n");
             }
             RespValue::BulkString(None) => {
@@ -259,14 +260,14 @@ impl RespParser {
             }
             RespValue::BulkString(Some(data)) => {
                 out.push(b'$');
-                out.extend_from_slice(data.len().to_string().as_bytes());
+                out.extend_from_slice(itoa_buf.format(data.len()).as_bytes());
                 out.extend_from_slice(b"\r\n");
                 out.extend_from_slice(data);
                 out.extend_from_slice(b"\r\n");
             }
             RespValue::Array(arr) => {
                 out.push(b'*');
-                out.extend_from_slice(arr.len().to_string().as_bytes());
+                out.extend_from_slice(itoa_buf.format(arr.len()).as_bytes());
                 out.extend_from_slice(b"\r\n");
                 for item in arr {
                     self.encode_to_vec(item, out);

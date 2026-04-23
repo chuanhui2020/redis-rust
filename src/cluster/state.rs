@@ -122,7 +122,7 @@ pub struct ClusterState {
     /// 所有已知节点（node_id -> ClusterNode）
     nodes: RwLock<HashMap<String, ClusterNode>>,
     /// slot 分配表：slot_index -> node_id
-    slot_assignment: RwLock<[Option<String>; CLUSTER_SLOTS]>,
+    slot_assignment: RwLock<Box<[Option<String>; CLUSTER_SLOTS]>>,
     /// 当前 epoch
     current_epoch: RwLock<u64>,
     /// 集群是否处于 OK 状态
@@ -146,7 +146,7 @@ impl ClusterState {
         Self {
             myself_id: RwLock::new(my_id),
             nodes: RwLock::new(nodes),
-            slot_assignment: RwLock::new([const { None }; CLUSTER_SLOTS]),
+            slot_assignment: RwLock::new(Box::new([const { None }; CLUSTER_SLOTS])),
             current_epoch: RwLock::new(0),
             cluster_ok: RwLock::new(false),
             importing_slots: RwLock::new(HashMap::new()),
@@ -468,8 +468,15 @@ impl ClusterState {
 
     /// 更新节点拓扑信息（从总线 UPDATE 消息使用）
     pub fn update_node_topology(&self, node_id: &str, flags: Vec<NodeFlag>, master_id: Option<String>, epoch: u64, slots: Vec<usize>) {
+        let my_id = self.myself_id();
+        if node_id == my_id {
+            return;
+        }
         let mut nodes = self.nodes.write().unwrap();
         if let Some(node) = nodes.get_mut(node_id) {
+            if epoch < node.config_epoch {
+                return;
+            }
             node.flags = flags;
             node.master_id = master_id;
             node.config_epoch = epoch;

@@ -14,3 +14,4 @@ rand = "0.8"
 mlua = { version = "0.9", features = ["lua54", "vendored"] }
 sha1 = "0.10"
 crc32fast = "1.3"
+itoa = "1"

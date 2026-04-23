@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use bytes::{Bytes, BytesMut};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc};
 use crate::aof::AofWriter;
@@ -414,7 +414,7 @@ async fn run_replica_forward_loop(
 
 /// 处理单个客户端连接
 pub(crate) async fn handle_connection(
-    mut stream: TcpStream,
+    stream: TcpStream,
     peer_addr: String,
     mut storage: StorageEngine,
     aof: Option<Arc<Mutex<AofWriter>>>,
@@ -501,6 +501,7 @@ pub(crate) async fn handle_connection(
 
     // 使用 BytesMut 作为读取缓冲区
     let mut buf = BytesMut::with_capacity(4096);
+    let mut stream = BufWriter::new(stream);
 
     // 订阅状态
     let (msg_tx, mut msg_rx) = mpsc::unbounded_channel::<ClientMessage>();
@@ -1129,6 +1130,7 @@ pub(crate) async fn handle_connection(
                             Command::Quit => {
                                 let resp = RespValue::SimpleString("OK".to_string());
                                 let _ = write_resp(&mut stream, &handler, &resp).await;
+                                let _ = stream.flush().await;
                                 return Ok(());
                             }
                             Command::CommandInfo | Command::CommandCount | Command::CommandList(_) | Command::CommandDocs(_) | Command::CommandGetKeys(_) => {
@@ -2009,10 +2011,11 @@ pub(crate) async fn handle_connection(
                                 if let Err(_e) = write_resp(&mut stream, &handler, &resp).await {
                                     return Ok(());
                                 }
+                                let _ = stream.flush().await;
                                 let mut monitor_rx = monitor_tx.subscribe();
                                 loop {
                                     tokio::select! {
-                                        result = stream.read_buf(&mut buf) => {
+                                        result = stream.get_mut().read_buf(&mut buf) => {
                                             match result {
                                                 Ok(0) => return Ok(()),
                                                 Ok(_) => {}
@@ -2026,6 +2029,7 @@ pub(crate) async fn handle_connection(
                                                     if let Err(_e) = write_resp(&mut stream, &handler, &resp).await {
                                                         return Ok(());
                                                     }
+                                                    let _ = stream.flush().await;
                                                 }
                                                 Err(broadcast::error::RecvError::Closed) => return Ok(()),
                                                 Err(broadcast::error::RecvError::Lagged(_)) => {}
@@ -2137,7 +2141,8 @@ pub(crate) async fn handle_connection(
                                                                 return Ok(());
                                                             }
                                                         }
-                                                        return run_replica_forward_loop(stream, repl, &peer_addr, replica_listening_port).await;
+                                                        let _ = stream.flush().await;
+                                                        return run_replica_forward_loop(stream.into_inner(), repl, &peer_addr, replica_listening_port).await;
                                                     }
                                                 }
                                             }
@@ -2151,10 +2156,11 @@ pub(crate) async fn handle_connection(
                                             log::error!("写入响应失败: {}", e);
                                             return Ok(());
                                         }
-                                        
+
                                         // 检测到 FULLRESYNC 响应后发送 RDB 数据
                                         if let RespValue::SimpleString(ref s) = response {
                                             if s.starts_with("FULLRESYNC") {
+                                                let _ = stream.flush().await;
                                                 let mut rdb_buf = Vec::new();
                                                 let repl_id = replication.as_ref().map(|repl| repl.get_master_replid());
                                                 let repl_offset = replication.as_ref().map(|repl| repl.get_master_repl_offset());
@@ -2185,7 +2191,8 @@ pub(crate) async fn handle_connection(
                                                             return Ok(());
                                                         }
                                                     }
-                                                    return run_replica_forward_loop(stream, repl, &peer_addr, replica_listening_port).await;
+                                                    let _ = stream.flush().await;
+                                                    return run_replica_forward_loop(stream.into_inner(), repl, &peer_addr, replica_listening_port).await;
                                                 }
                                             }
                                         }
@@ -2218,6 +2225,12 @@ pub(crate) async fn handle_connection(
         }
         } // end inner pipeline loop
 
+        // pipeline 内循环结束，flush 缓冲区
+        if let Err(e) = stream.flush().await {
+            log::error!("flush 失败: {}", e);
+            return Ok(());
+        }
+
         // 缓冲区中数据不完整，需要从网络读取更多数据
         if buf.capacity() - buf.len() < 1024 {
             buf.reserve(4096);
@@ -2226,7 +2239,7 @@ pub(crate) async fn handle_connection(
         if is_subscribed {
             // 订阅模式下需要同时监听网络和订阅消息
             tokio::select! {
-                result = stream.read_buf(&mut buf) => {
+                result = stream.get_mut().read_buf(&mut buf) => {
                     match result {
                         Ok(0) => {
                             log::debug!("客户端发送 EOF，关闭连接");
@@ -2253,10 +2266,11 @@ pub(crate) async fn handle_connection(
                     if !super::pubsub::handle_pubsub_message(maybe_msg, &mut stream, &handler).await? {
                         return Ok(());
                     }
+                    let _ = stream.flush().await;
                 }
             }
         } else {
-            let bytes_read = match stream.read_buf(&mut buf).await {
+            let bytes_read = match stream.get_mut().read_buf(&mut buf).await {
                 Ok(0) => {
                     log::debug!("客户端发送 EOF，关闭连接");
                     return Ok(());
