@@ -357,38 +357,38 @@ fi
 
 # 4.4 Replica 读取
 log_info "测试：Replica 读取..."
-REPLICA_KEY="replica_test_{a}"
 REPLICA_VAL="replica_test_value"
-# 用 {a} 保证 key 落在 7001 的 slot 范围内（slot 15495 -> 但不确定，用 KEYSLOT 检查）
-# 直接写到 7001 并从 7004 读
+# 找一个落在 7001 slot 范围 (0-5460) 的 key
+REPLICA_KEY=""
+for i in $(seq 0 100); do
+    tkey="replica_key_$i"
+    tslot=$($REDIS_CLI -p 7001 CLUSTER KEYSLOT "$tkey" 2>/dev/null | tr -d '\r')
+    if [ -n "$tslot" ] && [ "$tslot" -le 5460 ] 2>/dev/null; then
+        REPLICA_KEY="$tkey"
+        break
+    fi
+done
+if [ -z "$REPLICA_KEY" ]; then
+    REPLICA_KEY="replica_key_0"
+fi
+# 直接写到 7001
 $REDIS_CLI -p 7001 SET "$REPLICA_KEY" "$REPLICA_VAL" >/dev/null 2>&1 || true
-sleep 2
-# 从 replica 读取（需要 READONLY）
-$REDIS_CLI -p 7004 READONLY >/dev/null 2>&1 || true
-replica_val=$($REDIS_CLI -p 7004 GET "$REPLICA_KEY" 2>/dev/null | tr -d '\r' || true)
+sleep 3
+# 从 replica 7004 读取（READONLY 和 GET 必须在同一连接中）
+replica_val=$(printf "READONLY\r\nGET %s\r\n" "$REPLICA_KEY" | $REDIS_CLI -p 7004 2>/dev/null | tail -1 | tr -d '\r')
 if [ "$replica_val" = "$REPLICA_VAL" ]; then
     log_ok "Replica 读取"
     record_result "Replica 读取" "PASS"
 else
-    # key 可能 MOVED 到其他 master，尝试用 follow_redirect 写到正确节点再从对应 replica 读
-    follow_redirect 7001 SET "$REPLICA_KEY" "$REPLICA_VAL" >/dev/null 2>&1 || true
-    sleep 2
-    # 尝试从所有 replica 读
-    REPLICA_READ_OK=false
-    for rport in 7004 7005 7006; do
-        $REDIS_CLI -p "$rport" READONLY >/dev/null 2>&1 || true
-        rv=$($REDIS_CLI -p "$rport" GET "$REPLICA_KEY" 2>/dev/null | tr -d '\r' || true)
-        if [ "$rv" = "$REPLICA_VAL" ]; then
-            REPLICA_READ_OK=true
-            break
-        fi
-    done
-    if [ "$REPLICA_READ_OK" = true ]; then
+    # 重试
+    sleep 3
+    replica_val=$($REDIS_CLI -p 7004 GET "$REPLICA_KEY" 2>/dev/null | tr -d '\r' || true)
+    if [ "$replica_val" = "$REPLICA_VAL" ]; then
         log_ok "Replica 读取"
         record_result "Replica 读取" "PASS"
     else
-        log_warn "Replica 读取 - 复制延迟或 MOVED"
-        record_result "Replica 读取" "PASS"
+        log_error "Replica 读取 - 值不匹配 (got: '$replica_val', expect: '$REPLICA_VAL')"
+        record_result "Replica 读取" "FAIL"
     fi
 fi
 
