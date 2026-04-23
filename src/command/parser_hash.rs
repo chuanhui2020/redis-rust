@@ -437,5 +437,104 @@ impl CommandParser {
         Ok(Command::HPersist(key, fields))
     }
 
+    /// 解析 HGETDEL 命令：HGETDEL key field [field ...]
+    pub(crate) fn parse_hgetdel(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 3 {
+            return Err(AppError::Command(
+                "HGETDEL 命令需要至少 2 个参数".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let fields: Vec<String> = arr[2..]
+            .iter()
+            .map(|v| self.extract_string(v))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Command::HGetDel(key, fields))
+    }
+
+    /// 解析 HGETEX 命令：HGETEX key [EX seconds|PX milliseconds|EXAT timestamp|PXAT ms-timestamp|PERSIST] field [field ...]
+    pub(crate) fn parse_hgetex(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 3 {
+            return Err(AppError::Command(
+                "HGETEX 命令需要至少 2 个参数".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        // 检查 arr[2] 是否为过期选项
+        let opt_str = self.extract_string(&arr[2])?.to_ascii_uppercase();
+        let (option, fields_start) = match opt_str.as_str() {
+            "EX" => {
+                if arr.len() < 5 {
+                    return Err(AppError::Command("HGETEX EX 需要秒数参数和至少一个 field".to_string()));
+                }
+                let seconds: u64 = self.extract_string(&arr[3])?.parse().map_err(|_| {
+                    AppError::Command("HGETEX EX 值必须是正整数".to_string())
+                })?;
+                (GetExOption::Ex(seconds), 4)
+            }
+            "PX" => {
+                if arr.len() < 5 {
+                    return Err(AppError::Command("HGETEX PX 需要毫秒数参数和至少一个 field".to_string()));
+                }
+                let ms: u64 = self.extract_string(&arr[3])?.parse().map_err(|_| {
+                    AppError::Command("HGETEX PX 值必须是正整数".to_string())
+                })?;
+                (GetExOption::Px(ms), 4)
+            }
+            "EXAT" => {
+                if arr.len() < 5 {
+                    return Err(AppError::Command("HGETEX EXAT 需要时间戳参数和至少一个 field".to_string()));
+                }
+                let ts: u64 = self.extract_string(&arr[3])?.parse().map_err(|_| {
+                    AppError::Command("HGETEX EXAT 值必须是正整数".to_string())
+                })?;
+                (GetExOption::ExAt(ts), 4)
+            }
+            "PXAT" => {
+                if arr.len() < 5 {
+                    return Err(AppError::Command("HGETEX PXAT 需要毫秒时间戳参数和至少一个 field".to_string()));
+                }
+                let ts: u64 = self.extract_string(&arr[3])?.parse().map_err(|_| {
+                    AppError::Command("HGETEX PXAT 值必须是正整数".to_string())
+                })?;
+                (GetExOption::PxAt(ts), 4)
+            }
+            "PERSIST" => {
+                if arr.len() < 4 {
+                    return Err(AppError::Command("HGETEX PERSIST 需要至少一个 field".to_string()));
+                }
+                (GetExOption::Persist, 3)
+            }
+            _ => {
+                // 无选项，arr[2..] 全部为 field
+                (GetExOption::Persist, 2)
+            }
+        };
+        let fields: Vec<String> = arr[fields_start..]
+            .iter()
+            .map(|v| self.extract_string(v))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Command::HGetEx(key, option, fields))
+    }
+
+    /// 解析 HSETEX 命令：HSETEX key seconds field value [field value ...]
+    pub(crate) fn parse_hsetex(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 5 || (arr.len() - 3) % 2 != 0 {
+            return Err(AppError::Command(
+                "HSETEX 命令需要 key、seconds 以及成对的 field value 参数".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let seconds: u64 = self.extract_string(&arr[2])?.parse().map_err(|_| {
+            AppError::Command("HSETEX 的 seconds 必须是正整数".to_string())
+        })?;
+        let mut pairs = Vec::new();
+        for i in (3..arr.len()).step_by(2) {
+            let field = self.extract_string(&arr[i])?;
+            let value = self.extract_bytes(&arr[i + 1])?;
+            pairs.push((field, value));
+        }
+        Ok(Command::HSetEx(key, seconds, pairs))
+    }
 
 }

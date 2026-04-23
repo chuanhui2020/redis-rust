@@ -216,3 +216,54 @@ pub(crate) fn execute_h_persist(executor: &CommandExecutor, key: String, fields:
                 Ok(RespValue::Array(arr))
 }
 
+pub(crate) fn execute_h_get_del(executor: &CommandExecutor, key: String, fields: Vec<String>) -> Result<RespValue> {
+                // 对每个 field 先 hget 获取值，然后 hdel 删除
+                let mut values = Vec::new();
+                for field in &fields {
+                    let val = executor.storage.hget(&key, field)?;
+                    values.push(RespValue::BulkString(val));
+                }
+                executor.storage.hdel(&key, &fields)?;
+                Ok(RespValue::Array(values))
+}
+
+pub(crate) fn execute_h_get_ex(executor: &CommandExecutor, key: String, opt: GetExOption, fields: Vec<String>) -> Result<RespValue> {
+                // 先获取所有字段值
+                let values = executor.storage.hmget(&key, &fields)?;
+                let resp_values: Vec<RespValue> = values
+                    .into_iter()
+                    .map(RespValue::BulkString)
+                    .collect();
+                // 根据选项设置过期时间
+                match opt {
+                    GetExOption::Persist => {
+                        executor.storage.hpersist(&key, &fields)?;
+                    }
+                    GetExOption::Ex(seconds) => {
+                        executor.storage.hexpire(&key, &fields, seconds)?;
+                    }
+                    GetExOption::Px(ms) => {
+                        executor.storage.hpexpire(&key, &fields, ms)?;
+                    }
+                    GetExOption::ExAt(ts) => {
+                        executor.storage.hexpireat(&key, &fields, ts)?;
+                    }
+                    GetExOption::PxAt(ts) => {
+                        executor.storage.hpexpireat(&key, &fields, ts)?;
+                    }
+                }
+                Ok(RespValue::Array(resp_values))
+}
+
+pub(crate) fn execute_h_set_ex(executor: &CommandExecutor, key: String, seconds: u64, pairs: Vec<(String, Bytes)>) -> Result<RespValue> {
+                // 先 hset 设置字段
+                let mut count = 0i64;
+                for (field, value) in &pairs {
+                    count += executor.storage.hset(&key, field.clone(), value.clone())?;
+                }
+                // 然后 hexpire 设置过期时间
+                let fields: Vec<String> = pairs.into_iter().map(|(f, _)| f).collect();
+                executor.storage.hexpire(&key, &fields, seconds)?;
+                Ok(RespValue::Integer(count))
+}
+

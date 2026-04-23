@@ -320,3 +320,64 @@ pub(crate) fn to_resp_h_persist(cmd: &Command) -> RespValue {
     }
 }
 
+pub(crate) fn to_resp_h_get_del(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::HGetDel(key, fields) => {
+                let mut parts = vec![bulk("HGETDEL"), bulk(key)];
+                for f in fields {
+                    parts.push(bulk(f));
+                }
+                RespValue::Array(parts)
+        }
+        _ => unreachable!(),
+    }
+}
+
+pub(crate) fn to_resp_h_get_ex(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::HGetEx(key, opt, fields) => {
+                let mut parts = vec![bulk("HGETEX"), bulk(key)];
+                match opt {
+                    GetExOption::Persist => {
+                        parts.push(bulk("PERSIST"));
+                    }
+                    GetExOption::Ex(s) => {
+                        parts.push(bulk("EX"));
+                        parts.push(bulk(&s.to_string()));
+                    }
+                    GetExOption::Px(ms) => {
+                        parts.push(bulk("PX"));
+                        parts.push(bulk(&ms.to_string()));
+                    }
+                    GetExOption::ExAt(ts) => {
+                        parts.push(bulk("EXAT"));
+                        parts.push(bulk(&ts.to_string()));
+                    }
+                    GetExOption::PxAt(ts) => {
+                        parts.push(bulk("PXAT"));
+                        parts.push(bulk(&ts.to_string()));
+                    }
+                }
+                for f in fields {
+                    parts.push(bulk(f));
+                }
+                RespValue::Array(parts)
+        }
+        _ => unreachable!(),
+    }
+}
+
+pub(crate) fn to_resp_h_set_ex(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::HSetEx(key, seconds, pairs) => {
+                let mut parts = vec![bulk("HSETEX"), bulk(key), bulk(&seconds.to_string())];
+                for (field, value) in pairs {
+                    parts.push(bulk(field));
+                    parts.push(bulk_bytes(value));
+                }
+                RespValue::Array(parts)
+        }
+        _ => unreachable!(),
+    }
+}
+

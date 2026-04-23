@@ -99,6 +99,9 @@ impl Command {
             Command::HExpireTime(..) => resp_hash::to_resp_h_expire_time(self),
             Command::HPExpireTime(..) => resp_hash::to_resp_h_p_expire_time(self),
             Command::HPersist(..) => resp_hash::to_resp_h_persist(self),
+            Command::HGetDel(..) => resp_hash::to_resp_h_get_del(self),
+            Command::HGetEx(..) => resp_hash::to_resp_h_get_ex(self),
+            Command::HSetEx(..) => resp_hash::to_resp_h_set_ex(self),
             Command::SAdd(..) => resp_set::to_resp_s_add(self),
             Command::SRem(..) => resp_set::to_resp_s_rem(self),
             Command::SMembers(..) => resp_set::to_resp_s_members(self),
@@ -1017,6 +1020,9 @@ impl Command {
                 | Command::HExpireAt(_, _, _)
                 | Command::HPExpireAt(_, _, _)
                 | Command::HPersist(_, _)
+                | Command::HGetDel(_, _)
+                | Command::HGetEx(_, _, _)
+                | Command::HSetEx(_, _, _)
                 | Command::SAdd(_, _)
                 | Command::SRem(_, _)
                 | Command::SPop(_, _)

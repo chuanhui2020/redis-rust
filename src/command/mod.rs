@@ -183,6 +183,12 @@ pub enum Command {
     HPExpireTime(String, Vec<String>),
     /// HPERSIST key field [field ...]
     HPersist(String, Vec<String>),
+    /// HGETDEL key field [field ...]
+    HGetDel(String, Vec<String>),
+    /// HGETEX key [EX seconds|PX milliseconds|EXAT timestamp|PXAT ms-timestamp|PERSIST] field [field ...]
+    HGetEx(String, GetExOption, Vec<String>),
+    /// HSETEX key seconds field value [field value ...]
+    HSetEx(String, u64, Vec<(String, Bytes)>),
     /// SADD key member [member ...]
     SAdd(String, Vec<Bytes>),
     /// SREM key member [member ...]
