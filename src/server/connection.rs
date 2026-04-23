@@ -762,7 +762,19 @@ pub(crate) async fn handle_connection(
                                             RespValue::Integer(0)
                                         }
                                     }
-                                    Command::SentinelSet { .. } => {
+                                    Command::SentinelSet { name, option, value } => {
+                                        match option.to_lowercase().as_str() {
+                                            "down-after-milliseconds" => {
+                                                if let Ok(ms) = value.parse::<u64>() {
+                                                    s.set_down_after_ms(&name, ms);
+                                                }
+                                            }
+                                            "failover-timeout" => {
+                                                // TODO: 实现 failover-timeout 设置
+                                            }
+                                            _ => {}
+                                        }
+                                        let _ = s.save_config();
                                         RespValue::SimpleString("OK".to_string())
                                     }
                                     Command::SentinelFailover(_) => {

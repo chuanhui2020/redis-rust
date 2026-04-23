@@ -181,7 +181,7 @@ sleep 1
 
 log_info "配置 Sentinel 监控..."
 for port in "${SENTINEL_PORTS[@]}"; do
-    $REDIS_CLI -p "$port" SENTINEL MONITOR mymaster 127.0.0.1 "$MASTER_PORT" 2 >/dev/null 2>&1 || true
+    $REDIS_CLI -p "$port" SENTINEL MONITOR mymaster 127.0.0.1 "$MASTER_PORT" 1 >/dev/null 2>&1 || true
     $REDIS_CLI -p "$port" SENTINEL SET mymaster down-after-milliseconds 5000 >/dev/null 2>&1 || true
     $REDIS_CLI -p "$port" SENTINEL SET mymaster failover-timeout 10000 >/dev/null 2>&1 || true
     log_info "Sentinel $port 配置完成"
