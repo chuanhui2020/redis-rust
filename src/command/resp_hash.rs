@@ -25,6 +25,15 @@ pub(crate) fn to_resp_h_get(cmd: &Command) -> RespValue {
     }
 }
 
+pub(crate) fn to_resp_h_str_len(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::HStrLen(key, field) => {
+                RespValue::Array(vec![bulk("HSTRLEN"), bulk(key), bulk(field)])
+        }
+        _ => unreachable!(),
+    }
+}
+
 pub(crate) fn to_resp_h_del(cmd: &Command) -> RespValue {
     match cmd {
         Command::HDel(key, fields) => {

@@ -660,8 +660,10 @@ impl CommandExecutor {
             }
             Command::Lmpop(keys, left, count) => executor_list::execute_lmpop(self, keys, left, count),
             Command::Sort(key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha, store_key) => executor_admin::execute_sort(self, key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha, store_key),
+            Command::SortRo(key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha) => executor_admin::execute_sort_ro(self, key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha),
             Command::Unlink(keys) => executor_admin::execute_unlink(self, keys),
             Command::Copy(source, destination, replace) => executor_admin::execute_copy(self, source, destination, replace),
+            Command::Move(key, db) => executor_admin::execute_move(self, key, db),
             Command::Dump(key) => executor_admin::execute_dump(self, key),
             Command::Restore(key, ttl_ms, serialized, replace) => executor_admin::execute_restore(self, key, ttl_ms, serialized, replace),
             Command::MGet(keys) => executor_string::execute_m_get(self, keys),
@@ -684,6 +686,8 @@ impl CommandExecutor {
             Command::StrLen(key) => executor_string::execute_str_len(self, key),
             Command::LPush(key, values) => executor_list::execute_l_push(self, key, values),
             Command::RPush(key, values) => executor_list::execute_r_push(self, key, values),
+            Command::LPushX(key, values) => executor_list::execute_l_push_x(self, key, values),
+            Command::RPushX(key, values) => executor_list::execute_r_push_x(self, key, values),
             Command::LPop(key) => executor_list::execute_l_pop(self, key),
             Command::RPop(key) => executor_list::execute_r_pop(self, key),
             Command::LLen(key) => executor_list::execute_l_len(self, key),
@@ -717,6 +721,7 @@ impl CommandExecutor {
             }
             Command::HSet(key, pairs) => executor_hash::execute_h_set(self, key, pairs),
             Command::HGet(key, field) => executor_hash::execute_h_get(self, key, field),
+            Command::HStrLen(key, field) => executor_hash::execute_h_str_len(self, key, field),
             Command::HDel(key, fields) => executor_hash::execute_h_del(self, key, fields),
             Command::HExists(key, field) => executor_hash::execute_h_exists(self, key, field),
             Command::HGetAll(key) => executor_hash::execute_h_get_all(self, key),
@@ -771,10 +776,14 @@ impl CommandExecutor {
             Command::ZInterStore(destination, keys, weights, aggregate) => executor_zset::execute_z_inter_store(self, destination, keys, weights, aggregate),
             Command::ZScan(key, cursor, pattern, count) => executor_zset::execute_z_scan(self, key, cursor, pattern, count),
             Command::ZRangeByLex(key, min, max) => executor_zset::execute_z_range_by_lex(self, key, min, max),
+            Command::ZRemRangeByLex(key, min, max) => executor_zset::execute_z_rem_range_by_lex(self, key, min, max),
+            Command::ZRemRangeByRank(key, start, stop) => executor_zset::execute_z_rem_range_by_rank(self, key, start, stop),
+            Command::ZRemRangeByScore(key, min, max) => executor_zset::execute_z_rem_range_by_score(self, key, min, max),
             Command::SInterCard(keys, limit) => {
                 let count = self.storage.sintercard(&keys, limit)?;
                 Ok(RespValue::Integer(count as i64))
             }
+            Command::ZInterCard(keys, limit) => executor_zset::execute_z_inter_card(self, keys, limit),
             Command::SMisMember(key, members) => {
                 let result = self.storage.smismember(&key, &members)?;
                 let arr: Vec<RespValue> = result.into_iter().map(RespValue::Integer).collect();

@@ -37,6 +37,38 @@ impl CommandParser {
     }
 
 
+    /// 解析 LPUSHX 命令：LPUSHX key value [value ...]
+    pub(crate) fn parse_lpushx(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 3 {
+            return Err(AppError::Command(
+                "LPUSHX 命令需要至少 2 个参数".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let values = arr[2..]
+            .iter()
+            .map(|v| self.extract_bytes(v))
+            .collect::<Result<Vec<Bytes>>>()?;
+        Ok(Command::LPushX(key, values))
+    }
+
+
+    /// 解析 RPUSHX 命令：RPUSHX key value [value ...]
+    pub(crate) fn parse_rpushx(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 3 {
+            return Err(AppError::Command(
+                "RPUSHX 命令需要至少 2 个参数".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let values = arr[2..]
+            .iter()
+            .map(|v| self.extract_bytes(v))
+            .collect::<Result<Vec<Bytes>>>()?;
+        Ok(Command::RPushX(key, values))
+    }
+
+
     /// 解析 LPOP 命令：LPOP key
     pub(crate) fn parse_lpop(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {

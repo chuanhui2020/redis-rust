@@ -29,6 +29,22 @@ pub(crate) fn execute_r_push(executor: &CommandExecutor, key: String, values: Ve
                 Ok(RespValue::Integer(len as i64))
 }
 
+pub(crate) fn execute_l_push_x(executor: &CommandExecutor, key: String, values: Vec<Bytes>) -> Result<RespValue> {
+                if !executor.storage.exists(&key)? {
+                    return Ok(RespValue::Integer(0));
+                }
+                let len = executor.storage.lpush(&key, values)?;
+                Ok(RespValue::Integer(len as i64))
+}
+
+pub(crate) fn execute_r_push_x(executor: &CommandExecutor, key: String, values: Vec<Bytes>) -> Result<RespValue> {
+                if !executor.storage.exists(&key)? {
+                    return Ok(RespValue::Integer(0));
+                }
+                let len = executor.storage.rpush(&key, values)?;
+                Ok(RespValue::Integer(len as i64))
+}
+
 pub(crate) fn execute_l_pop(executor: &CommandExecutor, key: String) -> Result<RespValue> {
                 match executor.storage.lpop(&key)? {
                     Some(value) => Ok(RespValue::BulkString(Some(value))),

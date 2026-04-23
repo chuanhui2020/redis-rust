@@ -36,6 +36,19 @@ impl CommandParser {
     }
 
 
+    /// 解析 HSTRLEN 命令：HSTRLEN key field
+    pub(crate) fn parse_hstrlen(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() != 3 {
+            return Err(AppError::Command(
+                "HSTRLEN 命令需要 2 个参数".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let field = self.extract_string(&arr[2])?;
+        Ok(Command::HStrLen(key, field))
+    }
+
+
     /// 解析 HDEL 命令：HDEL key field [field ...]
     pub(crate) fn parse_hdel(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 3 {

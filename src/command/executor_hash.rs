@@ -19,6 +19,13 @@ pub(crate) fn execute_h_get(executor: &CommandExecutor, key: String, field: Stri
                 }
 }
 
+pub(crate) fn execute_h_str_len(executor: &CommandExecutor, key: String, field: String) -> Result<RespValue> {
+                match executor.storage.hget(&key, &field)? {
+                    Some(value) => Ok(RespValue::Integer(value.len() as i64)),
+                    None => Ok(RespValue::Integer(0)),
+                }
+}
+
 pub(crate) fn execute_h_del(executor: &CommandExecutor, key: String, fields: Vec<String>) -> Result<RespValue> {
                 let count = executor.storage.hdel(&key, &fields)?;
                 Ok(RespValue::Integer(count))

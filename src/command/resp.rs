@@ -60,6 +60,8 @@ impl Command {
             Command::StrLen(..) => resp_string::to_resp_str_len(self),
             Command::LPush(..) => resp_list::to_resp_l_push(self),
             Command::RPush(..) => resp_list::to_resp_r_push(self),
+            Command::LPushX(..) => resp_list::to_resp_l_push_x(self),
+            Command::RPushX(..) => resp_list::to_resp_r_push_x(self),
             Command::LPop(..) => resp_list::to_resp_l_pop(self),
             Command::RPop(..) => resp_list::to_resp_r_pop(self),
             Command::LLen(..) => resp_list::to_resp_l_len(self),
@@ -74,6 +76,7 @@ impl Command {
             Command::BRPop(..) => resp_list::to_resp_b_r_pop(self),
             Command::HSet(..) => resp_hash::to_resp_h_set(self),
             Command::HGet(..) => resp_hash::to_resp_h_get(self),
+            Command::HStrLen(..) => resp_hash::to_resp_h_str_len(self),
             Command::HDel(..) => resp_hash::to_resp_h_del(self),
             Command::HExists(..) => resp_hash::to_resp_h_exists(self),
             Command::HGetAll(..) => resp_hash::to_resp_h_get_all(self),
@@ -128,8 +131,22 @@ impl Command {
             Command::ZInterStore(..) => resp_zset::to_resp_z_inter_store(self),
             Command::ZScan(..) => resp_zset::to_resp_z_scan(self),
             Command::ZRangeByLex(..) => resp_zset::to_resp_z_range_by_lex(self),
+            Command::ZRemRangeByLex(..) => resp_zset::to_resp_z_rem_range_by_lex(self),
+            Command::ZRemRangeByRank(..) => resp_zset::to_resp_z_rem_range_by_rank(self),
+            Command::ZRemRangeByScore(..) => resp_zset::to_resp_z_rem_range_by_score(self),
             Command::SInterCard(keys, limit) => {
                 let mut parts = vec![bulk("SINTERCARD"), bulk(&keys.len().to_string())];
+                for key in keys {
+                    parts.push(bulk(key));
+                }
+                if *limit > 0 {
+                    parts.push(bulk("LIMIT"));
+                    parts.push(bulk(&limit.to_string()));
+                }
+                RespValue::Array(parts)
+            }
+            Command::ZInterCard(keys, limit) => {
+                let mut parts = vec![bulk("ZINTERCARD"), bulk(&keys.len().to_string())];
                 for key in keys {
                     parts.push(bulk(key));
                 }
@@ -522,9 +539,17 @@ impl Command {
                 parts.push(bulk("ASC"));
                 RespValue::Array(parts)
             }
+            Command::SortRo(key, _, _, _, _, _, _) => {
+                let mut parts = vec![bulk("SORT_RO"), bulk(key)];
+                parts.push(bulk("ASC"));
+                RespValue::Array(parts)
+            }
             Command::Unlink(..) => resp_admin::to_resp_unlink(self),
             Command::Copy(source, destination, _) => {
                 RespValue::Array(vec![bulk("COPY"), bulk(source), bulk(destination)])
+            }
+            Command::Move(key, db) => {
+                RespValue::Array(vec![bulk("MOVE"), bulk(key), bulk(&db.to_string())])
             }
             Command::Dump(..) => resp_admin::to_resp_dump(self),
             Command::Restore(key, ttl, _, _) => {
@@ -867,6 +892,8 @@ impl Command {
                 | Command::SetRange(_, _, _)
                 | Command::LPush(_, _)
                 | Command::RPush(_, _)
+                | Command::LPushX(_, _)
+                | Command::RPushX(_, _)
                 | Command::LPop(_)
                 | Command::RPop(_)
                 | Command::LSet(_, _, _)
@@ -893,6 +920,9 @@ impl Command {
                 | Command::SDiffStore(_, _)
                 | Command::ZAdd(_, _)
                 | Command::ZRem(_, _)
+                | Command::ZRemRangeByLex(_, _, _)
+                | Command::ZRemRangeByRank(_, _, _)
+                | Command::ZRemRangeByScore(_, _, _)
                 | Command::ZIncrBy(_, _, _)
                 | Command::ZPopMin(_, _)
                 | Command::ZPopMax(_, _)
@@ -927,6 +957,7 @@ impl Command {
                 | Command::Sort(_, _, _, _, _, _, _, Some(_))
                 | Command::Unlink(_)
                 | Command::Copy(_, _, _)
+                | Command::Move(_, _)
                 | Command::Restore(_, _, _, _)
                 | Command::Eval(_, _, _)
                 | Command::EvalSha(_, _, _)

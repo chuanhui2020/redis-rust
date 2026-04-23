@@ -258,6 +258,43 @@ pub(crate) fn to_resp_z_range_by_lex(cmd: &Command) -> RespValue {
     }
 }
 
+pub(crate) fn to_resp_z_rem_range_by_lex(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::ZRemRangeByLex(key, min, max) => {
+                RespValue::Array(vec![bulk("ZREMRANGEBYLEX"), bulk(key), bulk(min), bulk(max)])
+        }
+        _ => unreachable!(),
+    }
+}
+
+pub(crate) fn to_resp_z_rem_range_by_rank(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::ZRemRangeByRank(key, start, stop) => {
+                RespValue::Array(vec![
+                    bulk("ZREMRANGEBYRANK"),
+                    bulk(key),
+                    bulk(&start.to_string()),
+                    bulk(&stop.to_string()),
+                ])
+        }
+        _ => unreachable!(),
+    }
+}
+
+pub(crate) fn to_resp_z_rem_range_by_score(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::ZRemRangeByScore(key, min, max) => {
+                RespValue::Array(vec![
+                    bulk("ZREMRANGEBYSCORE"),
+                    bulk(key),
+                    bulk(&min.to_string()),
+                    bulk(&max.to_string()),
+                ])
+        }
+        _ => unreachable!(),
+    }
+}
+
 pub(crate) fn to_resp_z_rand_member(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRandMember(key, count, with_scores) => {

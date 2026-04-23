@@ -105,6 +105,10 @@ pub enum Command {
     LPush(String, Vec<Bytes>),
     /// RPUSH key value [value ...]
     RPush(String, Vec<Bytes>),
+    /// LPUSHX key value [value ...]
+    LPushX(String, Vec<Bytes>),
+    /// RPUSHX key value [value ...]
+    RPushX(String, Vec<Bytes>),
     /// LPOP key
     LPop(String),
     /// RPOP key
@@ -133,6 +137,8 @@ pub enum Command {
     HSet(String, Vec<(String, Bytes)>),
     /// HGET key field
     HGet(String, String),
+    /// HSTRLEN key field
+    HStrLen(String, String),
     /// HDEL key field [field ...]
     HDel(String, Vec<String>),
     /// HEXISTS key field
@@ -241,8 +247,16 @@ pub enum Command {
     ZScan(String, usize, String, usize),
     /// ZRANGEBYLEX key min max [LIMIT offset count]
     ZRangeByLex(String, String, String),
+    /// ZREMRANGEBYLEX key min max
+    ZRemRangeByLex(String, String, String),
+    /// ZREMRANGEBYRANK key start stop
+    ZRemRangeByRank(String, isize, isize),
+    /// ZREMRANGEBYSCORE key min max
+    ZRemRangeByScore(String, f64, f64),
     /// SINTERCARD numkeys key [key ...] [LIMIT limit]
     SInterCard(Vec<String>, usize),
+    /// ZINTERCARD numkeys key [key ...] [LIMIT limit]
+    ZInterCard(Vec<String>, usize),
     /// SMISMEMBER key member [member ...]
     SMisMember(String, Vec<Bytes>),
     /// ZRANDMEMBER key [count [WITHSCORES]]
@@ -470,10 +484,14 @@ pub enum Command {
     ClientTrackingInfo,
     /// SORT key [BY pattern] [LIMIT offset count] [GET pattern ...] [ASC|DESC] [ALPHA] [STORE destination]
     Sort(String, Option<String>, Vec<String>, Option<isize>, Option<isize>, bool, bool, Option<String>),
+    /// SORT_RO key [BY pattern] [LIMIT offset count] [GET pattern ...] [ASC|DESC] [ALPHA]
+    SortRo(String, Option<String>, Vec<String>, Option<isize>, Option<isize>, bool, bool),
     /// UNLINK key [key ...]
     Unlink(Vec<String>),
     /// COPY source destination [REPLACE]
     Copy(String, String, bool),
+    /// MOVE key db
+    Move(String, usize),
     /// DUMP key
     Dump(String),
     /// RESTORE key ttl serialized-value [REPLACE]

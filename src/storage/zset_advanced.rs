@@ -609,6 +609,52 @@ impl StorageEngine {
         }
         Ok(None)
     }
+    pub fn zintercard(&self, keys: &[String], limit: usize) -> Result<usize> {
+        if keys.is_empty() {
+            return Ok(0);
+        }
+
+        let db = self.db();
+        let mut first = true;
+        let mut inter_members: HashMap<String, Vec<f64>> = HashMap::new();
+
+        for key in keys {
+            let mut current_members: HashMap<String, f64> = HashMap::new();
+
+            let map = db.inner.get_shard(key).read()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            if let Some(v) = map.get(key)
+                && !Self::is_expired(v)
+                    && let StorageValue::ZSet(z) = v {
+                        for (member, score) in &z.member_to_score {
+                            current_members.insert(member.clone(), *score);
+                        }
+                    }
+
+            if first {
+                for (member, score) in current_members {
+                    inter_members.insert(member, vec![score]);
+                }
+                first = false;
+            } else {
+                inter_members.retain(|member, scores| {
+                    if let Some(score) = current_members.get(member) {
+                        scores.push(*score);
+                        true
+                    } else {
+                        false
+                    }
+                });
+            }
+
+            if limit > 0 && inter_members.len() >= limit {
+                return Ok(limit);
+            }
+        }
+
+        Ok(inter_members.len())
+    }
+
     pub async fn bzpopmax(
         &self,
         keys: &[String],

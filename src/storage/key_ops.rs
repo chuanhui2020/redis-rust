@@ -707,6 +707,106 @@ impl StorageEngine {
         }
         Ok(result)
     }
+
+    /// 将 key 从当前数据库移动到目标数据库
+    /// 返回 true 表示移动成功，false 表示 key 不存在或目标数据库已存在该 key
+    pub fn move_key(&self, key: &str, db_index: usize) -> Result<bool> {
+        if db_index > 15 {
+            return Err(AppError::Command(
+                "MOVE 的目标数据库索引必须在 0-15 之间".to_string(),
+            ));
+        }
+        let src_db_index = self.current_db.load(Ordering::Relaxed);
+        if src_db_index == db_index {
+            return Ok(false);
+        }
+
+        self.evict_if_needed()?;
+        let src_db = &self.dbs[src_db_index.min(15)];
+        let dst_db = &self.dbs[db_index];
+
+        // 获取源分片锁
+        let mut src_map = src_db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        // 检查 key 是否存在
+        let value = match src_map.get(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    src_map.remove(key);
+                    return Ok(false);
+                }
+                v.clone()
+            }
+            None => return Ok(false),
+        };
+        drop(src_map);
+
+        // 检查目标数据库是否已存在该 key
+        let mut dst_map = dst_db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        if dst_map.contains_key(key) {
+            return Ok(false);
+        }
+
+        // 移动数据
+        let mut src_map = src_db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        src_map.remove(key);
+        dst_map.insert(key.to_string(), value);
+        drop(dst_map);
+        drop(src_map);
+
+        // 移动版本号
+        {
+            let src_versions = src_db.versions.get_shard(key).read().unwrap();
+            let ver = src_versions.get(key).copied();
+            drop(src_versions);
+            if let Some(ver) = ver {
+                let mut src_versions = src_db.versions.get_shard(key).write().unwrap();
+                src_versions.remove(key);
+                let mut dst_versions = dst_db.versions.get_shard(key).write().unwrap();
+                dst_versions.insert(key.to_string(), ver);
+            }
+        }
+
+        // 移动访问时间
+        {
+            let src_times = src_db.access_times.read().unwrap();
+            let time = src_times.get(key).copied();
+            drop(src_times);
+            if let Some(time) = time {
+                let mut src_times = src_db.access_times.write().unwrap();
+                src_times.remove(key);
+                let mut dst_times = dst_db.access_times.write().unwrap();
+                dst_times.insert(key.to_string(), time);
+            }
+        }
+
+        // 移动访问次数
+        {
+            let src_counts = src_db.access_counts.read().unwrap();
+            let count = src_counts.get(key).copied();
+            drop(src_counts);
+            if let Some(count) = count {
+                let mut src_counts = src_db.access_counts.write().unwrap();
+                src_counts.remove(key);
+                let mut dst_counts = dst_db.access_counts.write().unwrap();
+                dst_counts.insert(key.to_string(), count);
+            }
+        }
+
+        Ok(true)
+    }
 }
 
 fn write_u32(buf: &mut Vec<u8>, v: u32) {

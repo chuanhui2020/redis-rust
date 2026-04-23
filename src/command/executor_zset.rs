@@ -158,6 +158,26 @@ pub(crate) fn execute_z_range_by_lex(executor: &CommandExecutor, key: String, mi
                 Ok(RespValue::Array(resp_values))
 }
 
+pub(crate) fn execute_z_inter_card(executor: &CommandExecutor, keys: Vec<String>, limit: usize) -> Result<RespValue> {
+                let count = executor.storage.zintercard(&keys, limit)?;
+                Ok(RespValue::Integer(count as i64))
+}
+
+pub(crate) fn execute_z_rem_range_by_lex(executor: &CommandExecutor, key: String, min: String, max: String) -> Result<RespValue> {
+                let count = executor.storage.zremrangebylex(&key, &min, &max)?;
+                Ok(RespValue::Integer(count as i64))
+}
+
+pub(crate) fn execute_z_rem_range_by_rank(executor: &CommandExecutor, key: String, start: isize, stop: isize) -> Result<RespValue> {
+                let count = executor.storage.zremrangebyrank(&key, start, stop)?;
+                Ok(RespValue::Integer(count as i64))
+}
+
+pub(crate) fn execute_z_rem_range_by_score(executor: &CommandExecutor, key: String, min: f64, max: f64) -> Result<RespValue> {
+                let count = executor.storage.zremrangebyscore(&key, min, max)?;
+                Ok(RespValue::Integer(count as i64))
+}
+
 pub(crate) fn execute_z_rand_member(executor: &CommandExecutor, key: String, count: i64, with_scores: bool) -> Result<RespValue> {
                 let pairs = executor.storage.zrandmember(&key, count, with_scores)?;
                 let mut resp_values = Vec::new();

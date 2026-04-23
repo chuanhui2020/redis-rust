@@ -472,6 +472,86 @@ impl CommandParser {
 
         Ok(Command::Sort(key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha, store_key))
     }
+
+    /// 解析 SORT_RO 命令：SORT_RO key [BY pattern] [LIMIT offset count] [GET pattern ...] [ASC|DESC] [ALPHA]
+    pub(crate) fn parse_sort_ro(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 2 {
+            return Err(AppError::Command(
+                "SORT_RO 命令需要至少 1 个参数".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let mut by_pattern = None;
+        let mut get_patterns = Vec::new();
+        let mut limit_offset = None;
+        let mut limit_count = None;
+        let mut asc = true;
+        let mut alpha = false;
+
+        let mut i = 2;
+        while i < arr.len() {
+            let arg = self.extract_string(&arr[i])?.to_ascii_uppercase();
+            match arg.as_str() {
+                "BY" => {
+                    if i + 1 >= arr.len() {
+                        return Err(AppError::Command("SORT_RO BY 需要参数".to_string()));
+                    }
+                    by_pattern = Some(self.extract_string(&arr[i + 1])?);
+                    i += 2;
+                }
+                "LIMIT" => {
+                    if i + 2 >= arr.len() {
+                        return Err(AppError::Command("SORT_RO LIMIT 需要 2 个参数".to_string()));
+                    }
+                    limit_offset = Some(self.extract_string(&arr[i + 1])?.parse::<isize>().map_err(|_| {
+                        AppError::Command("SORT_RO LIMIT offset 必须是整数".to_string())
+                    })?);
+                    limit_count = Some(self.extract_string(&arr[i + 2])?.parse::<isize>().map_err(|_| {
+                        AppError::Command("SORT_RO LIMIT count 必须是整数".to_string())
+                    })?);
+                    i += 3;
+                }
+                "GET" => {
+                    if i + 1 >= arr.len() {
+                        return Err(AppError::Command("SORT_RO GET 需要参数".to_string()));
+                    }
+                    get_patterns.push(self.extract_string(&arr[i + 1])?);
+                    i += 2;
+                }
+                "ASC" => {
+                    asc = true;
+                    i += 1;
+                }
+                "DESC" => {
+                    asc = false;
+                    i += 1;
+                }
+                "ALPHA" => {
+                    alpha = true;
+                    i += 1;
+                }
+                _ => {
+                    return Err(AppError::Command(format!("SORT_RO 未知参数: {}", arg)));
+                }
+            }
+        }
+
+        Ok(Command::SortRo(key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha))
+    }
+
+    pub(crate) fn parse_move(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() != 3 {
+            return Err(AppError::Command(
+                "MOVE 命令需要 2 个参数".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let db: usize = self.extract_string(&arr[2])?.parse().map_err(|_| {
+            AppError::Command("MOVE 的数据库索引必须是整数".to_string())
+        })?;
+        Ok(Command::Move(key, db))
+    }
+
     pub(crate) fn parse_eval(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
             return Err(AppError::Command(

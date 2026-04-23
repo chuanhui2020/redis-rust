@@ -491,6 +491,91 @@ impl CommandParser {
     }
 
 
+    /// 解析 ZINTERCARD 命令：ZINTERCARD numkeys key [key ...] [LIMIT limit]
+    pub(crate) fn parse_zintercard(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 3 {
+            return Err(AppError::Command(
+                "ZINTERCARD 命令需要至少 2 个参数".to_string(),
+            ));
+        }
+        let numkeys: usize = self.extract_string(&arr[1])?.parse().map_err(|_| {
+            AppError::Command("ZINTERCARD numkeys 必须是整数".to_string())
+        })?;
+        if arr.len() < 2 + numkeys {
+            return Err(AppError::Command(
+                "ZINTERCARD 参数数量不足".to_string(),
+            ));
+        }
+        let keys: Vec<String> = arr[2..2 + numkeys]
+            .iter()
+            .map(|v| self.extract_string(v))
+            .collect::<Result<Vec<_>>>()?;
+        let mut limit = 0usize;
+        if arr.len() > 2 + numkeys {
+            let opt = self.extract_string(&arr[2 + numkeys])?.to_ascii_uppercase();
+            if opt == "LIMIT" {
+                if arr.len() < 4 + numkeys {
+                    return Err(AppError::Command("ZINTERCARD LIMIT 需要参数".to_string()));
+                }
+                limit = self.extract_string(&arr[3 + numkeys])?.parse().map_err(|_| {
+                    AppError::Command("ZINTERCARD LIMIT 必须是整数".to_string())
+                })?;
+            }
+        }
+        Ok(Command::ZInterCard(keys, limit))
+    }
+
+
+    /// 解析 ZREMRANGEBYLEX 命令：ZREMRANGEBYLEX key min max
+    pub(crate) fn parse_zremrangebylex(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() != 4 {
+            return Err(AppError::Command(
+                "ZREMRANGEBYLEX 命令需要 3 个参数".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let min = self.extract_string(&arr[2])?;
+        let max = self.extract_string(&arr[3])?;
+        Ok(Command::ZRemRangeByLex(key, min, max))
+    }
+
+
+    /// 解析 ZREMRANGEBYRANK 命令：ZREMRANGEBYRANK key start stop
+    pub(crate) fn parse_zremrangebyrank(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() != 4 {
+            return Err(AppError::Command(
+                "ZREMRANGEBYRANK 命令需要 3 个参数".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let start: isize = self.extract_string(&arr[2])?.parse().map_err(|_| {
+            AppError::Command("ZREMRANGEBYRANK 的 start 必须是整数".to_string())
+        })?;
+        let stop: isize = self.extract_string(&arr[3])?.parse().map_err(|_| {
+            AppError::Command("ZREMRANGEBYRANK 的 stop 必须是整数".to_string())
+        })?;
+        Ok(Command::ZRemRangeByRank(key, start, stop))
+    }
+
+
+    /// 解析 ZREMRANGEBYSCORE 命令：ZREMRANGEBYSCORE key min max
+    pub(crate) fn parse_zremrangebyscore(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() != 4 {
+            return Err(AppError::Command(
+                "ZREMRANGEBYSCORE 命令需要 3 个参数".to_string(),
+            ));
+        }
+        let key = self.extract_string(&arr[1])?;
+        let min: f64 = self.extract_string(&arr[2])?.parse().map_err(|_| {
+            AppError::Command("ZREMRANGEBYSCORE 的 min 必须是数字".to_string())
+        })?;
+        let max: f64 = self.extract_string(&arr[3])?.parse().map_err(|_| {
+            AppError::Command("ZREMRANGEBYSCORE 的 max 必须是数字".to_string())
+        })?;
+        Ok(Command::ZRemRangeByScore(key, min, max))
+    }
+
+
     /// 解析 ZRANDMEMBER 命令：ZRANDMEMBER key [count [WITHSCORES]]
     pub(crate) fn parse_zrandmember(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 || arr.len() > 4 {

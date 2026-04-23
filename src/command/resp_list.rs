@@ -28,6 +28,32 @@ pub(crate) fn to_resp_r_push(cmd: &Command) -> RespValue {
     }
 }
 
+pub(crate) fn to_resp_l_push_x(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::LPushX(key, values) => {
+                let mut parts = vec![bulk("LPUSHX"), bulk(key)];
+                for v in values {
+                    parts.push(bulk_bytes(v));
+                }
+                RespValue::Array(parts)
+        }
+        _ => unreachable!(),
+    }
+}
+
+pub(crate) fn to_resp_r_push_x(cmd: &Command) -> RespValue {
+    match cmd {
+        Command::RPushX(key, values) => {
+                let mut parts = vec![bulk("RPUSHX"), bulk(key)];
+                for v in values {
+                    parts.push(bulk_bytes(v));
+                }
+                RespValue::Array(parts)
+        }
+        _ => unreachable!(),
+    }
+}
+
 pub(crate) fn to_resp_l_pop(cmd: &Command) -> RespValue {
     match cmd {
         Command::LPop(key) => {

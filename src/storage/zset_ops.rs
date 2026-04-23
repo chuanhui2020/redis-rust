@@ -1249,6 +1249,131 @@ impl StorageEngine {
         }
     }
 
+    /// 按字典序范围删除有序集合成员，返回删除数量
+    pub fn zremrangebylex(&self, key: &str, min: &str, max: &str) -> Result<usize> {
+        self.evict_if_needed()?;
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get_mut(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(0)
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => {
+                            let to_remove = z.range_by_lex(min, max)?;
+                            let count = to_remove.len();
+                            for member in to_remove {
+                                z.remove(&member);
+                            }
+                            if z.member_to_score.is_empty() {
+                                map.remove(key);
+                            }
+                            self.bump_version(key);
+                            self.touch(key);
+                            Ok(count)
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(0),
+        }
+    }
+
+    /// 按排名范围删除有序集合成员，返回删除数量
+    pub fn zremrangebyrank(&self, key: &str, start: isize, stop: isize) -> Result<usize> {
+        self.evict_if_needed()?;
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get_mut(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(0)
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => {
+                            let to_remove: Vec<String> = z
+                                .range_by_rank(start, stop)
+                                .into_iter()
+                                .map(|(member, _)| member)
+                                .collect();
+                            let count = to_remove.len();
+                            for member in to_remove {
+                                z.remove(&member);
+                            }
+                            if z.member_to_score.is_empty() {
+                                map.remove(key);
+                            }
+                            self.bump_version(key);
+                            self.touch(key);
+                            Ok(count)
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(0),
+        }
+    }
+
+    /// 按分数范围删除有序集合成员，返回删除数量
+    pub fn zremrangebyscore(&self, key: &str, min: f64, max: f64) -> Result<usize> {
+        self.evict_if_needed()?;
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match map.get_mut(key) {
+            Some(v) => {
+                if Self::is_expired(v) {
+                    map.remove(key);
+                    Ok(0)
+                } else {
+                    Self::check_zset_type(v)?;
+                    match v {
+                        StorageValue::ZSet(z) => {
+                            let to_remove: Vec<String> = z
+                                .range_by_score(min, max)
+                                .into_iter()
+                                .map(|(member, _)| member)
+                                .collect();
+                            let count = to_remove.len();
+                            for member in to_remove {
+                                z.remove(&member);
+                            }
+                            if z.member_to_score.is_empty() {
+                                map.remove(key);
+                            }
+                            self.bump_version(key);
+                            self.touch(key);
+                            Ok(count)
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            None => Ok(0),
+        }
+    }
+
     /// 修改后的 zrange 支持统一语法：
     /// ZRANGE key min max [BYSCORE|BYLEX] [REV] [LIMIT offset count] [WITHSCORES]
     pub fn zrange_unified(

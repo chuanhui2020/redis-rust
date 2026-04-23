@@ -543,6 +543,23 @@ pub(crate) fn execute_sort(executor: &CommandExecutor, key: String, by_pattern: 
                 }
 }
 
+pub(crate) fn execute_sort_ro(executor: &CommandExecutor, key: String, by_pattern: Option<String>, get_patterns: Vec<String>, limit_offset: Option<isize>, limit_count: Option<isize>, asc: bool, alpha: bool) -> Result<RespValue> {
+                // SORT_RO 是只读 SORT，不允许 STORE
+                let result = executor.storage.sort(
+                    &key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha, None,
+                )?;
+                let resp_values: Vec<RespValue> = result
+                    .into_iter()
+                    .map(|s| RespValue::BulkString(Some(Bytes::from(s))))
+                    .collect();
+                Ok(RespValue::Array(resp_values))
+}
+
+pub(crate) fn execute_move(executor: &CommandExecutor, key: String, db: usize) -> Result<RespValue> {
+                let ok = executor.storage.move_key(&key, db)?;
+                Ok(RespValue::Integer(if ok { 1 } else { 0 }))
+}
+
 pub(crate) fn execute_unlink(executor: &CommandExecutor, keys: Vec<String>) -> Result<RespValue> {
                 let count = executor.storage.unlink(&keys)?;
                 Ok(RespValue::Integer(count as i64))
