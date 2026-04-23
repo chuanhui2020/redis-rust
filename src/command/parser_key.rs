@@ -157,8 +157,8 @@ impl CommandParser {
             ));
         }
         let mut keys = Vec::new();
-        for i in 1..arr.len() {
-            keys.push(self.extract_string(&arr[i])?);
+        for item in arr.iter().skip(1) {
+            keys.push(self.extract_string(item)?);
         }
         Ok(Command::Unlink(keys))
     }

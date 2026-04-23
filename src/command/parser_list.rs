@@ -247,8 +247,8 @@ impl CommandParser {
             AppError::Command("BLPOP 的 timeout 必须是数字".to_string())
         })?;
         let mut keys = Vec::new();
-        for i in 1..arr.len() - 1 {
-            keys.push(self.extract_string(&arr[i])?);
+        for item in arr.iter().take(arr.len() - 1).skip(1) {
+            keys.push(self.extract_string(item)?);
         }
         Ok(Command::BLPop(keys, timeout))
     }
@@ -265,8 +265,8 @@ impl CommandParser {
             AppError::Command("BRPOP 的 timeout 必须是数字".to_string())
         })?;
         let mut keys = Vec::new();
-        for i in 1..arr.len() - 1 {
-            keys.push(self.extract_string(&arr[i])?);
+        for item in arr.iter().take(arr.len() - 1).skip(1) {
+            keys.push(self.extract_string(item)?);
         }
         Ok(Command::BRPop(keys, timeout))
     }

@@ -107,7 +107,7 @@ pub(crate) fn execute_config_rewrite(_executor: &CommandExecutor) -> Result<Resp
 }
 
 pub(crate) fn execute_config_reset_stat(executor: &CommandExecutor) -> Result<RespValue> {
-                executor.slowlog.as_ref().map(|s| s.reset());
+                if let Some(s) = executor.slowlog.as_ref() { s.reset() }
                 Ok(RespValue::SimpleString("OK".to_string()))
 }
 
@@ -335,11 +335,12 @@ pub(crate) fn execute_function_list(executor: &CommandExecutor, pattern: Option<
                         let list = engine.function_list(pattern.as_deref(), withcode)?;
                         let mut parts = Vec::new();
                         for (name, engine_name, code, funcs) in list {
-                            let mut lib_parts = Vec::new();
-                            lib_parts.push(RespValue::BulkString(Some(Bytes::from("library_name"))));
-                            lib_parts.push(RespValue::BulkString(Some(Bytes::from(name))));
-                            lib_parts.push(RespValue::BulkString(Some(Bytes::from("engine"))));
-                            lib_parts.push(RespValue::BulkString(Some(Bytes::from(engine_name))));
+                            let mut lib_parts = vec![
+                                RespValue::BulkString(Some(Bytes::from("library_name"))),
+                                RespValue::BulkString(Some(Bytes::from(name))),
+                                RespValue::BulkString(Some(Bytes::from("engine"))),
+                                RespValue::BulkString(Some(Bytes::from(engine_name))),
+                            ];
                             if withcode {
                                 lib_parts.push(RespValue::BulkString(Some(Bytes::from("library_code"))));
                                 lib_parts.push(RespValue::BulkString(Some(Bytes::from(code))));
@@ -390,11 +391,12 @@ pub(crate) fn execute_function_stats(executor: &CommandExecutor) -> Result<RespV
                 match &executor.script_engine {
                     Some(engine) => {
                         let (libs, funcs) = engine.function_stats()?;
-                        let mut parts = Vec::new();
-                        parts.push(RespValue::BulkString(Some(Bytes::from("libraries_count"))));
-                        parts.push(RespValue::Integer(libs as i64));
-                        parts.push(RespValue::BulkString(Some(Bytes::from("functions_count"))));
-                        parts.push(RespValue::Integer(funcs as i64));
+                        let parts = vec![
+                            RespValue::BulkString(Some(Bytes::from("libraries_count"))),
+                            RespValue::Integer(libs as i64),
+                            RespValue::BulkString(Some(Bytes::from("functions_count"))),
+                            RespValue::Integer(funcs as i64),
+                        ];
                         Ok(RespValue::Array(parts))
                     }
                     None => Err(AppError::Command("脚本引擎未初始化".to_string())),
@@ -456,7 +458,7 @@ pub(crate) fn execute_slow_log_get(executor: &CommandExecutor, count: usize) -> 
                     Some(log) => {
                         let entries = log.get(count);
                         let arr: Vec<RespValue> = entries.iter()
-                            .map(|e| SlowLog::entry_to_resp(e))
+                            .map(SlowLog::entry_to_resp)
                             .collect();
                         Ok(RespValue::Array(arr))
                     }
@@ -615,12 +617,11 @@ pub(crate) fn execute_info(executor: &CommandExecutor, section: Option<String>) 
                 let mut info = executor.storage.info(section.as_deref())?;
                 let sec = section.as_deref().map(|s| s.to_ascii_lowercase());
                 let include_repl = sec.is_none() || sec.as_deref() == Some("replication");
-                if include_repl {
-                    if let Some(ref repl) = executor.replication() {
+                if include_repl
+                    && let Some(ref repl) = executor.replication() {
                         info.push_str("\r\n# Replication\r\n");
                         info.push_str(&repl.get_info_string());
                     }
-                }
                 Ok(RespValue::BulkString(Some(Bytes::from(info))))
 }
 

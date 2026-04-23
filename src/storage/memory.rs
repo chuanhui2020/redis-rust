@@ -82,14 +82,13 @@ impl StorageEngine {
                 set.iter().map(|b| b.len()).sum::<usize>() + set.len() * std::mem::size_of::<Bytes>()
             }
             StorageValue::ZSet(zset) => {
-                zset.member_to_score.iter().map(|(m, _)| m.len()).sum::<usize>()
+                zset.member_to_score.keys().map(|m| m.len()).sum::<usize>()
                     + zset.member_to_score.len() * std::mem::size_of::<(String, f64)>()
                     + zset.score_to_member.len() * std::mem::size_of::<((OrderedFloat<f64>, String), ())>()
             }
             StorageValue::HyperLogLog(_) => 16384,
             StorageValue::Stream(stream) => {
-                stream.entries.iter()
-                    .map(|(_, fields)| fields.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>())
+                stream.entries.values().map(|fields| fields.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>())
                     .sum::<usize>()
                     + stream.entries.len() * std::mem::size_of::<(StreamId, Vec<(String, String)>)>()
             }

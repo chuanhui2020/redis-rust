@@ -29,6 +29,7 @@ pub enum SetExpireOption {
 
 /// SET 命令的完整选项
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub struct SetOptions {
     /// 仅当 key 不存在时才设置
     pub nx: bool,
@@ -42,24 +43,15 @@ pub struct SetOptions {
     pub expire: Option<SetExpireOption>,
 }
 
-impl Default for SetOptions {
-    fn default() -> Self {
-        Self {
-            nx: false,
-            xx: false,
-            get: false,
-            keepttl: false,
-            expire: None,
-        }
-    }
-}
 
 /// 内存淘汰策略
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default)]
 pub enum EvictionPolicy {
     /// 不淘汰，内存不足时返回 OOM 错误
     NoEviction,
     /// 从所有 key 中淘汰最久未访问的（LRU）
+    #[default]
     AllKeysLru,
     /// 从所有 key 中随机淘汰
     AllKeysRandom,
@@ -75,11 +67,6 @@ pub enum EvictionPolicy {
     VolatileLfu,
 }
 
-impl Default for EvictionPolicy {
-    fn default() -> Self {
-        EvictionPolicy::AllKeysLru
-    }
-}
 
 
 
@@ -111,6 +98,12 @@ pub struct ShardedMap {
     shards: Vec<RwLock<HashMap<String, StorageValue>>>,
 }
 
+impl Default for ShardedMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ShardedMap {
     pub fn new() -> Self {
         let mut shards = Vec::with_capacity(NUM_SHARDS);
@@ -138,6 +131,12 @@ impl ShardedMap {
 #[derive(Debug)]
 pub struct ShardedVersions {
     shards: Vec<RwLock<HashMap<String, u64>>>,
+}
+
+impl Default for ShardedVersions {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ShardedVersions {
@@ -518,11 +517,10 @@ impl StorageEngine {
         for key in keys {
             let map = db.inner.get_shard(key).read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            if let Some(value) = map.get(key) {
-                if !Self::is_expired(value) {
+            if let Some(value) = map.get(key)
+                && !Self::is_expired(value) {
                     count += 1;
                 }
-            }
         }
         let mut times = db
             .access_times
@@ -891,15 +889,13 @@ impl StorageEngine {
         map: &mut HashMap<String, StorageValue>,
         key: &str,
     ) {
-        if let Some(v) = map.get(key) {
-            if Self::is_expired(v) {
+        if let Some(v) = map.get(key)
+            && Self::is_expired(v) {
                 map.remove(key);
             }
-        }
     }
 
     /// 写操作后的标准后处理（版本更新 + 访问记录）
-
     /// 检查给定的 StorageValue 是否已过期，如果过期则返回 true
     fn is_expired(value: &StorageValue) -> bool {
         match value {

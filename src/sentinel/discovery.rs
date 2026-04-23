@@ -57,11 +57,10 @@ pub fn start_hello_subscriber(sentinel: Arc<SentinelManager>, master_ip: String,
                             Ok(Ok(_)) => {
                                 // 解析 hello 消息
                                 let trimmed = line.trim();
-                                if let Some(peer) = parse_hello_message(trimmed) {
-                                    if peer.runid != sentinel.runid {
+                                if let Some(peer) = parse_hello_message(trimmed)
+                                    && peer.runid != sentinel.runid {
                                         sentinel.update_sentinel_peer(&master_name, peer);
                                     }
-                                }
                             }
                         }
                     }

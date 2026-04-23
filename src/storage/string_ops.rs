@@ -44,15 +44,14 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         // 双重检查：在获取写锁期间可能已被其他线程删除或更新
-        if let Some(value) = map.get(key) {
-            if Self::is_expired(value) {
+        if let Some(value) = map.get(key)
+            && Self::is_expired(value) {
                 map.remove(key);
                 if let Some(ref notifier) = self.keyspace_notifier {
                     let db_idx = self.current_db.load(Ordering::Relaxed);
                     notifier.notify_expired(db_idx, key);
                 }
             }
-        }
         Ok(None)
     }
 
@@ -784,11 +783,10 @@ impl StorageEngine {
                 .get_shard(key)
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            if let Some(v) = map.get(key) {
-                if !Self::is_expired(v) {
+            if let Some(v) = map.get(key)
+                && !Self::is_expired(v) {
                     return Ok(0);
                 }
-            }
         }
 
         // 全部设置
@@ -935,10 +933,10 @@ impl StorageEngine {
         let mut s = start;
         let mut e = end;
         if s < 0 {
-            s = len + s;
+            s += len;
         }
         if e < 0 {
-            e = len + e;
+            e += len;
         }
         //  clamp
         s = s.max(0);

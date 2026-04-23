@@ -7,11 +7,10 @@ impl StorageEngine {
         for shard in db.inner.all_shards() {
             let map = shard.read().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             for key in map.keys() {
-                if let Some(value) = map.get(key) {
-                    if !Self::is_expired(value) && Self::glob_match(key, pattern) {
+                if let Some(value) = map.get(key)
+                    && !Self::is_expired(value) && Self::glob_match(key, pattern) {
                         result.push(key.clone());
                     }
-                }
             }
         }
         result.sort();
@@ -56,11 +55,10 @@ impl StorageEngine {
         for shard in db.inner.all_shards() {
             let map = shard.read().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             for key in map.keys() {
-                if let Some(value) = map.get(key) {
-                    if !Self::is_expired(value) {
+                if let Some(value) = map.get(key)
+                    && !Self::is_expired(value) {
                         all_keys.push(key.clone());
                     }
-                }
             }
         }
         all_keys.sort();
@@ -367,7 +365,7 @@ impl StorageEngine {
 
         // 排序
         if alpha {
-            elements.sort_by(|a, b| a.cmp(b));
+            elements.sort();
         } else {
             let mut keyed: Vec<(String, f64)> = elements
                 .into_iter()
@@ -439,9 +437,9 @@ impl StorageEngine {
         // 后台释放复杂类型的内存（如有 tokio 运行时则异步释放，否则同步释放）
         if !removed.is_empty() {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                let _ = handle.spawn(async move {
+                drop(handle.spawn(async move {
                     drop(removed);
-                });
+                }));
             } else {
                 drop(removed);
             }
@@ -676,14 +674,13 @@ impl StorageEngine {
         for shard in db.inner.all_shards() {
             let map = shard.read().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             for key in map.keys() {
-                if let Some(value) = map.get(key) {
-                    if !Self::is_expired(value) {
+                if let Some(value) = map.get(key)
+                    && !Self::is_expired(value) {
                         let key_slot = crate::cluster::ClusterState::key_slot(key);
                         if key_slot == slot {
                             count += 1;
                         }
                     }
-                }
             }
         }
         Ok(count)
@@ -696,8 +693,8 @@ impl StorageEngine {
         for shard in db.inner.all_shards() {
             let map = shard.read().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             for key in map.keys() {
-                if let Some(value) = map.get(key) {
-                    if !Self::is_expired(value) {
+                if let Some(value) = map.get(key)
+                    && !Self::is_expired(value) {
                         let key_slot = crate::cluster::ClusterState::key_slot(key);
                         if key_slot == slot {
                             result.push(key.clone());
@@ -706,7 +703,6 @@ impl StorageEngine {
                             }
                         }
                     }
-                }
             }
         }
         Ok(result)

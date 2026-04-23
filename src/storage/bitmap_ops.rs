@@ -35,7 +35,7 @@ fn signed_to_unsigned(value: i64, bits: usize) -> u64 {
 
 /// 向字节数组中按大端序写入指定位域
 fn write_bitfield(bytes: &mut Vec<u8>, offset: usize, bits: usize, value: u64) {
-    let needed = (offset + bits + 7) / 8;
+    let needed = (offset + bits).div_ceil(8);
     if bytes.len() < needed {
         bytes.resize(needed, 0);
     }
@@ -260,10 +260,10 @@ impl StorageEngine {
             let mut s = start;
             let mut e = end;
             if s < 0 {
-                s = len as isize + s;
+                s += len as isize;
             }
             if e < 0 {
-                e = len as isize + e;
+                e += len as isize;
             }
             s = s.max(0);
             e = e.min(len as isize - 1);
@@ -280,10 +280,10 @@ impl StorageEngine {
             let mut s = start;
             let mut e = end;
             if s < 0 {
-                s = total_bits as isize + s;
+                s += total_bits as isize;
             }
             if e < 0 {
-                e = total_bits as isize + e;
+                e += total_bits as isize;
             }
             s = s.max(0);
             e = e.min(total_bits as isize - 1);
@@ -316,8 +316,8 @@ impl StorageEngine {
                 .get_shard(key)
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            if let Some(v) = map.get(key) {
-                if !Self::is_expired(v) {
+            if let Some(v) = map.get(key)
+                && !Self::is_expired(v) {
                     match v {
                         StorageValue::String(b) => {
                             let vec = b.to_vec();
@@ -332,7 +332,6 @@ impl StorageEngine {
                         _ => {}
                     }
                 }
-            }
         }
 
         if byte_arrays.is_empty() {
@@ -419,10 +418,10 @@ impl StorageEngine {
             let mut s = start;
             let mut e_byte = end;
             if s < 0 {
-                s = len as isize + s;
+                s += len as isize;
             }
             if e_byte < 0 {
-                e_byte = len as isize + e_byte;
+                e_byte += len as isize;
             }
             s = s.max(0);
             e_byte = e_byte.min(len as isize - 1);
@@ -434,10 +433,10 @@ impl StorageEngine {
             let mut s = start;
             let mut e_bit = end;
             if s < 0 {
-                s = total_bits as isize + s;
+                s += total_bits as isize;
             }
             if e_bit < 0 {
-                e_bit = total_bits as isize + e_bit;
+                e_bit += total_bits as isize;
             }
             s = s.max(0);
             e_bit = e_bit.min(total_bits as isize - 1);

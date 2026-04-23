@@ -378,17 +378,17 @@ impl StorageEngine {
 
                                 let h = Self::as_hash_mut(v).unwrap();
 
-                                if h.contains_key(&field) {
+                                if let std::collections::hash_map::Entry::Vacant(e) = h.entry(field) {
 
-                                    Ok(0)
-
-                                } else {
-
-                                    h.insert(field, value);
+                                    e.insert(value);
 
                                     self.bump_version(key);
 
                                     Ok(1)
+
+                                } else {
+
+                                    Ok(0)
 
                                 }
 
@@ -683,7 +683,7 @@ impl StorageEngine {
 
                                 let mut exp_map = db.hash_field_expirations.write().unwrap();
 
-                                let field_map = exp_map.entry(key.to_string()).or_insert_with(HashMap::new);
+                                let field_map = exp_map.entry(key.to_string()).or_default();
 
                                 for field in fields {
 
@@ -738,7 +738,7 @@ impl StorageEngine {
 
                                 let mut exp_map = db.hash_field_expirations.write().unwrap();
 
-                                let field_map = exp_map.entry(key.to_string()).or_insert_with(HashMap::new);
+                                let field_map = exp_map.entry(key.to_string()).or_default();
 
                                 for field in fields {
 
@@ -916,18 +916,8 @@ impl StorageEngine {
 
                                 } else {
 
-                                    for field in fields {
-
-                                        if h.contains_key(field) {
-
-                                            result.push(0);
-
-                                        } else {
-
-                                            result.push(0);
-
-                                        }
-
+                                    for _field in fields {
+                                        result.push(0);
                                     }
 
                                 }

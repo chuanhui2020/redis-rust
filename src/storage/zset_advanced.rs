@@ -79,15 +79,13 @@ impl StorageEngine {
 
             let map = db.inner.get_shard(key).read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            if let Some(v) = map.get(key) {
-                if !Self::is_expired(v) {
-                    if let StorageValue::ZSet(z) = v {
+            if let Some(v) = map.get(key)
+                && !Self::is_expired(v)
+                    && let StorageValue::ZSet(z) = v {
                         for (member, score) in &z.member_to_score {
                             current_members.insert(member.clone(), *score * weight);
                         }
                     }
-                }
-            }
 
             if first {
                 for (member, score) in current_members {
@@ -240,15 +238,13 @@ impl StorageEngine {
 
             let map = db.inner.get_shard(key).read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            if let Some(v) = map.get(key) {
-                if !Self::is_expired(v) {
-                    if let StorageValue::ZSet(z) = v {
+            if let Some(v) = map.get(key)
+                && !Self::is_expired(v)
+                    && let StorageValue::ZSet(z) = v {
                         for (member, score) in &z.member_to_score {
                             current_members.insert(member.clone(), *score * weight);
                         }
                     }
-                }
-            }
 
             if first {
                 for (member, score) in current_members {
@@ -548,11 +544,10 @@ impl StorageEngine {
         keys: &[String],
         timeout: f64,
     ) -> Result<Option<(String, String, f64)>> {
-        if let Some((key, mut pairs)) = self.zmpop(keys, true, 1)? {
-            if let Some((member, score)) = pairs.pop() {
+        if let Some((key, mut pairs)) = self.zmpop(keys, true, 1)?
+            && let Some((member, score)) = pairs.pop() {
                 return Ok(Some((key, member, score)));
             }
-        }
 
         let db = self.db();
         let notify = Arc::new(tokio::sync::Notify::new());
@@ -588,8 +583,8 @@ impl StorageEngine {
                 break;
             }
 
-            if let Some((key, mut pairs)) = self.zmpop(keys, true, 1)? {
-                if let Some((member, score)) = pairs.pop() {
+            if let Some((key, mut pairs)) = self.zmpop(keys, true, 1)?
+                && let Some((member, score)) = pairs.pop() {
                     let mut waiters_map = db.blocking_waiters.write().unwrap();
                     for key in keys {
                         if let Some(list) = waiters_map.get_mut(key) {
@@ -601,7 +596,6 @@ impl StorageEngine {
                     }
                     return Ok(Some((key, member, score)));
                 }
-            }
         }
 
         let mut waiters_map = db.blocking_waiters.write().unwrap();
@@ -620,11 +614,10 @@ impl StorageEngine {
         keys: &[String],
         timeout: f64,
     ) -> Result<Option<(String, String, f64)>> {
-        if let Some((key, mut pairs)) = self.zmpop(keys, false, 1)? {
-            if let Some((member, score)) = pairs.pop() {
+        if let Some((key, mut pairs)) = self.zmpop(keys, false, 1)?
+            && let Some((member, score)) = pairs.pop() {
                 return Ok(Some((key, member, score)));
             }
-        }
 
         let db = self.db();
         let notify = Arc::new(tokio::sync::Notify::new());
@@ -660,8 +653,8 @@ impl StorageEngine {
                 break;
             }
 
-            if let Some((key, mut pairs)) = self.zmpop(keys, false, 1)? {
-                if let Some((member, score)) = pairs.pop() {
+            if let Some((key, mut pairs)) = self.zmpop(keys, false, 1)?
+                && let Some((member, score)) = pairs.pop() {
                     let mut waiters_map = db.blocking_waiters.write().unwrap();
                     for key in keys {
                         if let Some(list) = waiters_map.get_mut(key) {
@@ -673,7 +666,6 @@ impl StorageEngine {
                     }
                     return Ok(Some((key, member, score)));
                 }
-            }
         }
 
         let mut waiters_map = db.blocking_waiters.write().unwrap();

@@ -37,7 +37,7 @@ async fn handle_bus_connection(
             Err(e) => return Err(e.into()),
         };
 
-        if peeked >= 4 && &magic_buf == super::protocol::MAGIC {
+        if peeked >= 4 && magic_buf == super::protocol::MAGIC {
             // 二进制协议
             let msg = super::protocol::read_message(&mut stream).await?;
             let peer_ip = stream.peer_addr()?.ip().to_string();
@@ -91,8 +91,8 @@ async fn handle_bus_connection(
 
                     // 解析 slot 范围
                     let mut remote_slots = Vec::new();
-                    for i in 7..parts.len() {
-                        super::state::parse_slot_range(parts[i], |slot| {
+                    for item in parts.iter().skip(7) {
+                        super::state::parse_slot_range(item, |slot| {
                             if slot < super::state::CLUSTER_SLOTS {
                                 remote_slots.push(slot);
                             }
@@ -104,11 +104,10 @@ async fn handle_bus_connection(
                         let existing_id = cluster.get_nodes().iter()
                             .find(|n| n.ip == remote_ip && n.port == remote_port)
                             .map(|n| n.id.clone());
-                        if let Some(old_id) = existing_id {
-                            if old_id != remote_id {
+                        if let Some(old_id) = existing_id
+                            && old_id != remote_id {
                                 cluster.remove_node(&old_id);
                             }
-                        }
                         let new_node = super::ClusterNode::new(
                             remote_id.to_string(),
                             remote_ip.to_string(),
@@ -168,8 +167,8 @@ async fn handle_bus_connection(
 
                     // 收集 slot
                     let mut slots = Vec::new();
-                    for i in 7..parts.len() {
-                        super::state::parse_slot_range(parts[i], |slot| {
+                    for item in parts.iter().skip(7) {
+                        super::state::parse_slot_range(item, |slot| {
                             if slot < super::state::CLUSTER_SLOTS {
                                 slots.push(slot);
                             }

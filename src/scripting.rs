@@ -220,10 +220,7 @@ impl ScriptEngine {
             };
             let mut flags = Vec::new();
             for i in 2..args.len() {
-                match &args[i] {
-                    Value::String(s) => flags.push(s.to_str()?.to_string()),
-                    _ => {}
-                }
+                if let Value::String(s) = &args[i] { flags.push(s.to_str()?.to_string()) }
             }
             let bytecode = func.dump(false);
             let mut r = reg.lock().map_err(|e| {
@@ -291,11 +288,10 @@ impl ScriptEngine {
         })?;
         let mut result = Vec::new();
         for (name, lib) in libs.iter() {
-            if let Some(pattern) = library_pattern {
-                if !glob_match(pattern, name) {
+            if let Some(pattern) = library_pattern
+                && !glob_match(pattern, name) {
                     continue;
                 }
-            }
             let funcs: Vec<(String, Vec<String>)> = lib
                 .functions
                 .iter()
@@ -766,7 +762,7 @@ fn hex_encode(data: &[u8]) -> String {
 
 /// hex 解码
 fn hex_decode(s: &str) -> Result<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err(AppError::Command("hex 字符串长度必须是偶数".to_string()));
     }
     let mut result = Vec::with_capacity(s.len() / 2);

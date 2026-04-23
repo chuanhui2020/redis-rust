@@ -110,7 +110,7 @@ impl CommandParser {
 
     /// 解析 MSET 命令：MSET key value [key value ...]
     pub(crate) fn parse_mset(&self, arr: &[RespValue]) -> Result<Command> {
-        if arr.len() < 3 || arr.len() % 2 == 0 {
+        if arr.len() < 3 || arr.len().is_multiple_of(2) {
             return Err(AppError::Command(
                 "MSET 命令需要成对的 key value 参数".to_string(),
             ));
@@ -329,7 +329,7 @@ impl CommandParser {
 
     /// 解析 MSETNX 命令：MSETNX key value [key value ...]
     pub(crate) fn parse_msetnx(&self, arr: &[RespValue]) -> Result<Command> {
-        if arr.len() < 3 || arr.len() % 2 == 0 {
+        if arr.len() < 3 || arr.len().is_multiple_of(2) {
             return Err(AppError::Command(
                 "MSETNX 命令需要成对的 key-value 参数".to_string(),
             ));

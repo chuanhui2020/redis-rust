@@ -257,11 +257,10 @@ impl SentinelManager {
         let mut masters = self.masters.write().unwrap();
         let removed = masters.remove(name).is_some();
         drop(masters);
-        if removed {
-            if let Err(e) = self.save_config() {
+        if removed
+            && let Err(e) = self.save_config() {
                 log::warn!("Sentinel 配置自动保存失败: {}", e);
             }
-        }
         removed
     }
 

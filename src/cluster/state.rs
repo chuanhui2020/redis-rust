@@ -209,13 +209,11 @@ impl ClusterState {
 
         let mut nodes = self.nodes.write().unwrap();
         // 从旧节点移除 slot
-        if let Some(ref old) = old_id {
-            if old != node_id {
-                if let Some(node) = nodes.get_mut(old) {
+        if let Some(ref old) = old_id
+            && old != node_id
+                && let Some(node) = nodes.get_mut(old) {
                     node.del_slot(slot);
                 }
-            }
-        }
         if let Some(node) = nodes.get_mut(node_id) {
             node.add_slot(slot);
         }
@@ -309,11 +307,10 @@ impl ClusterState {
     /// 给节点添加标志
     pub fn set_node_flag(&self, node_id: &str, flag: NodeFlag) {
         let mut nodes = self.nodes.write().unwrap();
-        if let Some(node) = nodes.get_mut(node_id) {
-            if !node.flags.contains(&flag) {
+        if let Some(node) = nodes.get_mut(node_id)
+            && !node.flags.contains(&flag) {
                 node.flags.push(flag);
             }
-        }
     }
 
     /// 移除节点标志
@@ -339,11 +336,10 @@ impl ClusterState {
     /// 设置节点 epoch
     pub fn set_node_epoch(&self, node_id: &str, epoch: u64) {
         let mut nodes = self.nodes.write().unwrap();
-        if let Some(node) = nodes.get_mut(node_id) {
-            if epoch > node.config_epoch {
+        if let Some(node) = nodes.get_mut(node_id)
+            && epoch > node.config_epoch {
                 node.config_epoch = epoch;
             }
-        }
     }
 
     /// 设置当前 epoch（当收到更高 epoch 时更新）
@@ -374,11 +370,10 @@ impl ClusterState {
         // 更新 slot 分配表中的旧 ID
         let mut assignment = self.slot_assignment.write().unwrap();
         for slot_opt in assignment.iter_mut() {
-            if let Some(id) = slot_opt {
-                if id == &old_id {
+            if let Some(id) = slot_opt
+                && id == &old_id {
                     *slot_opt = Some(new_id.clone());
                 }
-            }
         }
     }
 
@@ -556,8 +551,8 @@ impl ClusterState {
 
                     // 加载 slot
                     node.slots = vec![false; CLUSTER_SLOTS];
-                    for i in 7..parts.len() {
-                        parse_slot_range(parts[i], |slot| {
+                    for item in parts.iter().skip(7) {
+                        parse_slot_range(item, |slot| {
                             if slot < CLUSTER_SLOTS {
                                 node.add_slot(slot);
                             }
@@ -574,8 +569,8 @@ impl ClusterState {
                 node.pong_recv = pong_recv;
                 node.config_epoch = config_epoch;
 
-                for i in 7..parts.len() {
-                    parse_slot_range(parts[i], |slot| {
+                for item in parts.iter().skip(7) {
+                    parse_slot_range(item, |slot| {
                         if slot < CLUSTER_SLOTS {
                             node.add_slot(slot);
                         }
@@ -660,12 +655,12 @@ impl ClusterState {
         let ok = assigned == CLUSTER_SLOTS;
         
         let mut info = String::new();
-        info.push_str(&format!("cluster_enabled:1\r\n"));
+        info.push_str("cluster_enabled:1\r\n");
         info.push_str(&format!("cluster_state:{}\r\n", if ok { "ok" } else { "fail" }));
         info.push_str(&format!("cluster_slots_assigned:{}\r\n", assigned));
         info.push_str(&format!("cluster_slots_ok:{}\r\n", assigned));
-        info.push_str(&format!("cluster_slots_pfail:0\r\n"));
-        info.push_str(&format!("cluster_slots_fail:0\r\n"));
+        info.push_str("cluster_slots_pfail:0\r\n");
+        info.push_str("cluster_slots_fail:0\r\n");
         info.push_str(&format!("cluster_known_nodes:{}\r\n", nodes.len()));
         info.push_str(&format!("cluster_size:{}\r\n", 
             nodes.values().filter(|n| n.flags.contains(&NodeFlag::Master) && n.slot_count() > 0).count()

@@ -107,6 +107,11 @@ impl SlowLog {
         entries.len()
     }
 
+    /// 检查慢查询日志是否为空
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// 清空慢查询日志
     pub fn reset(&self) {
         let mut entries = self.entries.lock().unwrap();

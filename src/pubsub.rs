@@ -62,21 +62,19 @@ impl PubSubManager {
     /// 取消精确订阅（清理无活跃接收者的频道）
     pub fn unsubscribe(&self, channel: &str) {
         let mut inner = self.inner.write().unwrap();
-        if let Some(sender) = inner.channels.get(channel) {
-            if sender.receiver_count() == 0 {
+        if let Some(sender) = inner.channels.get(channel)
+            && sender.receiver_count() == 0 {
                 inner.channels.remove(channel);
             }
-        }
     }
 
     /// 取消模式订阅（清理无活跃接收者的模式）
     pub fn punsubscribe(&self, pattern: &str) {
         let mut inner = self.inner.write().unwrap();
-        if let Some(sender) = inner.patterns.get(pattern) {
-            if sender.receiver_count() == 0 {
+        if let Some(sender) = inner.patterns.get(pattern)
+            && sender.receiver_count() == 0 {
                 inner.patterns.remove(pattern);
             }
-        }
     }
 
     /// 获取活跃的频道名称，可选按 glob 模式过滤
@@ -131,11 +129,10 @@ impl PubSubManager {
     /// 取消分片订阅（清理无活跃接收者的频道）
     pub fn sunsubscribe(&self, channel: &str) {
         let mut inner = self.inner.write().unwrap();
-        if let Some(sender) = inner.shard_channels.get(channel) {
-            if sender.receiver_count() == 0 {
+        if let Some(sender) = inner.shard_channels.get(channel)
+            && sender.receiver_count() == 0 {
                 inner.shard_channels.remove(channel);
             }
-        }
     }
 
     /// 向分片频道发布消息，返回收到消息的订阅者数量（无模式匹配）
@@ -144,12 +141,8 @@ impl PubSubManager {
 
         {
             let inner = self.inner.read().unwrap();
-            if let Some(sender) = inner.shard_channels.get(channel) {
-                match sender.send(message.clone()) {
-                    Ok(n) => total += n,
-                    Err(_) => {}
-                }
-            }
+            if let Some(sender) = inner.shard_channels.get(channel)
+                && let Ok(n) = sender.send(message.clone()) { total += n }
         }
 
         // 清理无活跃接收者的空分片频道
@@ -223,12 +216,8 @@ impl PubSubManager {
         {
             let inner = self.inner.read().unwrap();
             for (pattern, sender) in inner.patterns.iter() {
-                if StorageEngine::glob_match(channel, pattern) {
-                    match sender.send((channel.to_string(), message.clone())) {
-                        Ok(n) => total += n,
-                        Err(_) => {}
-                    }
-                }
+                if StorageEngine::glob_match(channel, pattern)
+                    && let Ok(n) = sender.send((channel.to_string(), message.clone())) { total += n }
             }
         }
 

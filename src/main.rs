@@ -48,11 +48,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             no_aof = true;
         } else if arg == "--sentinel" {
             sentinel_mode = true;
-        } else if arg == "--cluster-enabled" {
-            if let Some(val) = args.next() {
-                cluster_enabled = val.to_ascii_lowercase() == "yes";
+        } else if arg == "--cluster-enabled"
+            && let Some(val) = args.next() {
+                cluster_enabled = val.eq_ignore_ascii_case("yes");
             }
-        }
     }
     // Sentinel 模式下默认端口为 26379
     if sentinel_mode && port == DEFAULT_PORT {
@@ -83,11 +82,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // 然后加载 AOF（增量数据）
-    if !no_aof {
-        if let Err(e) = AofReplayer::replay(AOF_PATH, storage.clone()) {
+    if !no_aof
+        && let Err(e) = AofReplayer::replay(AOF_PATH, storage.clone()) {
             log::error!("AOF 重放失败: {}", e);
         }
-    }
 
     // 创建 AOF 写入器
     let aof = if no_aof {
@@ -157,7 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Sentinel 模式下启动 ODOWN 检查任务
     if let Some(ref s) = sentinel {
-        let _ = redis_rust::sentinel::failover::start_odown_checker(s.clone());
+        drop(redis_rust::sentinel::failover::start_odown_checker(s.clone()));
     }
 
     // Cluster 模式下启动集群总线监听
@@ -175,22 +173,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Cluster 模式下启动 Gossip 任务
-    if cluster_enabled {
-        if let Some(ref c) = cluster {
+    if cluster_enabled
+        && let Some(ref c) = cluster {
             redis_rust::cluster::gossip::start_gossip(c.clone());
         }
-    }
 
     // Cluster 模式下启动故障检测任务
-    if cluster_enabled {
-        if let Some(ref c) = cluster {
+    if cluster_enabled
+        && let Some(ref c) = cluster {
             redis_rust::cluster::failover::start_failure_detector(c.clone());
         }
-    }
 
     // Cluster 模式下定期保存拓扑（每 10 秒）
-    if cluster_enabled {
-        if let Some(ref c) = cluster {
+    if cluster_enabled
+        && let Some(ref c) = cluster {
             let cluster_save = c.clone();
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(10));
@@ -202,7 +198,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             });
         }
-    }
 
     // 创建 TCP 服务器并启动
     let mut server = Server::new(&addr, storage, aof, pubsub, None)

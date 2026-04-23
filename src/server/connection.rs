@@ -122,7 +122,7 @@ fn build_cluster_slots(cluster: &crate::cluster::ClusterState) -> Vec<RespValue>
                 // 结束当前范围
                 if let (Some(s), Some(ref node_id)) = (start, current_node_id) {
                     let end = slot.saturating_sub(1);
-                    if let Some(node) = cluster.get_node(&node_id) {
+                    if let Some(node) = cluster.get_node(node_id) {
                         let mut range_arr = vec![
                             RespValue::Integer(s as i64),
                             RespValue::Integer(end as i64),
@@ -154,7 +154,7 @@ fn build_cluster_slots(cluster: &crate::cluster::ClusterState) -> Vec<RespValue>
     // 处理最后一个范围
     if let (Some(s), Some(ref node_id)) = (start, current_node_id) {
         let end = crate::cluster::state::CLUSTER_SLOTS.saturating_sub(1);
-        if let Some(node) = cluster.get_node(&node_id) {
+        if let Some(node) = cluster.get_node(node_id) {
             let mut range_arr = vec![
                 RespValue::Integer(s as i64),
                 RespValue::Integer(end as i64),
@@ -165,7 +165,7 @@ fn build_cluster_slots(cluster: &crate::cluster::ClusterState) -> Vec<RespValue>
                 ]),
             ];
             for replica in cluster.get_nodes() {
-                if replica.master_id.as_ref() == Some(&node_id) {
+                if replica.master_id.as_ref() == Some(node_id) {
                     range_arr.push(RespValue::Array(vec![
                         RespValue::BulkString(Some(Bytes::from(replica.ip.clone()))),
                         RespValue::Integer(replica.port as i64),
@@ -219,33 +219,35 @@ fn build_cluster_shards(cluster: &crate::cluster::ClusterState) -> Vec<RespValue
         let mut nodes_arr = Vec::new();
 
         // 主节点
-        let mut master_info = Vec::new();
-        master_info.push(RespValue::BulkString(Some(Bytes::from("id"))));
-        master_info.push(RespValue::BulkString(Some(Bytes::from(node.id.clone()))));
-        master_info.push(RespValue::BulkString(Some(Bytes::from("endpoint"))));
-        master_info.push(RespValue::BulkString(Some(Bytes::from(node.ip.clone()))));
-        master_info.push(RespValue::BulkString(Some(Bytes::from("ip"))));
-        master_info.push(RespValue::BulkString(Some(Bytes::from(node.ip.clone()))));
-        master_info.push(RespValue::BulkString(Some(Bytes::from("port"))));
-        master_info.push(RespValue::Integer(node.port as i64));
-        master_info.push(RespValue::BulkString(Some(Bytes::from("role"))));
-        master_info.push(RespValue::BulkString(Some(Bytes::from("master"))));
+        let master_info = vec![
+            RespValue::BulkString(Some(Bytes::from("id"))),
+            RespValue::BulkString(Some(Bytes::from(node.id.clone()))),
+            RespValue::BulkString(Some(Bytes::from("endpoint"))),
+            RespValue::BulkString(Some(Bytes::from(node.ip.clone()))),
+            RespValue::BulkString(Some(Bytes::from("ip"))),
+            RespValue::BulkString(Some(Bytes::from(node.ip.clone()))),
+            RespValue::BulkString(Some(Bytes::from("port"))),
+            RespValue::Integer(node.port as i64),
+            RespValue::BulkString(Some(Bytes::from("role"))),
+            RespValue::BulkString(Some(Bytes::from("master"))),
+        ];
         nodes_arr.push(RespValue::Array(master_info));
 
         // 副本节点
         for replica in cluster.get_nodes() {
             if replica.master_id.as_ref() == Some(&node.id) {
-                let mut replica_info = Vec::new();
-                replica_info.push(RespValue::BulkString(Some(Bytes::from("id"))));
-                replica_info.push(RespValue::BulkString(Some(Bytes::from(replica.id.clone()))));
-                replica_info.push(RespValue::BulkString(Some(Bytes::from("endpoint"))));
-                replica_info.push(RespValue::BulkString(Some(Bytes::from(replica.ip.clone()))));
-                replica_info.push(RespValue::BulkString(Some(Bytes::from("ip"))));
-                replica_info.push(RespValue::BulkString(Some(Bytes::from(replica.ip.clone()))));
-                replica_info.push(RespValue::BulkString(Some(Bytes::from("port"))));
-                replica_info.push(RespValue::Integer(replica.port as i64));
-                replica_info.push(RespValue::BulkString(Some(Bytes::from("role"))));
-                replica_info.push(RespValue::BulkString(Some(Bytes::from("slave"))));
+                let replica_info = vec![
+                    RespValue::BulkString(Some(Bytes::from("id"))),
+                    RespValue::BulkString(Some(Bytes::from(replica.id.clone()))),
+                    RespValue::BulkString(Some(Bytes::from("endpoint"))),
+                    RespValue::BulkString(Some(Bytes::from(replica.ip.clone()))),
+                    RespValue::BulkString(Some(Bytes::from("ip"))),
+                    RespValue::BulkString(Some(Bytes::from(replica.ip.clone()))),
+                    RespValue::BulkString(Some(Bytes::from("port"))),
+                    RespValue::Integer(replica.port as i64),
+                    RespValue::BulkString(Some(Bytes::from("role"))),
+                    RespValue::BulkString(Some(Bytes::from("slave"))),
+                ];
                 nodes_arr.push(RespValue::Array(replica_info));
             }
         }
@@ -414,16 +416,13 @@ async fn run_replica_forward_loop(
                     Ok(n) => {
                         log::debug!("从副本读取 {} 字节", n);
                         while let Ok(Some(resp)) = resp_parser.parse(&mut read_buf) {
-                            if let Ok(cmd) = cmd_parser.parse(resp) {
-                                if let Command::ReplConf { ref args } = cmd {
-                                    if args.len() >= 2 && args[0].to_uppercase() == "ACK" {
-                                        if let Ok(offset) = args[1].parse::<i64>() {
+                            if let Ok(cmd) = cmd_parser.parse(resp)
+                                && let Command::ReplConf { ref args } = cmd
+                                    && args.len() >= 2 && args[0].to_uppercase() == "ACK"
+                                        && let Ok(offset) = args[1].parse::<i64>() {
                                             repl.update_replica_offset(&replica_addr, replica_port, offset);
                                             log::debug!("收到副本 REPLCONF ACK, offset: {}", offset);
                                         }
-                                    }
-                                }
-                            }
                         }
                     }
                     Err(e) => {
@@ -688,15 +687,12 @@ pub(crate) async fn handle_connection(
 
                         // SENTINEL 命令在连接层处理
                         if matches!(cmd, Command::SentinelMasters | Command::SentinelMaster(_) | Command::SentinelReplicas(_) | Command::SentinelSentinels(_) | Command::SentinelGetMasterAddrByName(_) | Command::SentinelMonitor { .. } | Command::SentinelRemove(_) | Command::SentinelSet { .. } | Command::SentinelFailover(_) | Command::SentinelReset(_) | Command::SentinelCkquorum(_) | Command::SentinelMyId | Command::SentinelIsMasterDownByAddr { .. }) {
-                            let resp = if sentinel.is_none() {
-                                RespValue::Error("ERR Sentinel mode not enabled".to_string())
-                            } else {
-                                let s = sentinel.as_ref().unwrap();
+                            let resp = if let Some(s) = sentinel.as_ref() {
                                 match cmd {
                                     Command::SentinelMasters => {
                                         let masters = s.get_masters();
                                         let arr: Vec<RespValue> = masters.iter()
-                                            .map(|m| sentinel_instance_to_resp(m))
+                                            .map(sentinel_instance_to_resp)
                                             .collect();
                                         RespValue::Array(arr)
                                     }
@@ -808,6 +804,8 @@ pub(crate) async fn handle_connection(
                                     }
                                     _ => unreachable!(),
                                 }
+                            } else {
+                                RespValue::Error("ERR Sentinel mode not enabled".to_string())
                             };
                             if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                 log::error!("写入响应失败: {}", e);
@@ -818,10 +816,7 @@ pub(crate) async fn handle_connection(
 
                         // CLUSTER 命令在连接层处理
                         if matches!(cmd, Command::ClusterInfo | Command::ClusterNodes | Command::ClusterMyId | Command::ClusterSlots | Command::ClusterShards | Command::ClusterMeet { .. } | Command::ClusterAddSlots(_) | Command::ClusterDelSlots(_) | Command::ClusterSetSlot { .. } | Command::ClusterReplicate(_) | Command::ClusterFailover(_) | Command::ClusterReset(_) | Command::ClusterKeySlot(_) | Command::ClusterCountKeysInSlot(_) | Command::ClusterGetKeysInSlot(_, _)) {
-                            let resp = if cluster.is_none() {
-                                RespValue::Error("ERR This instance has cluster support disabled".to_string())
-                            } else {
-                                let c = cluster.as_ref().unwrap();
+                            let resp = if let Some(c) = cluster.as_ref() {
                                 match cmd {
                                     Command::ClusterInfo => {
                                         RespValue::BulkString(Some(Bytes::from(c.get_info_string())))
@@ -1012,6 +1007,8 @@ pub(crate) async fn handle_connection(
                                     }
                                     _ => unreachable!(),
                                 }
+                            } else {
+                                RespValue::Error("ERR This instance has cluster support disabled".to_string())
                             };
                             if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                 log::error!("写入响应失败: {}", e);
@@ -1036,8 +1033,8 @@ pub(crate) async fn handle_connection(
                                 // 如果 slot 正在从本节点迁出，且 key 不存在，返回 ASK
                                 if let Some(target_id) = cluster.is_slot_migrating(slot) {
                                     let key_exists = handler.executor.storage().exists(first_key).unwrap_or(false);
-                                    if !key_exists {
-                                        if let Some(target_node) = cluster.get_node(&target_id) {
+                                    if !key_exists
+                                        && let Some(target_node) = cluster.get_node(&target_id) {
                                             let resp = RespValue::Error(format!(
                                                 "ASK {} {}:{}",
                                                 slot, target_node.ip, target_node.port
@@ -1048,17 +1045,16 @@ pub(crate) async fn handle_connection(
                                             }
                                             continue;
                                         }
-                                    }
                                 }
-                                if let Some(node_id) = cluster.get_slot_node(slot) {
-                                    if node_id != my_id {
+                                if let Some(node_id) = cluster.get_slot_node(slot)
+                                    && node_id != my_id {
                                         // READONLY 模式下，replica 允许读取 master 的 slot
                                         let allow_readonly = readonly_mode && is_read_command(&cmd) && {
                                             let myself = cluster.myself();
                                             myself.map(|n| n.master_id.as_deref() == Some(node_id.as_str())).unwrap_or(false)
                                         };
-                                        if !allow_readonly {
-                                            if let Some(node) = cluster.get_node(&node_id) {
+                                        if !allow_readonly
+                                            && let Some(node) = cluster.get_node(&node_id) {
                                                 let resp = RespValue::Error(format!(
                                                     "MOVED {} {}:{}",
                                                     slot, node.ip, node.port
@@ -1069,9 +1065,7 @@ pub(crate) async fn handle_connection(
                                                 }
                                                 continue;
                                             }
-                                        }
                                     }
-                                }
                             }
                         }
 
@@ -1245,11 +1239,10 @@ pub(crate) async fn handle_connection(
                                     Ok(()) => {
                                         _current_db_index = index;
                                         // 更新客户端注册表中的 db
-                                        if let Ok(mut guard) = clients.write() {
-                                            if let Some(info) = guard.get_mut(&client_id) {
+                                        if let Ok(mut guard) = clients.write()
+                                            && let Some(info) = guard.get_mut(&client_id) {
                                                 info.db = index;
                                             }
-                                        }
                                         let resp = RespValue::SimpleString("OK".to_string());
                                         if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                             log::error!("写入响应失败: {}", e);
@@ -1267,11 +1260,10 @@ pub(crate) async fn handle_connection(
                             }
                             Command::ClientSetName(name) => {
                                 client_name = Some(name.clone());
-                                if let Ok(mut guard) = clients.write() {
-                                    if let Some(info) = guard.get_mut(&client_id) {
+                                if let Ok(mut guard) = clients.write()
+                                    && let Some(info) = guard.get_mut(&client_id) {
                                         info.name = Some(name);
                                     }
-                                }
                                 let resp = RespValue::SimpleString("OK".to_string());
                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                     log::error!("写入响应失败: {}", e);
@@ -1333,15 +1325,14 @@ pub(crate) async fn handle_connection(
                                 } else {
                                     client_flags.remove("no-evict");
                                 }
-                                if let Ok(mut guard) = clients.write() {
-                                    if let Some(info) = guard.get_mut(&client_id) {
+                                if let Ok(mut guard) = clients.write()
+                                    && let Some(info) = guard.get_mut(&client_id) {
                                         if flag {
                                             info.flags.insert("no-evict".to_string());
                                         } else {
                                             info.flags.remove("no-evict");
                                         }
                                     }
-                                }
                                 let resp = RespValue::SimpleString("OK".to_string());
                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                     log::error!("写入响应失败: {}", e);
@@ -1354,15 +1345,14 @@ pub(crate) async fn handle_connection(
                                 } else {
                                     client_flags.remove("no-touch");
                                 }
-                                if let Ok(mut guard) = clients.write() {
-                                    if let Some(info) = guard.get_mut(&client_id) {
+                                if let Ok(mut guard) = clients.write()
+                                    && let Some(info) = guard.get_mut(&client_id) {
                                         if flag {
                                             info.flags.insert("no-touch".to_string());
                                         } else {
                                             info.flags.remove("no-touch");
                                         }
                                     }
-                                }
                                 let resp = RespValue::SimpleString("OK".to_string());
                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                     log::error!("写入响应失败: {}", e);
@@ -1385,15 +1375,12 @@ pub(crate) async fn handle_connection(
                                         if *cid == client_id && skipme {
                                             continue;
                                         }
-                                        if let Some(kid) = id {
-                                            if *cid != kid { continue; }
-                                        }
-                                        if let Some(ref kaddr) = addr {
-                                            if info.addr != *kaddr { continue; }
-                                        }
-                                        if let Some(ref kuser) = user {
-                                            if current_user != *kuser { continue; }
-                                        }
+                                        if let Some(kid) = id
+                                            && *cid != kid { continue; }
+                                        if let Some(ref kaddr) = addr
+                                            && info.addr != *kaddr { continue; }
+                                        if let Some(ref kuser) = user
+                                            && current_user != *kuser { continue; }
                                         if let Ok(mut kf) = client_kill_flags.lock() {
                                             kf.insert(*cid);
                                         }
@@ -1429,15 +1416,13 @@ pub(crate) async fn handle_connection(
                             }
                             Command::ClientUnblock(target_id, reason) => {
                                 let mut unblocked = false;
-                                if let Ok(mut guard) = clients.write() {
-                                    if let Some(info) = guard.get_mut(&target_id) {
-                                        if info.blocked {
+                                if let Ok(mut guard) = clients.write()
+                                    && let Some(info) = guard.get_mut(&target_id)
+                                        && info.blocked {
                                             info.blocked = false;
                                             info.blocked_reason = Some(reason.clone());
                                             unblocked = true;
                                         }
-                                    }
-                                }
                                 let resp = RespValue::Integer(if unblocked { 1 } else { 0 });
                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                     log::error!("写入响应失败: {}", e);
@@ -2049,15 +2034,14 @@ pub(crate) async fn handle_connection(
                                 in_transaction = false;
                                 tx_queue.clear();
                                 watched.clear();
-                                if let Ok(mut guard) = clients.write() {
-                                    if let Some(info) = guard.get_mut(&client_id) {
+                                if let Ok(mut guard) = clients.write()
+                                    && let Some(info) = guard.get_mut(&client_id) {
                                         info.db = 0;
                                         info.name = None;
                                         info.flags.clear();
                                         info.blocked = false;
                                         info.blocked_reason = None;
                                     }
-                                }
                                 let resp = RespValue::SimpleString("RESET".to_string());
                                 if let Err(_e) = write_resp(&mut stream, &handler, &resp).await {
                                     return Ok(());
@@ -2086,25 +2070,25 @@ pub(crate) async fn handle_connection(
                                 }
                                 if let Some(name) = setname {
                                     client_name = Some(name.clone());
-                                    if let Ok(mut guard) = clients.write() {
-                                        if let Some(info) = guard.get_mut(&client_id) {
+                                    if let Ok(mut guard) = clients.write()
+                                        && let Some(info) = guard.get_mut(&client_id) {
                                             info.name = Some(name);
                                         }
-                                    }
                                 }
-                                let mut map = Vec::new();
-                                map.push(RespValue::BulkString(Some(Bytes::from("server"))));
-                                map.push(RespValue::BulkString(Some(Bytes::from("redis-rust"))));
-                                map.push(RespValue::BulkString(Some(Bytes::from("version"))));
-                                map.push(RespValue::BulkString(Some(Bytes::from("7.0.0"))));
-                                map.push(RespValue::BulkString(Some(Bytes::from("proto"))));
-                                map.push(RespValue::Integer(protover as i64));
-                                map.push(RespValue::BulkString(Some(Bytes::from("id"))));
-                                map.push(RespValue::Integer(client_id as i64));
-                                map.push(RespValue::BulkString(Some(Bytes::from("mode"))));
-                                map.push(RespValue::BulkString(Some(Bytes::from("standalone"))));
-                                map.push(RespValue::BulkString(Some(Bytes::from("role"))));
-                                map.push(RespValue::BulkString(Some(Bytes::from("master"))));
+                                let map = vec![
+                                    RespValue::BulkString(Some(Bytes::from("server"))),
+                                    RespValue::BulkString(Some(Bytes::from("redis-rust"))),
+                                    RespValue::BulkString(Some(Bytes::from("version"))),
+                                    RespValue::BulkString(Some(Bytes::from("7.0.0"))),
+                                    RespValue::BulkString(Some(Bytes::from("proto"))),
+                                    RespValue::Integer(protover as i64),
+                                    RespValue::BulkString(Some(Bytes::from("id"))),
+                                    RespValue::Integer(client_id as i64),
+                                    RespValue::BulkString(Some(Bytes::from("mode"))),
+                                    RespValue::BulkString(Some(Bytes::from("standalone"))),
+                                    RespValue::BulkString(Some(Bytes::from("role"))),
+                                    RespValue::BulkString(Some(Bytes::from("master"))),
+                                ];
                                 let resp = RespValue::Array(map);
                                 if let Err(_e) = write_resp(&mut stream, &handler, &resp).await {
                                     return Ok(());
@@ -2198,13 +2182,11 @@ pub(crate) async fn handle_connection(
                             }
                             other => {
                                 // 记录副本监听端口（用于 REPLCONF listening-port）
-                                if let Command::ReplConf { args } = &other {
-                                    if args.len() >= 2 && args[0].to_uppercase() == "LISTENING-PORT" {
-                                        if let Ok(port) = args[1].parse::<u16>() {
+                                if let Command::ReplConf { args } = &other
+                                    && args.len() >= 2 && args[0].to_uppercase() == "LISTENING-PORT"
+                                        && let Ok(port) = args[1].parse::<u16>() {
                                             replica_listening_port = port;
                                         }
-                                    }
-                                }
 
                                 // 普通命令，交给执行器，同时广播到 MONITOR
                                 let is_replconf_ack = matches!(
@@ -2227,8 +2209,8 @@ pub(crate) async fn handle_connection(
                                 match handler.executor.execute(other) {
                                     Ok(response) => {
                                         // 处理 CONTINUE 增量同步响应
-                                        if let RespValue::SimpleString(ref s) = response {
-                                            if s.starts_with("CONTINUE") {
+                                        if let RespValue::SimpleString(ref s) = response
+                                            && s.starts_with("CONTINUE") {
                                                 let parts: Vec<&str> = s.split_whitespace().collect();
                                                 if parts.len() >= 3 {
                                                     let offset: i64 = parts[2].parse().unwrap_or(0);
@@ -2239,18 +2221,16 @@ pub(crate) async fn handle_connection(
                                                         return Ok(());
                                                     }
                                                     if let Some(ref repl) = replication {
-                                                        if let Some(backlog_data) = repl.get_backlog_from_offset(offset) {
-                                                            if let Err(e) = stream.write_all(&backlog_data).await {
+                                                        if let Some(backlog_data) = repl.get_backlog_from_offset(offset)
+                                                            && let Err(e) = stream.write_all(&backlog_data).await {
                                                                 log::error!("写入增量数据失败: {}", e);
                                                                 return Ok(());
                                                             }
-                                                        }
                                                         let _ = stream.flush().await;
                                                         return run_replica_forward_loop(stream.into_inner(), repl, &peer_addr, replica_listening_port).await;
                                                     }
                                                 }
                                             }
-                                        }
 
                                         if is_replconf_ack {
                                             continue;
@@ -2262,8 +2242,8 @@ pub(crate) async fn handle_connection(
                                         }
 
                                         // 检测到 FULLRESYNC 响应后发送 RDB 数据
-                                        if let RespValue::SimpleString(ref s) = response {
-                                            if s.starts_with("FULLRESYNC") {
+                                        if let RespValue::SimpleString(ref s) = response
+                                            && s.starts_with("FULLRESYNC") {
                                                 let _ = stream.flush().await;
                                                 let mut rdb_buf = Vec::new();
                                                 let repl_id = replication.as_ref().map(|repl| repl.get_master_replid());
@@ -2289,17 +2269,15 @@ pub(crate) async fn handle_connection(
 
                                                 if let Some(ref repl) = replication {
                                                     // 发送 RDB 生成后积压的 backlog 数据
-                                                    if let Some(backlog_data) = repl.get_backlog_from_offset(repl_offset.unwrap_or(0)) {
-                                                        if let Err(e) = stream.write_all(&backlog_data).await {
+                                                    if let Some(backlog_data) = repl.get_backlog_from_offset(repl_offset.unwrap_or(0))
+                                                        && let Err(e) = stream.write_all(&backlog_data).await {
                                                             log::error!("写入 backlog 数据失败: {}", e);
                                                             return Ok(());
                                                         }
-                                                    }
                                                     let _ = stream.flush().await;
                                                     return run_replica_forward_loop(stream.into_inner(), repl, &peer_addr, replica_listening_port).await;
                                                 }
                                             }
-                                        }
                                     }
                                     Err(e) => {
                                         log::error!("命令执行失败: {}", e);

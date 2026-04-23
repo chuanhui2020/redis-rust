@@ -57,7 +57,7 @@ pub(crate) fn execute_h_m_get(executor: &CommandExecutor, key: String, fields: V
                 let values = executor.storage.hmget(&key, &fields)?;
                 let resp_values: Vec<RespValue> = values
                     .into_iter()
-                    .map(|v| RespValue::BulkString(v))
+                    .map(RespValue::BulkString)
                     .collect();
                 Ok(RespValue::Array(resp_values))
 }
@@ -132,7 +132,7 @@ pub(crate) fn execute_h_expire(executor: &CommandExecutor, key: String, fields: 
                 let result = executor.storage.hexpire(&key, &fields, seconds)?;
                 let arr: Vec<RespValue> = result
                     .into_iter()
-                    .map(|v| RespValue::Integer(v))
+                    .map(RespValue::Integer)
                     .collect();
                 Ok(RespValue::Array(arr))
 }
@@ -141,7 +141,7 @@ pub(crate) fn execute_h_p_expire(executor: &CommandExecutor, key: String, fields
                 let result = executor.storage.hpexpire(&key, &fields, ms)?;
                 let arr: Vec<RespValue> = result
                     .into_iter()
-                    .map(|v| RespValue::Integer(v))
+                    .map(RespValue::Integer)
                     .collect();
                 Ok(RespValue::Array(arr))
 }
@@ -150,7 +150,7 @@ pub(crate) fn execute_h_expire_at(executor: &CommandExecutor, key: String, field
                 let result = executor.storage.hexpireat(&key, &fields, ts)?;
                 let arr: Vec<RespValue> = result
                     .into_iter()
-                    .map(|v| RespValue::Integer(v))
+                    .map(RespValue::Integer)
                     .collect();
                 Ok(RespValue::Array(arr))
 }
@@ -159,7 +159,7 @@ pub(crate) fn execute_h_p_expire_at(executor: &CommandExecutor, key: String, fie
                 let result = executor.storage.hpexpireat(&key, &fields, ts)?;
                 let arr: Vec<RespValue> = result
                     .into_iter()
-                    .map(|v| RespValue::Integer(v))
+                    .map(RespValue::Integer)
                     .collect();
                 Ok(RespValue::Array(arr))
 }
@@ -168,7 +168,7 @@ pub(crate) fn execute_h_ttl(executor: &CommandExecutor, key: String, fields: Vec
                 let result = executor.storage.httl(&key, &fields)?;
                 let arr: Vec<RespValue> = result
                     .into_iter()
-                    .map(|v| RespValue::Integer(v))
+                    .map(RespValue::Integer)
                     .collect();
                 Ok(RespValue::Array(arr))
 }
@@ -177,7 +177,7 @@ pub(crate) fn execute_h_p_ttl(executor: &CommandExecutor, key: String, fields: V
                 let result = executor.storage.hpttl(&key, &fields)?;
                 let arr: Vec<RespValue> = result
                     .into_iter()
-                    .map(|v| RespValue::Integer(v))
+                    .map(RespValue::Integer)
                     .collect();
                 Ok(RespValue::Array(arr))
 }
@@ -186,7 +186,7 @@ pub(crate) fn execute_h_expire_time(executor: &CommandExecutor, key: String, fie
                 let result = executor.storage.hexpiretime(&key, &fields)?;
                 let arr: Vec<RespValue> = result
                     .into_iter()
-                    .map(|v| RespValue::Integer(v))
+                    .map(RespValue::Integer)
                     .collect();
                 Ok(RespValue::Array(arr))
 }
@@ -195,7 +195,7 @@ pub(crate) fn execute_h_p_expire_time(executor: &CommandExecutor, key: String, f
                 let result = executor.storage.hpexpiretime(&key, &fields)?;
                 let arr: Vec<RespValue> = result
                     .into_iter()
-                    .map(|v| RespValue::Integer(v))
+                    .map(RespValue::Integer)
                     .collect();
                 Ok(RespValue::Array(arr))
 }
@@ -204,7 +204,7 @@ pub(crate) fn execute_h_persist(executor: &CommandExecutor, key: String, fields:
                 let result = executor.storage.hpersist(&key, &fields)?;
                 let arr: Vec<RespValue> = result
                     .into_iter()
-                    .map(|v| RespValue::Integer(v))
+                    .map(RespValue::Integer)
                     .collect();
                 Ok(RespValue::Array(arr))
 }

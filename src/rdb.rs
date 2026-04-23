@@ -471,13 +471,7 @@ pub fn load_from_reader(
 /// 从 RDB 文件加载数据到 storage
 /// 返回加载的复制信息 (replid, offset)
 pub fn load(storage: &StorageEngine, path: &str) -> Result<(Option<String>, Option<i64>)> {
-    let file = File::open(path).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            AppError::Io(e)
-        } else {
-            AppError::Io(e)
-        }
-    })?;
+    let file = File::open(path).map_err(AppError::Io)?;
     let mut reader = BufReader::new(file);
     load_from_reader(storage, &mut reader, true)
 }

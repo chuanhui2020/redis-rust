@@ -214,9 +214,8 @@ impl AclManager {
                         let hash = hash_password(password);
                         user.passwords.retain(|p| p != &hash);
                     } else if let Some(cmd) = rule.strip_prefix('+') {
-                        if cmd.starts_with('@') {
+                        if let Some(category) = cmd.strip_prefix('@') {
                             // 允许命令类别
-                            let category = &cmd[1..];
                             let cmds = get_category_commands(category);
                             match &mut user.commands {
                                 AclCommands::AllCommands => {}
@@ -249,9 +248,8 @@ impl AclManager {
                             }
                         }
                     } else if let Some(cmd) = rule.strip_prefix('-') {
-                        if cmd.starts_with('@') {
+                        if let Some(category) = cmd.strip_prefix('@') {
                             // 禁止命令类别
-                            let category = &cmd[1..];
                             let cmds = get_category_commands(category);
                             match &mut user.commands {
                                 AclCommands::AllCommands => {
@@ -354,7 +352,7 @@ impl AclManager {
             AppError::Storage(format!("ACL 锁中毒: {}", e))
         })?;
         let mut result = Vec::new();
-        for (_, user) in &inner.users {
+        for user in inner.users.values() {
             let rules = user.to_rules().join(" ");
             result.push(format!("user {} {}", user.name, rules));
         }
@@ -424,13 +422,13 @@ impl AclManager {
             let rules = user.to_rules();
             content.push_str(&format!("user {} {}\n", name, rules.join(" ")));
         }
-        std::fs::write(path, content).map_err(|e| AppError::Io(e))?;
+        std::fs::write(path, content).map_err(AppError::Io)?;
         Ok(())
     }
 
     /// 从文件加载 ACL 规则
     pub fn load(&self, path: &str) -> Result<()> {
-        let content = std::fs::read_to_string(path).map_err(|e| AppError::Io(e))?;
+        let content = std::fs::read_to_string(path).map_err(AppError::Io)?;
         for line in content.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
@@ -457,7 +455,7 @@ impl AclManager {
     /// 生成随机密码
     pub fn genpass(&self, bits: Option<usize>) -> Result<String> {
         let bits = bits.unwrap_or(256);
-        if bits < 64 || bits > 4096 || bits % 8 != 0 {
+        if !(64..=4096).contains(&bits) || !bits.is_multiple_of(8) {
             return Err(AppError::Command(
                 "ACL GENPASS bits 必须是 64-4096 之间的 8 的倍数".to_string(),
             ));

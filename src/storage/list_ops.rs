@@ -222,10 +222,10 @@ impl StorageEngine {
         let mut e = stop;
 
         if s < 0 {
-            s = len + s;
+            s += len;
         }
         if e < 0 {
-            e = len + e;
+            e += len;
         }
 
         s = s.max(0);
@@ -270,7 +270,7 @@ impl StorageEngine {
         let len = list.len() as i64;
         let mut idx = index;
         if idx < 0 {
-            idx = len + idx;
+            idx += len;
         }
 
         if idx < 0 || idx >= len {
@@ -304,7 +304,7 @@ impl StorageEngine {
 
                             if idx < 0 {
 
-                                idx = len + idx;
+                                idx += len;
 
                             }
 
@@ -558,13 +558,13 @@ impl StorageEngine {
 
                             if s < 0 {
 
-                                s = len + s;
+                                s += len;
 
                             }
 
                             if e < 0 {
 
-                                e = len + e;
+                                e += len;
 
                             }
 
@@ -586,10 +586,8 @@ impl StorageEngine {
 
                             let mut new_list = VecDeque::new();
 
-                            for i in start_idx..=end_idx {
-
-                                new_list.push_back(list[i].clone());
-
+                            for item in list.iter().take(end_idx + 1).skip(start_idx) {
+                                new_list.push_back(item.clone());
                             }
 
                             if new_list.is_empty() {
@@ -647,8 +645,6 @@ impl StorageEngine {
                             }
 
 
-                            let mut checked = 0i64;
-
                             let mut matched = 0i64;
 
                             let target_match = rank.abs();
@@ -665,15 +661,10 @@ impl StorageEngine {
                             };
 
 
-                            for (idx, item) in iter {
-
-                                if checked >= check_limit {
-
+                            for (checked, (idx, item)) in iter.enumerate() {
+                                if checked >= check_limit as usize {
                                     break;
-
                                 }
-
-                                checked += 1;
 
                                 if *item == value {
 
@@ -773,7 +764,8 @@ impl StorageEngine {
                 }
                 tokio::time::timeout(remaining, notify.notified()).await
             } else {
-                Ok(notify.notified().await)
+                let _: () = notify.notified().await;
+                Ok(())
             };
 
             self.unregister_blocking_waiter(keys, &notify);
@@ -823,7 +815,8 @@ impl StorageEngine {
                 }
                 tokio::time::timeout(remaining, notify.notified()).await
             } else {
-                Ok(notify.notified().await)
+                let _: () = notify.notified().await;
+                Ok(())
             };
 
             self.unregister_blocking_waiter(keys, &notify);
@@ -987,10 +980,7 @@ impl StorageEngine {
         let keys = vec![source.to_string()];
 
         loop {
-            match self.lmove(source, destination, left_from, left_to)? {
-                Some(value) => return Ok(Some(value)),
-                None => {}
-            }
+            if let Some(value) = self.lmove(source, destination, left_from, left_to)? { return Ok(Some(value)) }
 
             // 注册等待者
             let notify = Arc::new(tokio::sync::Notify::new());
@@ -1011,7 +1001,8 @@ impl StorageEngine {
                 }
                 tokio::time::timeout(remaining, notify.notified()).await
             } else {
-                Ok(notify.notified().await)
+                let _: () = notify.notified().await;
+                Ok(())
             };
 
             self.unregister_blocking_waiter(&keys, &notify);
@@ -1032,10 +1023,7 @@ impl StorageEngine {
         };
 
         loop {
-            match self.lmpop(keys, left, count)? {
-                Some(result) => return Ok(Some(result)),
-                None => {}
-            }
+            if let Some(result) = self.lmpop(keys, left, count)? { return Ok(Some(result)) }
 
             // 注册等待者
             let notify = Arc::new(tokio::sync::Notify::new());
@@ -1058,7 +1046,8 @@ impl StorageEngine {
                 }
                 tokio::time::timeout(remaining, notify.notified()).await
             } else {
-                Ok(notify.notified().await)
+                let _: () = notify.notified().await;
+                Ok(())
             };
 
             self.unregister_blocking_waiter(keys, &notify);

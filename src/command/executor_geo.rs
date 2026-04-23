@@ -23,7 +23,7 @@ pub(crate) fn execute_geo_hash(executor: &CommandExecutor, key: String, members:
                 let hashes = executor.storage.geohash(&key, &members)?;
                 let resp_values: Vec<RespValue> = hashes
                     .into_iter()
-                    .map(|h| RespValue::BulkString(h.map(|s| Bytes::from(s))))
+                    .map(|h| RespValue::BulkString(h.map(Bytes::from)))
                     .collect();
                 Ok(RespValue::Array(resp_values))
 }

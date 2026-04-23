@@ -194,8 +194,8 @@ impl StorageEngine {
                 .get_shard(key)
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            if let Some(v) = map.get(key) {
-                if !Self::is_expired(v) {
+            if let Some(v) = map.get(key)
+                && !Self::is_expired(v) {
                     match v {
                         StorageValue::HyperLogLog(hll) => {
                             merged.merge(&[hll]);
@@ -208,7 +208,6 @@ impl StorageEngine {
                         }
                     }
                 }
-            }
         }
 
         if !has_data {
@@ -233,8 +232,8 @@ impl StorageEngine {
                 .get_shard(key)
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            if let Some(v) = map.get(key) {
-                if !Self::is_expired(v) {
+            if let Some(v) = map.get(key)
+                && !Self::is_expired(v) {
                     match v {
                         StorageValue::HyperLogLog(hll) => {
                             merged.merge(&[hll]);
@@ -247,7 +246,6 @@ impl StorageEngine {
                         }
                     }
                 }
-            }
         }
 
         if has_data {

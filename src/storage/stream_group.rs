@@ -275,11 +275,10 @@ impl StorageEngine {
                 let start_id = group.last_delivered_id;
                 for (id, fields) in stream.entries.range((std::ops::Bound::Excluded(start_id), std::ops::Bound::Unbounded)) {
                     stream_result.push((*id, fields.clone()));
-                    if let Some(c) = count {
-                        if stream_result.len() >= c {
+                    if let Some(c) = count
+                        && stream_result.len() >= c {
                             break;
                         }
-                    }
                 }
                 // 更新 last_delivered_id
                 if let Some((last_id, _)) = stream_result.last() {
@@ -293,16 +292,14 @@ impl StorageEngine {
                     StreamId::parse(&ids[idx]).unwrap_or_else(|_| StreamId::new(0, 0))
                 };
                 for id in &consumer.pel {
-                    if *id > start_id {
-                        if let Some(fields) = stream.entries.get(id) {
+                    if *id > start_id
+                        && let Some(fields) = stream.entries.get(id) {
                             stream_result.push((*id, fields.clone()));
-                            if let Some(c) = count {
-                                if stream_result.len() >= c {
+                            if let Some(c) = count
+                                && stream_result.len() >= c {
                                     break;
                                 }
-                            }
                         }
-                    }
                 }
             }
 
@@ -408,11 +405,10 @@ impl StorageEngine {
                                     if idle >= min_idle_time {
                                         let old_consumer_name = entry.consumer.clone();
                                         // 转移所有权
-                                        if old_consumer_name != consumer_name {
-                                            if let Some(old_consumer) = group.consumers.get_mut(&old_consumer_name) {
+                                        if old_consumer_name != consumer_name
+                                            && let Some(old_consumer) = group.consumers.get_mut(&old_consumer_name) {
                                                 old_consumer.pel.remove(id);
                                             }
-                                        }
                                         entry.consumer = consumer_name.to_string();
                                         entry.delivery_time = now;
                                         entry.delivery_count += 1;
@@ -478,7 +474,6 @@ impl StorageEngine {
                             })?;
                             let mut result = Vec::new();
                             let mut next_id = start;
-                            let mut processed = 0usize;
 
                             // 遍历 PEL 中从 start 开始的消息
                             let pel_ids: Vec<StreamId> = group.pel
@@ -487,7 +482,7 @@ impl StorageEngine {
                                 .copied()
                                 .collect();
 
-                            for id in pel_ids {
+                            for (processed, id) in pel_ids.into_iter().enumerate() {
                                 if processed >= count {
                                     next_id = id;
                                     break;
@@ -496,11 +491,10 @@ impl StorageEngine {
                                     let idle = now - entry.delivery_time;
                                     if idle >= min_idle_time {
                                         let old_consumer_name = entry.consumer.clone();
-                                        if old_consumer_name != consumer_name {
-                                            if let Some(old_consumer) = group.consumers.get_mut(&old_consumer_name) {
+                                        if old_consumer_name != consumer_name
+                                            && let Some(old_consumer) = group.consumers.get_mut(&old_consumer_name) {
                                                 old_consumer.pel.remove(&id);
                                             }
-                                        }
                                         entry.consumer = consumer_name.to_string();
                                         entry.delivery_time = now;
                                         entry.delivery_count += 1;
@@ -519,7 +513,6 @@ impl StorageEngine {
                                         }
                                     }
                                 }
-                                processed += 1;
                                 next_id = StreamId::new(id.ms_time, id.seq + 1);
                             }
 
@@ -579,11 +572,10 @@ impl StorageEngine {
                         let mut details = Vec::new();
                         if let (Some(s), Some(e), Some(c)) = (start, end, count) {
                             for (id, entry) in group.pel.range(s..=e) {
-                                if let Some(cname) = consumer {
-                                    if entry.consumer != cname {
+                                if let Some(cname) = consumer
+                                    && entry.consumer != cname {
                                         continue;
                                     }
-                                }
                                 let now = Self::now_millis();
                                 let idle = now - entry.delivery_time;
                                 details.push((*id, entry.consumer.clone(), idle, entry.delivery_count));

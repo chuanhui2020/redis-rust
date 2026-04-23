@@ -7,7 +7,7 @@ pub(crate) fn to_resp_l_push(cmd: &Command) -> RespValue {
         Command::LPush(key, values) => {
                 let mut parts = vec![bulk("LPUSH"), bulk(key)];
                 for v in values {
-                    parts.push(bulk_bytes(&v));
+                    parts.push(bulk_bytes(v));
                 }
                 RespValue::Array(parts)
         }
@@ -20,7 +20,7 @@ pub(crate) fn to_resp_r_push(cmd: &Command) -> RespValue {
         Command::RPush(key, values) => {
                 let mut parts = vec![bulk("RPUSH"), bulk(key)];
                 for v in values {
-                    parts.push(bulk_bytes(&v));
+                    parts.push(bulk_bytes(v));
                 }
                 RespValue::Array(parts)
         }

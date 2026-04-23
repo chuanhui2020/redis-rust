@@ -14,11 +14,7 @@ impl StorageEngine {
 
         let policy = *self.eviction_policy.read().unwrap();
 
-        loop {
-            let usage = match self.memory_usage() {
-                Ok(u) => u,
-                Err(_) => break,
-            };
+        while let Ok(usage) = self.memory_usage() {
             if usage < max as usize {
                 break;
             }
@@ -78,12 +74,11 @@ impl StorageEngine {
                             continue;
                         }
                         if volatile_only {
-                            if let Some(StorageValue::ExpiringString(_, _)) = map.get(key) {
-                                if *time < lru_time {
+                            if let Some(StorageValue::ExpiringString(_, _)) = map.get(key)
+                                && *time < lru_time {
                                     lru_time = *time;
                                     lru_key = Some((db_idx, key.clone()));
                                 }
-                            }
                         } else if *time < lru_time {
                             lru_time = *time;
                             lru_key = Some((db_idx, key.clone()));
@@ -146,12 +141,11 @@ impl StorageEngine {
                             continue;
                         }
                         if volatile_only {
-                            if let Some(StorageValue::ExpiringString(_, _)) = map.get(key) {
-                                if *count < min_count {
+                            if let Some(StorageValue::ExpiringString(_, _)) = map.get(key)
+                                && *count < min_count {
                                     min_count = *count;
                                     lfu_key = Some((db_idx, key.clone()));
                                 }
-                            }
                         } else if *count < min_count {
                             min_count = *count;
                             lfu_key = Some((db_idx, key.clone()));

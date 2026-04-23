@@ -221,7 +221,6 @@ impl AofRewriter {
                         if !fields.is_empty() {
                             let pairs: Vec<(String, Bytes)> = fields
                                 .into_iter()
-                                .map(|(f, v)| (f, v))
                                 .collect();
                             let cmd = Command::HMSet(key.clone(), pairs);
                             Self::write_cmd(&parser, &mut writer, &cmd)?;

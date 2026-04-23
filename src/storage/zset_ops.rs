@@ -61,10 +61,10 @@ impl ZSetData {
         let mut s = start;
         let mut e = stop;
         if s < 0 {
-            s = len + s;
+            s += len;
         }
         if e < 0 {
-            e = len + e;
+            e += len;
         }
         s = s.max(0);
         e = e.min(len - 1);
@@ -101,10 +101,10 @@ impl ZSetData {
         let mut s = start;
         let mut e = stop;
         if s < 0 {
-            s = len + s;
+            s += len;
         }
         if e < 0 {
-            e = len + e;
+            e += len;
         }
         s = s.max(0);
         e = e.min(len - 1);
@@ -267,7 +267,7 @@ impl ZSetData {
             selected.shuffle(&mut rng);
             selected
         } else {
-            let n = count.abs() as usize;
+            let n = count.unsigned_abs() as usize;
             let mut rng = rand::thread_rng();
             (0..n)
                 .map(|_| members.choose(&mut rng).unwrap().clone())
@@ -276,8 +276,8 @@ impl ZSetData {
     }
 }
 
-/// 解析 ZRANGEBYLEX 的范围边界
-/// 返回 (是否包含, 边界值)
+// 解析 ZRANGEBYLEX 的范围边界
+// 返回 (是否包含, 边界值)
 // ---------- BITFIELD 类型定义 ----------
 
 /// BITFIELD 编码类型
@@ -300,8 +300,10 @@ pub enum BitFieldOffset {
 
 /// BITFIELD 溢出策略
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Default)]
 pub enum BitFieldOverflow {
     /// 回绕（默认）
+    #[default]
     Wrap,
     /// 饱和
     Sat,
@@ -309,11 +311,6 @@ pub enum BitFieldOverflow {
     Fail,
 }
 
-impl Default for BitFieldOverflow {
-    fn default() -> Self {
-        BitFieldOverflow::Wrap
-    }
-}
 
 /// BITFIELD 子操作
 #[derive(Debug, Clone, PartialEq)]
@@ -444,7 +441,7 @@ fn signed_to_unsigned(value: i64, bits: usize) -> u64 {
 /// 向字节数组中按大端序写入指定位域
 #[allow(dead_code)]
 fn write_bitfield(bytes: &mut Vec<u8>, offset: usize, bits: usize, value: u64) {
-    let needed = (offset + bits + 7) / 8;
+    let needed = (offset + bits).div_ceil(8);
     if bytes.len() < needed {
         bytes.resize(needed, 0);
     }
@@ -989,9 +986,7 @@ impl StorageEngine {
     }
 
     /// 有序集合并集存储
-
     /// 有序集合交集存储
-
     /// 增量迭代有序集合
     pub fn zscan(
         &self,
@@ -1105,24 +1100,15 @@ impl StorageEngine {
     }
 
     /// 返回有序集合差集（不存储）
-
     /// 有序集合差集存储
-
     /// 返回有序集合交集（不存储）
-
     /// 返回有序集合并集（不存储）
-
     /// 将范围查询结果存储到目标键
-
     /// 从多个有序集合中弹出成员
     /// 返回 (键名, Vec<(成员, 分数)>)
-
     /// 阻塞版 ZMPOP
-
     /// 阻塞弹出最小分数成员
-
     /// 阻塞弹出最大分数成员
-
     /// 按降序分数范围返回成员
     pub fn zrevrangebyscore(
         &self,

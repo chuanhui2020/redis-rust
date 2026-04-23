@@ -281,43 +281,24 @@ impl CommandParser {
     }
 
     /// 解析 PING 命令：PING [message]
-
     /// 解析 DEL 命令：DEL key [key ...]
-
     /// 解析 EXISTS 命令：EXISTS key [key ...]
-
     /// 解析 EXPIRE 命令：EXPIRE key seconds
-
     /// 解析 TTL 命令：TTL key
-
     /// 解析 KEYS 命令：KEYS pattern
-
     /// 解析 SCAN 命令：SCAN cursor [MATCH pattern] [COUNT count]
-
     /// 解析 RENAME 命令：RENAME key newkey
-
     /// 解析 TYPE 命令：TYPE key
-
     /// 解析 PERSIST 命令：PERSIST key
-
     /// 解析 PEXPIRE 命令：PEXPIRE key milliseconds
-
     /// 解析 PTTL 命令：PTTL key
-
     /// 解析 DBSIZE 命令：DBSIZE
-
     /// 解析 INFO 命令：INFO [section]
-
     /// 解析 SUBSCRIBE 命令：SUBSCRIBE channel [channel ...]
-
     /// 解析 UNSUBSCRIBE 命令：UNSUBSCRIBE [channel ...]
-
     /// 解析 PUBLISH 命令：PUBLISH channel message
-
     /// 解析 PSUBSCRIBE 命令：PSUBSCRIBE pattern [pattern ...]
-
     /// 解析 PUNSUBSCRIBE 命令：PUNSUBSCRIBE [pattern ...]
-
     /// 解析 MULTI 命令：MULTI
     fn parse_multi(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 1 {
@@ -373,61 +354,28 @@ impl CommandParser {
     }
 
     /// 解析 BGREWRITEAOF 命令：BGREWRITEAOF
-
     /// 解析 SELECT 命令：SELECT index
-
     /// 解析 AUTH 命令：AUTH [username] password
-
     /// 解析 ACL 命令
-
     /// 解析 CLIENT 命令：CLIENT SETNAME name | CLIENT GETNAME | CLIENT LIST | CLIENT ID
-
     /// 解析 SORT 命令：SORT key [BY pattern] [LIMIT offset count] [GET pattern ...] [ASC|DESC] [ALPHA] [STORE destination]
-
     /// 解析 UNLINK 命令：UNLINK key [key ...]
-
     /// 解析 COPY 命令：COPY source destination [REPLACE]
-
     /// 解析 DUMP 命令：DUMP key
-
     /// 解析 RESTORE 命令：RESTORE key ttl serialized-value [REPLACE]
-
     /// 解析 EVAL 命令：EVAL script numkeys key [key ...] arg [arg ...]
-
     /// 解析 EVALSHA 命令：EVALSHA sha1 numkeys key [key ...] arg [arg ...]
-
     /// 解析 SCRIPT 命令：SCRIPT LOAD script | SCRIPT EXISTS sha1 [sha1 ...] | SCRIPT FLUSH
-
     /// 解析 FUNCTION 命令
-
     /// 解析 FCALL 命令：FCALL function numkeys key [key ...] arg [arg ...]
-
     /// 解析 FCALL_RO 命令
-
     /// 解析 EVAL_RO 命令：EVAL_RO script numkeys key [key ...] arg [arg ...]
-
     /// 解析 EVALSHA_RO 命令：EVALSHA_RO sha1 numkeys key [key ...] arg [arg ...]
-
     /// 解析 CONFIG 命令：CONFIG GET key / CONFIG SET key value
-
     /// 解析 MEMORY 命令：MEMORY USAGE key [SAMPLES count] | MEMORY DOCTOR
-
     /// 解析 LATENCY 命令：LATENCY LATEST | LATENCY HISTORY event | LATENCY RESET [event ...]
-
     /// 解析 HELLO 命令：HELLO [protover [AUTH username password] [SETNAME clientname]]
-
     /// 解析 SLOWLOG 命令：SLOWLOG GET [count] | SLOWLOG LEN | SLOWLOG RESET
-
-
-
-
-
-
-
-
-
-
-
 
     /// 解析 ROLE 命令：ROLE
     fn parse_role(&self, arr: &[RespValue]) -> Result<Command> {
@@ -511,7 +459,7 @@ impl CommandParser {
         }
         let arg1 = self.extract_string(&arr[1])?;
         let arg2 = self.extract_string(&arr[2])?;
-        if arg1.to_ascii_uppercase() == "NO" && arg2.to_ascii_uppercase() == "ONE" {
+        if arg1.eq_ignore_ascii_case("NO") && arg2.eq_ignore_ascii_case("ONE") {
             Ok(Command::ReplicaOfNoOne)
         } else {
             let port = arg2.parse::<u16>().map_err(|_| {
@@ -795,8 +743,8 @@ impl CommandParser {
                 "COPY" => copy = true,
                 "REPLACE" => replace = true,
                 "KEYS" => {
-                    for j in (i + 1)..arr.len() {
-                        keys.push(self.extract_string(&arr[j])?);
+                    for item in arr.iter().skip(i + 1) {
+                        keys.push(self.extract_string(item)?);
                     }
                     break;
                 }

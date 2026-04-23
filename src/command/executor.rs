@@ -219,10 +219,10 @@ impl CommandExecutor {
 
         // 只在真正需要 keyspace 通知或复制传播时才 clone 命令
         // keyspace_notifier: 默认 flags==0 时不产生通知，可以跳过 clone
-        let need_keyspace = self.keyspace_notifier.as_ref().map_or(false, |n| {
+        let need_keyspace = self.keyspace_notifier.as_ref().is_some_and(|n| {
             !n.config().is_empty()
         });
-        let need_replica = is_write && self.replication.as_ref().map_or(false, |r| {
+        let need_replica = is_write && self.replication.as_ref().is_some_and(|r| {
             matches!(r.get_role(), crate::replication::ReplicationRole::Master)
                 && r.has_connected_replicas()
         });
@@ -235,39 +235,35 @@ impl CommandExecutor {
         let result = self.do_execute(cmd);
 
         // 命令执行成功后发送 Keyspace 通知并广播到副本
-        if result.is_ok() {
-            if let Some(ref cmd_ref) = cmd_for_notify {
-                if need_keyspace {
-                    if let Some(ref notifier) = self.keyspace_notifier {
+        if result.is_ok()
+            && let Some(ref cmd_ref) = cmd_for_notify {
+                if need_keyspace
+                    && let Some(ref notifier) = self.keyspace_notifier {
                         let db = self.storage.current_db();
                         notifier.notify_command(cmd_ref, db);
                     }
-                }
                 if need_replica {
                     self.do_propagate_to_replicas(cmd_ref);
                 }
             }
-        }
 
         let duration_us = start.elapsed().as_micros() as u64;
 
         // 慢查询日志：延迟提取命令信息，只在可能超过阈值时才计算
         // 这避免了高频短命令在热路径上的 String 分配
-        if let Some(ref slowlog) = self.slowlog {
-            if duration_us >= slowlog.threshold_us() {
+        if let Some(ref slowlog) = self.slowlog
+            && duration_us >= slowlog.threshold_us() {
                 let (cmd_name, args) = extract_cmd_info(
                     cmd_for_notify.as_ref().unwrap_or(&Command::Unknown(String::new()))
                 );
                 slowlog.record(&cmd_name, args, duration_us);
             }
-        }
 
         // 延迟追踪：使用预先计算的 is_latency_cmd 过滤，避免提取命令名
-        if let Some(ref latency) = self.latency {
-            if !is_latency_cmd {
+        if let Some(ref latency) = self.latency
+            && !is_latency_cmd {
                 let _ = latency.record("command", duration_us / 1000);
             }
-        }
 
         result
     }
@@ -430,7 +426,7 @@ impl CommandExecutor {
                     AppError::Command("ACL 未启用".to_string())
                 })?;
                 if let Some(arg) = arg {
-                    if arg.to_ascii_uppercase() == "RESET" {
+                    if arg.eq_ignore_ascii_case("RESET") {
                         acl.log_reset()?;
                         Ok(RespValue::SimpleString("OK".to_string()))
                     } else {
@@ -781,7 +777,7 @@ impl CommandExecutor {
             }
             Command::SMisMember(key, members) => {
                 let result = self.storage.smismember(&key, &members)?;
-                let arr: Vec<RespValue> = result.into_iter().map(|v| RespValue::Integer(v)).collect();
+                let arr: Vec<RespValue> = result.into_iter().map(RespValue::Integer).collect();
                 Ok(RespValue::Array(arr))
             }
             Command::ZRandMember(key, count, with_scores) => executor_zset::execute_z_rand_member(self, key, count, with_scores),
@@ -867,13 +863,11 @@ impl CommandExecutor {
                 Ok(RespValue::SimpleString("OK".to_string()))
             }
             Command::ReplConf { args } => {
-                if args.len() >= 2 && args[0].to_uppercase() == "ACK" {
-                    if let Ok(offset) = args[1].parse::<i64>() {
-                        if let Some(ref _repl) = self.replication {
+                if args.len() >= 2 && args[0].to_uppercase() == "ACK"
+                    && let Ok(offset) = args[1].parse::<i64>()
+                        && let Some(ref _repl) = self.replication {
                             log::debug!("收到副本 ACK, offset: {}", offset);
                         }
-                    }
-                }
                 Ok(RespValue::SimpleString("OK".to_string()))
             }
             Command::Sync => {

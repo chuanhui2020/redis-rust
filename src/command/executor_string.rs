@@ -79,12 +79,14 @@ pub(crate) fn execute_lcs(executor: &CommandExecutor, key1: String, key2: String
                             let pos2 = v2.find(&s).unwrap_or(0) as i64;
                             let match_len = s.len() as i64;
                             let mut match_arr = Vec::new();
-                            let mut m1 = Vec::new();
-                            m1.push(RespValue::Integer(pos1));
-                            m1.push(RespValue::Integer(pos1 + match_len - 1));
-                            let mut m2 = Vec::new();
-                            m2.push(RespValue::Integer(pos2));
-                            m2.push(RespValue::Integer(pos2 + match_len - 1));
+                            let m1 = vec![
+                                RespValue::Integer(pos1),
+                                RespValue::Integer(pos1 + match_len - 1),
+                            ];
+                            let m2 = vec![
+                                RespValue::Integer(pos2),
+                                RespValue::Integer(pos2 + match_len - 1),
+                            ];
                             match_arr.push(RespValue::Array(m1));
                             match_arr.push(RespValue::Array(m2));
                             if withmatchlen {
@@ -113,7 +115,7 @@ pub(crate) fn execute_m_get(executor: &CommandExecutor, keys: Vec<String>) -> Re
                 let values = executor.storage.mget(&keys)?;
                 let resp_values: Vec<RespValue> = values
                     .into_iter()
-                    .map(|v| RespValue::BulkString(v))
+                    .map(RespValue::BulkString)
                     .collect();
                 Ok(RespValue::Array(resp_values))
 }

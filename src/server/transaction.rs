@@ -27,7 +27,7 @@ pub(crate) async fn handle_in_transaction(
             let check_passed = if watched.is_empty() {
                 true
             } else {
-                match tx_storage.watch_check(&watched) {
+                match tx_storage.watch_check(watched) {
                     Ok(true) => true,
                     Ok(false) => false,
                     Err(e) => {

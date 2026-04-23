@@ -7,7 +7,7 @@ pub(crate) fn to_resp_s_add(cmd: &Command) -> RespValue {
         Command::SAdd(key, members) => {
                 let mut parts = vec![bulk("SADD"), bulk(key)];
                 for m in members {
-                    parts.push(bulk_bytes(&m));
+                    parts.push(bulk_bytes(m));
                 }
                 RespValue::Array(parts)
         }
@@ -20,7 +20,7 @@ pub(crate) fn to_resp_s_rem(cmd: &Command) -> RespValue {
         Command::SRem(key, members) => {
                 let mut parts = vec![bulk("SREM"), bulk(key)];
                 for m in members {
-                    parts.push(bulk_bytes(&m));
+                    parts.push(bulk_bytes(m));
                 }
                 RespValue::Array(parts)
         }

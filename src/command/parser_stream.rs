@@ -79,7 +79,7 @@ impl CommandParser {
         let id = self.extract_string(&arr[i])?;
         i += 1;
 
-        if (arr.len() - i) % 2 != 0 {
+        if !(arr.len() - i).is_multiple_of(2) {
             return Err(AppError::Command("XADD 字段必须是 field-value 对".to_string()));
         }
 
@@ -209,12 +209,12 @@ impl CommandParser {
                 }
             }
         }
-        if i >= arr.len() || self.extract_string(&arr[i])?.to_ascii_uppercase() != "STREAMS" {
+        if i >= arr.len() || !self.extract_string(&arr[i])?.eq_ignore_ascii_case("STREAMS") {
             return Err(AppError::Command("XREAD 需要 STREAMS 关键字".to_string()));
         }
         i += 1;
         let remaining = arr.len() - i;
-        if remaining % 2 != 0 {
+        if !remaining.is_multiple_of(2) {
             return Err(AppError::Command("XREAD STREAMS 后面需要成对的 key 和 id".to_string()));
         }
         let num_streams = remaining / 2;
@@ -255,8 +255,8 @@ impl CommandParser {
                 let group = self.extract_string(&arr[3])?;
                 let id = self.extract_string(&arr[4])?;
                 let mut mkstream = false;
-                for i in 5..arr.len() {
-                    if self.extract_string(&arr[i])?.to_ascii_uppercase() == "MKSTREAM" {
+                for item in arr.iter().skip(5) {
+                    if self.extract_string(item)?.eq_ignore_ascii_case("MKSTREAM") {
                         mkstream = true;
                     }
                 }
@@ -331,7 +331,7 @@ impl CommandParser {
             i += 1;
         }
         let remaining = arr.len() - i;
-        if remaining == 0 || remaining % 2 != 0 {
+        if remaining == 0 || !remaining.is_multiple_of(2) {
             return Err(AppError::Command("XREADGROUP STREAMS 参数不匹配".to_string()));
         }
         let num_streams = remaining / 2;
@@ -373,9 +373,9 @@ impl CommandParser {
         })?;
         let mut ids = Vec::new();
         let mut justid = false;
-        for j in 5..arr.len() {
-            let s = self.extract_string(&arr[j])?;
-            if s.to_ascii_uppercase() == "JUSTID" {
+        for item in arr.iter().skip(5) {
+            let s = self.extract_string(item)?;
+            if s.eq_ignore_ascii_case("JUSTID") {
                 justid = true;
             } else {
                 ids.push(s);
@@ -452,7 +452,7 @@ impl CommandParser {
         match sub.as_str() {
             "STREAM" => {
                 let key = self.extract_string(&arr[2])?;
-                let full = arr.len() > 3 && self.extract_string(&arr[3])?.to_ascii_uppercase() == "FULL";
+                let full = arr.len() > 3 && self.extract_string(&arr[3])?.eq_ignore_ascii_case("FULL");
                 Ok(Command::XInfoStream(key, full))
             }
             "GROUPS" => {

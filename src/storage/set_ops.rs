@@ -309,7 +309,7 @@ impl StorageEngine {
                             map.remove(key);
                             return Ok(vec![]);
                         }
-                        let abs_count = count.abs() as usize;
+                        let abs_count = count.unsigned_abs() as usize;
                         let mut rng = rand::thread_rng();
                         let mut result = Vec::new();
                         if count > 0 {
@@ -368,7 +368,7 @@ impl StorageEngine {
                         if s.is_empty() {
                             return Ok(vec![]);
                         }
-                        let abs_count = count.abs() as usize;
+                        let abs_count = count.unsigned_abs() as usize;
                         let mut rng = rand::thread_rng();
                         let members: Vec<Bytes> = s.iter().cloned().collect();
                         if count > 0 {

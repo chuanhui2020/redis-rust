@@ -95,7 +95,7 @@ pub(crate) fn execute_l_pos(executor: &CommandExecutor, key: String, value: Byte
                     }
                 } else {
                     // 指定了 COUNT，返回位置数组
-                    let arr: Vec<RespValue> = positions.into_iter().map(|p| RespValue::Integer(p)).collect();
+                    let arr: Vec<RespValue> = positions.into_iter().map(RespValue::Integer).collect();
                     Ok(RespValue::Array(arr))
                 }
 }

@@ -34,7 +34,7 @@ pub fn start_monitor(sentinel: Arc<SentinelManager>) -> tokio::task::JoinHandle<
                 }
                 
                 // 每 10 秒发送 INFO replication 发现 replica
-                if info_interval_counter % 10 == 0 {
+                if info_interval_counter.is_multiple_of(10) {
                     match get_info_replication(&ip, port).await {
                         Ok(info) => {
                             let replicas = parse_replicas_from_info(&info);

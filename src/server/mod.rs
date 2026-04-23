@@ -230,11 +230,10 @@ impl Server {
     async fn run_with_listener(self, listener: TcpListener) -> Result<()> {
         log::info!("服务器已启动，等待客户端连接...");
 
-        if let Some(ref repl) = self.replication {
-            if let Ok(addr) = listener.local_addr() {
+        if let Some(ref repl) = self.replication
+            && let Ok(addr) = listener.local_addr() {
                 repl.set_listening_port(addr.port());
             }
-        }
 
         loop {
             let (stream, peer_addr) = listener.accept().await?;

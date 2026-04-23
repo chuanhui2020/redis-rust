@@ -66,12 +66,8 @@ impl RespParser {
     /// 如果找不到，返回 None，表示数据不完整
     fn find_crlf(&self, buf: &BytesMut, start: usize) -> Option<usize> {
         // 从 start 位置开始搜索 \r\n
-        for i in start..buf.len().saturating_sub(1) {
-            if buf[i] == b'\r' && buf[i + 1] == b'\n' {
-                return Some(i);
-            }
-        }
-        None
+        (start..buf.len().saturating_sub(1))
+            .find(|&i| buf[i] == b'\r' && buf[i + 1] == b'\n')
     }
 
     fn parse_integer_from_bytes(buf: &[u8]) -> std::result::Result<i64, AppError> {
@@ -87,7 +83,7 @@ impl RespParser {
         }
         while i < buf.len() {
             let b = buf[i];
-            if b < b'0' || b > b'9' {
+            if !b.is_ascii_digit() {
                 return Err(AppError::Protocol(format!("整数解析失败: 非法字符 {}", b as char)));
             }
             val = val * 10 + (b - b'0') as i64;

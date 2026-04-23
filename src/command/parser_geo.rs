@@ -7,7 +7,7 @@ use super::parser::CommandParser;
 impl CommandParser {
     /// 解析 GEOADD 命令：GEOADD key longitude latitude member [longitude latitude member ...]
     pub(crate) fn parse_geoadd(&self, arr: &[RespValue]) -> Result<Command> {
-        if arr.len() < 5 || (arr.len() - 2) % 3 != 0 {
+        if arr.len() < 5 || !(arr.len() - 2).is_multiple_of(3) {
             return Err(AppError::Command(
                 "GEOADD 命令参数数量错误，需要 key 和至少一组 (lon lat member)".to_string(),
             ));

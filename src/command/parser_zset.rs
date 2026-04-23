@@ -80,8 +80,8 @@ impl CommandParser {
 
         // 检查是否使用统一语法（包含 BYSCORE/BYLEX/REV/LIMIT）
         let mut use_unified = false;
-        for i in 4..arr.len() {
-            let opt = self.extract_string(&arr[i]).unwrap_or_default().to_ascii_uppercase();
+        for item in arr.iter().skip(4) {
+            let opt = self.extract_string(item).unwrap_or_default().to_ascii_uppercase();
             if matches!(opt.as_str(), "BYSCORE" | "BYLEX" | "REV" | "LIMIT") {
                 use_unified = true;
                 break;

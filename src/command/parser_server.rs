@@ -495,8 +495,8 @@ impl CommandParser {
             keys.push(self.extract_string(&arr[3 + i])?);
         }
         let mut args = Vec::new();
-        for i in (3 + numkeys)..arr.len() {
-            args.push(self.extract_string(&arr[i])?);
+        for item in arr.iter().skip(3 + numkeys) {
+            args.push(self.extract_string(item)?);
         }
         Ok(Command::Eval(script, keys, args))
     }
@@ -523,8 +523,8 @@ impl CommandParser {
             keys.push(self.extract_string(&arr[3 + i])?);
         }
         let mut args = Vec::new();
-        for i in (3 + numkeys)..arr.len() {
-            args.push(self.extract_string(&arr[i])?);
+        for item in arr.iter().skip(3 + numkeys) {
+            args.push(self.extract_string(item)?);
         }
         Ok(Command::EvalSha(sha1, keys, args))
     }
@@ -552,8 +552,8 @@ impl CommandParser {
                     ));
                 }
                 let mut sha1s = Vec::new();
-                for i in 2..arr.len() {
-                    sha1s.push(self.extract_string(&arr[i])?);
+                for item in arr.iter().skip(2) {
+                    sha1s.push(self.extract_string(item)?);
                 }
                 Ok(Command::ScriptExists(sha1s))
             }
@@ -695,8 +695,8 @@ impl CommandParser {
             keys.push(self.extract_string(&arr[3 + i])?);
         }
         let mut args = Vec::new();
-        for i in (3 + numkeys)..arr.len() {
-            args.push(self.extract_string(&arr[i])?);
+        for item in arr.iter().skip(3 + numkeys) {
+            args.push(self.extract_string(item)?);
         }
         Ok(Command::FCall(name, keys, args))
     }
@@ -723,8 +723,8 @@ impl CommandParser {
             keys.push(self.extract_string(&arr[3 + i])?);
         }
         let mut args = Vec::new();
-        for i in (3 + numkeys)..arr.len() {
-            args.push(self.extract_string(&arr[i])?);
+        for item in arr.iter().skip(3 + numkeys) {
+            args.push(self.extract_string(item)?);
         }
         Ok(Command::FCallRO(name, keys, args))
     }
@@ -751,8 +751,8 @@ impl CommandParser {
             keys.push(self.extract_string(&arr[3 + i])?);
         }
         let mut args = Vec::new();
-        for i in (3 + numkeys)..arr.len() {
-            args.push(self.extract_string(&arr[i])?);
+        for item in arr.iter().skip(3 + numkeys) {
+            args.push(self.extract_string(item)?);
         }
         Ok(Command::EvalRO(script, keys, args))
     }
@@ -779,8 +779,8 @@ impl CommandParser {
             keys.push(self.extract_string(&arr[3 + i])?);
         }
         let mut args = Vec::new();
-        for i in (3 + numkeys)..arr.len() {
-            args.push(self.extract_string(&arr[i])?);
+        for item in arr.iter().skip(3 + numkeys) {
+            args.push(self.extract_string(item)?);
         }
         Ok(Command::EvalShaRO(sha1, keys, args))
     }
@@ -892,22 +892,20 @@ impl CommandParser {
         while i < arr.len() {
             let arg = self.extract_string(&arr[i])?.to_ascii_uppercase();
             match arg.as_str() {
-                "AUTH" => {
-                    if i + 2 < arr.len() {
+                "AUTH"
+                    if i + 2 < arr.len() => {
                         let username = self.extract_string(&arr[i + 1])?;
                         let password = self.extract_string(&arr[i + 2])?;
                         auth = Some((username, password));
                         i += 3;
                         continue;
                     }
-                }
-                "SETNAME" => {
-                    if i + 1 < arr.len() {
+                "SETNAME"
+                    if i + 1 < arr.len() => {
                         setname = Some(self.extract_string(&arr[i + 1])?);
                         i += 2;
                         continue;
                     }
-                }
                 _ => {}
             }
             i += 1;

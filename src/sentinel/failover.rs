@@ -473,11 +473,11 @@ async fn check_replica_master(
     let mut master_host = None;
     let mut master_port = None;
     for line in info.lines() {
-        if line.starts_with("master_host:") {
-            master_host = Some(line["master_host:".len()..].trim().to_string());
+        if let Some(stripped) = line.strip_prefix("master_host:") {
+            master_host = Some(stripped.trim().to_string());
         }
-        if line.starts_with("master_port:") {
-            master_port = line["master_port:".len()..].trim().parse::<u16>().ok();
+        if let Some(stripped) = line.strip_prefix("master_port:") {
+            master_port = stripped.trim().parse::<u16>().ok();
         }
     }
     Ok(master_host.as_deref() == Some(expected_master_ip) && master_port == Some(expected_master_port))

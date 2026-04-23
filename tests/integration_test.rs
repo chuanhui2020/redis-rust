@@ -3295,3 +3295,389 @@ async fn test_migrate_copy_mode() {
         RespValue::BulkString(Some(bytes::Bytes::from("copy_val")))
     );
 }
+
+// ---------- Stream 命令测试 ----------
+
+#[tokio::test]
+async fn test_xadd_maxlen_exact() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "MAXLEN", "=", "2", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "MAXLEN", "=", "2", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XADD", "s1", "MAXLEN", "=", "2", "3-0", "f", "v3"]).await;
+
+    let resp = exec(&mut stream, &["XLEN", "s1"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+}
+
+#[tokio::test]
+async fn test_xadd_maxlen_approx() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "MAXLEN", "~", "2", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "MAXLEN", "~", "2", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XADD", "s1", "MAXLEN", "~", "2", "3-0", "f", "v3"]).await;
+
+    let resp = exec(&mut stream, &["XLEN", "s1"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+}
+
+#[tokio::test]
+async fn test_xadd_minid() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XADD", "s1", "MINID", "=", "2-0", "3-0", "f", "v3"]).await;
+
+    let resp = exec(&mut stream, &["XLEN", "s1"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+
+    let resp = exec(&mut stream, &["XRANGE", "s1", "-", "+"]).await;
+    if let RespValue::Array(arr) = &resp {
+        assert_eq!(arr.len(), 2);
+    } else { panic!("期望数组响应"); }
+}
+
+#[tokio::test]
+async fn test_xadd_nomkstream() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["XADD", "s1", "NOMKSTREAM", "1-0", "f", "v1"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+
+    let resp = exec(&mut stream, &["XLEN", "s1"]).await;
+    assert_eq!(resp, RespValue::Integer(0));
+
+    let resp = exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    assert!(matches!(resp, RespValue::BulkString(Some(_))));
+}
+
+#[tokio::test]
+async fn test_xadd_auto_and_specific_id() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["XADD", "s1", "100-0", "f", "v1"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("100-0"))));
+
+    let resp = exec(&mut stream, &["XADD", "s1", "*", "f", "v2"]).await;
+    assert!(matches!(resp, RespValue::BulkString(Some(_))));
+    let auto_id = match &resp {
+        RespValue::BulkString(Some(b)) => String::from_utf8_lossy(b).to_string(),
+        _ => panic!("期望 BulkString"),
+    };
+    let parts: Vec<&str> = auto_id.split('-').collect();
+    let ms: u64 = parts[0].parse().unwrap();
+    assert!(ms >= 100, "自动生成的 ID 时间部分应 >= 100, 得到 {}", auto_id);
+
+    let resp = exec(&mut stream, &["XLEN", "s1"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+}
+
+#[tokio::test]
+async fn test_xread_count() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XADD", "s1", "3-0", "f", "v3"]).await;
+
+    let resp = exec(&mut stream, &["XREAD", "COUNT", "2", "STREAMS", "s1", "0-0"]).await;
+    if let RespValue::Array(streams) = &resp {
+        assert_eq!(streams.len(), 1);
+        if let RespValue::Array(inner) = &streams[0] {
+            if let RespValue::Array(entries) = &inner[1] {
+                assert_eq!(entries.len(), 2);
+            } else { panic!("期望 entries 数组"); }
+        } else { panic!("期望 stream 数组"); }
+    } else { panic!("期望数组响应"); }
+}
+
+#[tokio::test]
+async fn test_xread_multiple_streams() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s2", "1-0", "f", "v2"]).await;
+
+    let resp = exec(&mut stream, &["XREAD", "STREAMS", "s1", "s2", "0-0", "0-0"]).await;
+    if let RespValue::Array(streams) = &resp {
+        assert_eq!(streams.len(), 2);
+    } else { panic!("期望数组响应"); }
+}
+
+#[tokio::test]
+async fn test_xread_dollar_id() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+
+    let resp = exec(&mut stream, &["XREAD", "STREAMS", "s1", "$"]).await;
+    assert_eq!(resp, RespValue::Array(vec![]));
+
+    exec(&mut stream, &["XADD", "s1", "3-0", "f", "v3"]).await;
+
+    let resp = exec(&mut stream, &["XREAD", "STREAMS", "s1", "$"]).await;
+    assert_eq!(resp, RespValue::Array(vec![]));
+}
+
+#[tokio::test]
+async fn test_xrange_special_ids() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XADD", "s1", "3-0", "f", "v3"]).await;
+
+    let resp = exec(&mut stream, &["XRANGE", "s1", "-", "+"]).await;
+    if let RespValue::Array(arr) = &resp {
+        assert_eq!(arr.len(), 3);
+    } else { panic!("期望数组响应"); }
+}
+
+#[tokio::test]
+async fn test_xrange_count() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XADD", "s1", "3-0", "f", "v3"]).await;
+
+    let resp = exec(&mut stream, &["XRANGE", "s1", "-", "+", "COUNT", "2"]).await;
+    if let RespValue::Array(arr) = &resp {
+        assert_eq!(arr.len(), 2);
+    } else { panic!("期望数组响应"); }
+}
+
+#[tokio::test]
+async fn test_xrange_empty_stream() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["XRANGE", "s1", "-", "+"]).await;
+    assert_eq!(resp, RespValue::Array(vec![]));
+}
+
+#[tokio::test]
+async fn test_xrevrange_special_ids() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XADD", "s1", "3-0", "f", "v3"]).await;
+
+    let resp = exec(&mut stream, &["XREVRANGE", "s1", "+", "-"]).await;
+    if let RespValue::Array(arr) = &resp {
+        assert_eq!(arr.len(), 3);
+        if let RespValue::Array(entry) = &arr[0] {
+            assert_eq!(entry[0], RespValue::BulkString(Some(bytes::Bytes::from("3-0"))));
+        } else { panic!("期望 entry 数组"); }
+    } else { panic!("期望数组响应"); }
+
+    let resp = exec(&mut stream, &["XREVRANGE", "s1", "+", "-", "COUNT", "2"]).await;
+    if let RespValue::Array(arr) = &resp {
+        assert_eq!(arr.len(), 2);
+    } else { panic!("期望数组响应"); }
+}
+
+#[tokio::test]
+async fn test_xtrim_maxlen() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XADD", "s1", "3-0", "f", "v3"]).await;
+    exec(&mut stream, &["XADD", "s1", "4-0", "f", "v4"]).await;
+
+    let resp = exec(&mut stream, &["XTRIM", "s1", "MAXLEN", "=", "2"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+
+    let resp = exec(&mut stream, &["XLEN", "s1"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+
+    let resp = exec(&mut stream, &["XTRIM", "s1", "MAXLEN", "~", "1"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["XLEN", "s1"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+}
+
+#[tokio::test]
+async fn test_xtrim_minid() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XADD", "s1", "3-0", "f", "v3"]).await;
+
+    let resp = exec(&mut stream, &["XTRIM", "s1", "MINID", "=", "2-0"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["XLEN", "s1"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+
+    let resp = exec(&mut stream, &["XTRIM", "s1", "MINID", "~", "3-0"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["XLEN", "s1"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+}
+
+#[tokio::test]
+async fn test_xdel_existing_and_nonexistent() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+
+    let resp = exec(&mut stream, &["XDEL", "s1", "1-0"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["XDEL", "s1", "99-0"]).await;
+    assert_eq!(resp, RespValue::Integer(0));
+
+    let resp = exec(&mut stream, &["XLEN", "s1"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+}
+
+#[tokio::test]
+async fn test_xreadgroup_noack() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XGROUP", "CREATE", "s1", "g1", "0"]).await;
+
+    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "NOACK", "STREAMS", "s1", ">"]).await;
+    if let RespValue::Array(streams) = &resp {
+        assert_eq!(streams.len(), 1);
+        if let RespValue::Array(inner) = &streams[0] {
+            if let RespValue::Array(entries) = &inner[1] {
+                assert_eq!(entries.len(), 2);
+            } else { panic!("期望 entries 数组"); }
+        } else { panic!("期望 stream 数组"); }
+    } else { panic!("期望数组响应"); }
+
+    let resp = exec(&mut stream, &["XPENDING", "s1", "g1"]).await;
+    if let RespValue::Array(arr) = &resp {
+        assert_eq!(arr[0], RespValue::Integer(0));
+    } else { panic!("期望数组响应"); }
+}
+
+#[tokio::test]
+async fn test_xpending_consumer_filter() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XGROUP", "CREATE", "s1", "g1", "0"]).await;
+    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s1", ">"]).await;
+
+    let resp = exec(&mut stream, &["XPENDING", "s1", "g1", "-", "+", "10", "c1"]).await;
+    if let RespValue::Array(arr) = &resp {
+        assert_eq!(arr.len(), 2);
+    } else { panic!("期望数组响应"); }
+
+    let resp = exec(&mut stream, &["XPENDING", "s1", "g1", "-", "+", "10", "c2"]).await;
+    if let RespValue::Array(arr) = &resp {
+        assert_eq!(arr.len(), 0);
+    } else { panic!("期望数组响应"); }
+}
+
+#[tokio::test]
+async fn test_xclaim_multiple_ids() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XADD", "s1", "3-0", "f", "v3"]).await;
+    exec(&mut stream, &["XGROUP", "CREATE", "s1", "g1", "0"]).await;
+    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s1", ">"]).await;
+
+    let resp = exec(&mut stream, &["XCLAIM", "s1", "g1", "c2", "0", "1-0", "2-0"]).await;
+    if let RespValue::Array(arr) = &resp {
+        assert_eq!(arr.len(), 2);
+    } else { panic!("期望数组响应"); }
+
+    let resp = exec(&mut stream, &["XPENDING", "s1", "g1", "-", "+", "10", "c2"]).await;
+    if let RespValue::Array(arr) = &resp {
+        assert_eq!(arr.len(), 2);
+    } else { panic!("期望数组响应"); }
+}
+
+#[tokio::test]
+async fn test_xautoclaim_justid() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
+    exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
+    exec(&mut stream, &["XGROUP", "CREATE", "s1", "g1", "0"]).await;
+    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s1", ">"]).await;
+
+    let resp = exec(&mut stream, &["XAUTOCLAIM", "s1", "g1", "c2", "0", "0-0", "COUNT", "10", "JUSTID"]).await;
+    if let RespValue::Array(arr) = &resp {
+        assert_eq!(arr.len(), 3);
+        if let RespValue::Array(entries) = &arr[1] {
+            assert_eq!(entries.len(), 2);
+            assert!(matches!(entries[0], RespValue::BulkString(Some(_))));
+            assert!(matches!(entries[1], RespValue::BulkString(Some(_))));
+        } else { panic!("期望 entries 数组"); }
+    } else { panic!("期望数组响应"); }
+}

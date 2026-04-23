@@ -227,9 +227,8 @@ impl StorageEngine {
                 0
             };
             StreamId::new(ms, seq)
-        } else if id.ends_with("-*") {
+        } else if let Some(ms_str) = id.strip_suffix("-*") {
             // "ms-*" 格式
-            let ms_str = &id[..id.len() - 2];
             let ms: u64 = ms_str.parse().map_err(|_| {
                 AppError::Command("XADD ID 毫秒时间戳必须是整数".to_string())
             })?;
@@ -338,11 +337,10 @@ impl StorageEngine {
                             let mut result = Vec::new();
                             for (id, fields) in s.entries.range(start_id..=end_id) {
                                 result.push((*id, fields.clone()));
-                                if let Some(c) = count {
-                                    if result.len() >= c {
+                                if let Some(c) = count
+                                    && result.len() >= c {
                                         break;
                                     }
-                                }
                             }
                             Ok(result)
                         }
@@ -377,11 +375,10 @@ impl StorageEngine {
                             let mut result = Vec::new();
                             for (id, fields) in s.entries.range(start_id..=end_id).rev() {
                                 result.push((*id, fields.clone()));
-                                if let Some(c) = count {
-                                    if result.len() >= c {
+                                if let Some(c) = count
+                                    && result.len() >= c {
                                         break;
                                     }
-                                }
                             }
                             Ok(result)
                         }
@@ -512,12 +509,8 @@ impl StorageEngine {
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             let start_id = if ids[idx] == "$" {
                 // 找到该 stream 的 last_id
-                if let Some(v) = map.get(key) {
-                    if let StorageValue::Stream(s) = v {
-                        StreamId::new(s.last_id.ms_time, s.last_id.seq)
-                    } else {
-                        continue;
-                    }
+                if let Some(StorageValue::Stream(s)) = map.get(key) {
+                    StreamId::new(s.last_id.ms_time, s.last_id.seq)
                 } else {
                     continue;
                 }
@@ -534,11 +527,10 @@ impl StorageEngine {
                     // 找到 start_id 之后的所有消息（不包括 start_id）
                     for (id, fields) in s.entries.range((std::ops::Bound::Excluded(start_id), std::ops::Bound::Unbounded)) {
                         stream_result.push((*id, fields.clone()));
-                        if let Some(c) = count {
-                            if stream_result.len() >= c {
+                        if let Some(c) = count
+                            && stream_result.len() >= c {
                                 break;
                             }
-                        }
                     }
                     if !stream_result.is_empty() {
                         result.push((key.clone(), stream_result));

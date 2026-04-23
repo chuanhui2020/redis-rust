@@ -166,7 +166,7 @@ impl ReplicationManager {
     /// 获取主节点主机和端口（从节点模式下有效）
     pub fn get_master_host_port(&self) -> (Option<String>, Option<u16>) {
         let host = self.master_host.read().unwrap().clone();
-        let port = self.master_port.read().unwrap().clone();
+        let port = *self.master_port.read().unwrap();
         (host, port)
     }
 
@@ -510,7 +510,7 @@ impl ReplicationManager {
         reader.read_line(&mut line).await.map_err(AppError::Io)?;
         if line.trim().starts_with("+FULLRESYNC") {
             // 解析 replid 和 offset
-            let parts: Vec<&str> = line.trim().split_whitespace().collect();
+            let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() < 3 {
                 return Err(AppError::Command("FULLRESYNC 响应格式错误".to_string()));
             }
