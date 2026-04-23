@@ -597,6 +597,25 @@ impl CommandParser {
                 })?;
                 Ok(Command::ClusterGetKeysInSlot(slot, count))
             }
+            "LINKS" => Ok(Command::ClusterLinks),
+            "COUNTFAILUREREPORTS" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("CLUSTER COUNTFAILUREREPORTS 命令需要 node-id 参数".to_string()));
+                }
+                let node_id = self.extract_string(&arr[2])?;
+                Ok(Command::ClusterCountFailureReports(node_id))
+            }
+            "FLUSHSLOTS" => Ok(Command::ClusterFlushSlots),
+            "SAVECONFIG" => Ok(Command::ClusterSaveConfig),
+            "SET-CONFIG-EPOCH" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command("CLUSTER SET-CONFIG-EPOCH 命令需要 epoch 参数".to_string()));
+                }
+                let epoch = self.extract_string(&arr[2])?.parse::<u64>().map_err(|_| {
+                    AppError::Command("CLUSTER SET-CONFIG-EPOCH epoch 必须是有效的整数".to_string())
+                })?;
+                Ok(Command::ClusterSetConfigEpoch(epoch))
+            }
             _ => Err(AppError::Command(format!("未知的 CLUSTER 子命令: {}", sub))),
         }
     }

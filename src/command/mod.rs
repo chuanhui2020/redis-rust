@@ -660,6 +660,16 @@ pub enum Command {
     ClusterCountKeysInSlot(usize),
     /// CLUSTER GETKEYSINSLOT slot count
     ClusterGetKeysInSlot(usize, usize),
+    /// CLUSTER LINKS
+    ClusterLinks,
+    /// CLUSTER COUNTFAILUREREPORTS node-id
+    ClusterCountFailureReports(String),
+    /// CLUSTER FLUSHSLOTS
+    ClusterFlushSlots,
+    /// CLUSTER SAVECONFIG
+    ClusterSaveConfig,
+    /// CLUSTER SET-CONFIG-EPOCH epoch
+    ClusterSetConfigEpoch(u64),
     /// MIGRATE host port key|"" destination-db timeout [COPY] [REPLACE] [AUTH password] [KEYS key [key ...]]
     Migrate { host: String, port: u16, keys: Vec<String>, db: usize, timeout: u64, copy: bool, replace: bool },
     /// ASKING

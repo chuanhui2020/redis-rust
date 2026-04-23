@@ -108,6 +108,39 @@ fn format_cluster_nodes(cluster: &crate::cluster::ClusterState) -> String {
     result
 }
 
+/// 构建 CLUSTER LINKS 的 RESP 输出（简化实现）
+fn build_cluster_links(cluster: &crate::cluster::ClusterState) -> Vec<RespValue> {
+    let mut result = Vec::new();
+    let my_id = cluster.myself_id();
+    for node in cluster.get_nodes() {
+        if node.id == my_id {
+            continue;
+        }
+        let direction = "to";
+        let events = if node.flags.contains(&crate::cluster::state::NodeFlag::PFail) || node.flags.contains(&crate::cluster::state::NodeFlag::Fail) {
+            "r"
+        } else {
+            "rw"
+        };
+        let link_info = vec![
+            RespValue::BulkString(Some(Bytes::from("direction"))),
+            RespValue::BulkString(Some(Bytes::from(direction))),
+            RespValue::BulkString(Some(Bytes::from("node"))),
+            RespValue::BulkString(Some(Bytes::from(node.id.clone()))),
+            RespValue::BulkString(Some(Bytes::from("create-time"))),
+            RespValue::Integer(node.pong_recv as i64),
+            RespValue::BulkString(Some(Bytes::from("events"))),
+            RespValue::BulkString(Some(Bytes::from(events))),
+            RespValue::BulkString(Some(Bytes::from("send-buffer-allocated"))),
+            RespValue::Integer(0),
+            RespValue::BulkString(Some(Bytes::from("send-buffer-used"))),
+            RespValue::Integer(0),
+        ];
+        result.push(RespValue::Array(link_info));
+    }
+    result
+}
+
 /// 构建 CLUSTER SLOTS 的 RESP 输出
 fn build_cluster_slots(cluster: &crate::cluster::ClusterState) -> Vec<RespValue> {
     let mut result = Vec::new();
@@ -827,7 +860,7 @@ pub(crate) async fn handle_connection(
                         }
 
                         // CLUSTER 命令在连接层处理
-                        if matches!(cmd, Command::ClusterInfo | Command::ClusterNodes | Command::ClusterMyId | Command::ClusterSlots | Command::ClusterShards | Command::ClusterMeet { .. } | Command::ClusterAddSlots(_) | Command::ClusterDelSlots(_) | Command::ClusterSetSlot { .. } | Command::ClusterReplicate(_) | Command::ClusterFailover(_) | Command::ClusterReset(_) | Command::ClusterKeySlot(_) | Command::ClusterCountKeysInSlot(_) | Command::ClusterGetKeysInSlot(_, _)) {
+                        if matches!(cmd, Command::ClusterInfo | Command::ClusterNodes | Command::ClusterMyId | Command::ClusterSlots | Command::ClusterShards | Command::ClusterMeet { .. } | Command::ClusterAddSlots(_) | Command::ClusterDelSlots(_) | Command::ClusterSetSlot { .. } | Command::ClusterReplicate(_) | Command::ClusterFailover(_) | Command::ClusterReset(_) | Command::ClusterKeySlot(_) | Command::ClusterCountKeysInSlot(_) | Command::ClusterGetKeysInSlot(_, _) | Command::ClusterLinks | Command::ClusterCountFailureReports(_) | Command::ClusterFlushSlots | Command::ClusterSaveConfig | Command::ClusterSetConfigEpoch(_)) {
                             let resp = if let Some(c) = cluster.as_ref() {
                                 match cmd {
                                     Command::ClusterInfo => {
@@ -1016,6 +1049,39 @@ pub(crate) async fn handle_connection(
                                             }
                                             Err(e) => RespValue::Error(format!("ERR {}", e)),
                                         }
+                                    }
+                                    Command::ClusterLinks => {
+                                        RespValue::Array(build_cluster_links(c))
+                                    }
+                                    Command::ClusterCountFailureReports(node_id) => {
+                                        let count = if let Some(node) = c.get_node(&node_id) {
+                                            let mut cnt = 0;
+                                            if node.flags.contains(&crate::cluster::state::NodeFlag::PFail) { cnt += 1; }
+                                            if node.flags.contains(&crate::cluster::state::NodeFlag::Fail) { cnt += 1; }
+                                            cnt
+                                        } else {
+                                            0
+                                        };
+                                        RespValue::Integer(count as i64)
+                                    }
+                                    Command::ClusterFlushSlots => {
+                                        let my_id = c.myself_id();
+                                        let slots = c.slots_for_node(&my_id);
+                                        for slot in slots {
+                                            c.unassign_slot(slot);
+                                        }
+                                        let _ = c.save_nodes_conf("nodes.conf");
+                                        RespValue::SimpleString("OK".to_string())
+                                    }
+                                    Command::ClusterSaveConfig => {
+                                        match c.save_nodes_conf("nodes.conf") {
+                                            Ok(_) => RespValue::SimpleString("OK".to_string()),
+                                            Err(e) => RespValue::Error(format!("ERR {}", e)),
+                                        }
+                                    }
+                                    Command::ClusterSetConfigEpoch(epoch) => {
+                                        c.set_current_epoch(epoch);
+                                        RespValue::SimpleString("OK".to_string())
                                     }
                                     _ => unreachable!(),
                                 }

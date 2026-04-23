@@ -1018,6 +1018,11 @@ impl CommandExecutor {
             | Command::ClusterKeySlot(_)
             | Command::ClusterCountKeysInSlot(_)
             | Command::ClusterGetKeysInSlot(_, _)
+            | Command::ClusterLinks
+            | Command::ClusterCountFailureReports(_)
+            | Command::ClusterFlushSlots
+            | Command::ClusterSaveConfig
+            | Command::ClusterSetConfigEpoch(_)
             | Command::ReadOnly
             | Command::ReadWrite => {
                 Err(AppError::Command("CLUSTER 应在连接层处理".to_string()))

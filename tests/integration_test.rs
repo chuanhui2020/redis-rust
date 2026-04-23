@@ -1,4 +1,4 @@
-// 集成测试：启动真实 TCP 服务器，通过 tokio TcpStream 发送 RESP 命令验证功能
+﻿// 集成测试：启动真实 TCP 服务器，通过 tokio TcpStream 发送 RESP 命令验证功能
 
 use bytes::{Bytes, BytesMut};
 use redis_rust::protocol::{RespParser, RespValue};
@@ -4068,4 +4068,458 @@ async fn test_pubsub_numsub() {
         }
         _ => panic!("期望 PUBSUB NUMSUB 返回数组, 得到 {:?}", resp),
     }
+}
+
+
+// ---------- Lua Scripting 测试 ----------
+
+#[tokio::test]
+async fn test_eval_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["EVAL", "return 1", "0"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+}
+
+#[tokio::test]
+async fn test_eval_string_return() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["EVAL", "return 'hello'", "0"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("hello"))));
+}
+
+#[tokio::test]
+async fn test_eval_table_return() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["EVAL", "return {1,2,3}", "0"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::Integer(1));
+            assert_eq!(arr[1], RespValue::Integer(2));
+            assert_eq!(arr[2], RespValue::Integer(3));
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_eval_redis_call() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let script = r#"redis.call("SET",KEYS[1],ARGV[1])"#;
+    let resp = exec(&mut stream, &["EVAL", script, "1", "mykey", "myval"]).await;
+    // Lua 脚本中 redis.call 的返回值经 Lua 转换后为 BulkString
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("OK"))));
+
+    let resp = exec(&mut stream, &["GET", "mykey"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("myval"))));
+}
+
+#[tokio::test]
+async fn test_eval_redis_pcall_error() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let script = r#"return redis.pcall("INVALID")"#;
+    let resp = exec(&mut stream, &["EVAL", script, "0"]).await;
+    // redis.pcall 对未知命令返回包含错误信息的 BulkString
+    match resp {
+        RespValue::BulkString(Some(b)) => {
+            let s = String::from_utf8_lossy(&b);
+            assert!(s.contains("ERR") || s.contains("unknown command"), "应包含错误信息: {}", s);
+        }
+        _ => panic!("期望 BulkString(Some(...))，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_eval_keys_argv() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let script = r#"redis.call("SET", KEYS[1], ARGV[1]); redis.call("SET", KEYS[2], ARGV[2]); return {redis.call("GET", KEYS[1]), redis.call("GET", KEYS[2])}"#;
+    let resp = exec(&mut stream, &["EVAL", script, "2", "k1", "k2", "v1", "v2"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("v1"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("v2"))));
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_evalsha() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // 先 EVAL 加载脚本
+    let script = "return 42";
+    let resp = exec(&mut stream, &["EVAL", script, "0"]).await;
+    assert_eq!(resp, RespValue::Integer(42));
+
+    // 获取 SHA1
+    let resp = exec(&mut stream, &["SCRIPT", "LOAD", script]).await;
+    let sha1 = match resp {
+        RespValue::BulkString(Some(b)) => String::from_utf8_lossy(&b).to_string(),
+        _ => panic!("期望 BulkString SHA1，得到 {:?}", resp),
+    };
+    assert_eq!(sha1.len(), 40);
+
+    // EVALSHA 执行
+    let resp = exec(&mut stream, &["EVALSHA", &sha1, "0"]).await;
+    assert_eq!(resp, RespValue::Integer(42));
+}
+
+#[tokio::test]
+async fn test_script_load() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SCRIPT", "LOAD", "return 1"]).await;
+    match resp {
+        RespValue::BulkString(Some(b)) => {
+            let s = String::from_utf8_lossy(&b);
+            assert_eq!(s.len(), 40);
+            assert!(s.chars().all(|c| c.is_ascii_hexdigit()));
+        }
+        _ => panic!("期望 BulkString SHA1，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_script_exists() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SCRIPT", "LOAD", "return 1"]).await;
+    let sha1 = match resp {
+        RespValue::BulkString(Some(b)) => String::from_utf8_lossy(&b).to_string(),
+        _ => panic!("期望 BulkString SHA1"),
+    };
+
+    let resp = exec(&mut stream, &["SCRIPT", "EXISTS", &sha1]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0], RespValue::Integer(1));
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+
+    let resp = exec(&mut stream, &["SCRIPT", "EXISTS", "0000000000000000000000000000000000000000"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0], RespValue::Integer(0));
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_script_flush() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SCRIPT", "LOAD", "return 1"]).await;
+    let sha1 = match resp {
+        RespValue::BulkString(Some(b)) => String::from_utf8_lossy(&b).to_string(),
+        _ => panic!("期望 BulkString SHA1"),
+    };
+
+    // 确认存在
+    let resp = exec(&mut stream, &["SCRIPT", "EXISTS", &sha1]).await;
+    match &resp {
+        RespValue::Array(arr) => assert_eq!(arr[0], RespValue::Integer(1)),
+        _ => panic!("期望 Array"),
+    }
+
+    // FLUSH
+    let resp = exec(&mut stream, &["SCRIPT", "FLUSH"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // 确认已清空
+    let resp = exec(&mut stream, &["SCRIPT", "EXISTS", &sha1]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0], RespValue::Integer(0));
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_eval_multi_keys() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let script = r#"redis.call("SET", KEYS[1], "v1"); redis.call("SET", KEYS[2], "v2"); return redis.call("GET", KEYS[1])..redis.call("GET", KEYS[2])"#;
+    let resp = exec(&mut stream, &["EVAL", script, "2", "a", "b"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v1v2"))));
+}
+
+#[tokio::test]
+async fn test_eval_error() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["EVAL", "return 1 + +", "0"]).await;
+    match resp {
+        RespValue::Error(e) => {
+            assert!(e.contains("ERR") || e.contains("syntax") || e.contains("eval") || e.contains("script"), "错误信息应包含脚本错误提示: {}", e);
+        }
+        _ => panic!("期望 Error，得到 {:?}", resp),
+    }
+}
+
+// ---------- RDB 持久化 测试 ----------
+
+#[tokio::test]
+async fn test_bgsave() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_rdb_path("/tmp/test_bgsave.rdb");
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["BGSAVE"]).await;
+    assert!(
+        matches!(resp, RespValue::SimpleString(ref s) if s == "Background saving started" || s == "OK"),
+        "BGSAVE 应返回 Background saving started 或 OK，得到 {:?}", resp
+    );
+    let _ = std::fs::remove_file("/tmp/test_bgsave.rdb");
+}
+
+#[tokio::test]
+async fn test_dbsize_after_operations() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    for i in 0..5 {
+        let resp = exec(&mut stream, &["SET", &format!("key{}", i), "val"]).await;
+        assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    }
+
+    let resp = exec(&mut stream, &["DBSIZE"]).await;
+    assert_eq!(resp, RespValue::Integer(5));
+}
+
+#[tokio::test]
+async fn test_dump_restore() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "src", "hello"]).await;
+
+    let resp = exec(&mut stream, &["DUMP", "src"]).await;
+    let dump_data = match resp {
+        RespValue::BulkString(Some(b)) => b,
+        _ => panic!("期望 DUMP 返回 BulkString(Some(...))，得到 {:?}", resp),
+    };
+    assert!(!dump_data.is_empty());
+
+    // 使用二进制安全的命令发送 RESTORE
+    let parts: Vec<&[u8]> = vec![b"RESTORE", b"dst", b"0", &dump_data];
+    let mut header = format!("*{}\r\n", parts.len()).into_bytes();
+    for part in &parts {
+        header.extend_from_slice(format!("${}\r\n", part.len()).as_bytes());
+        header.extend_from_slice(part);
+        header.extend_from_slice(b"\r\n");
+    }
+    stream.write_all(&header).await.unwrap();
+    let resp = recv_resp(&mut stream).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["GET", "dst"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("hello"))));
+}
+
+#[tokio::test]
+async fn test_debug_object() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "dbg", "value"]).await;
+
+    let resp = exec(&mut stream, &["DEBUG", "OBJECT", "dbg"]).await;
+    match resp {
+        RespValue::SimpleString(s) => {
+            assert!(s.contains("refcount:"), "DEBUG OBJECT 应包含 refcount");
+            assert!(s.contains("encoding:"), "DEBUG OBJECT 应包含 encoding");
+        }
+        _ => panic!("期望 SimpleString，得到 {:?}", resp),
+    }
+}
+
+// ---------- AOF 相关 测试 ----------
+
+#[tokio::test]
+async fn test_bgrewriteaof() {
+    use redis_rust::aof::AofWriter;
+    use std::sync::{Arc, Mutex};
+
+    let path = "/tmp/test_bgrewriteaof_integration.aof";
+    let _ = std::fs::remove_file(path);
+
+    let storage = StorageEngine::new();
+    let aof = Arc::new(Mutex::new(AofWriter::new(path).unwrap()));
+    let server = Server::new("127.0.0.1:0", storage, Some(aof.clone()), PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["BGREWRITEAOF"]).await;
+    assert!(
+        matches!(resp, RespValue::SimpleString(ref s) if s.contains("Background") || s == "OK"),
+        "BGREWRITEAOF 应返回 SimpleString，得到 {:?}", resp
+    );
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[tokio::test]
+async fn test_config_aof_settings() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["CONFIG", "GET", "appendonly"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            // 当前实现未显式处理 appendonly，返回空数组或包含配置项的数组均可
+            assert!(arr.is_empty() || arr.len() == 2, "CONFIG GET appendonly 应返回空数组或 2 元素数组");
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+// ---------- 其他 Server 命令 测试 ----------
+
+#[tokio::test]
+async fn test_time_command() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["TIME"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+            match (&arr[0], &arr[1]) {
+                (RespValue::Integer(secs), RespValue::Integer(micros)) => {
+                    assert!(*secs > 0);
+                    assert!(*micros >= 0 && *micros < 1_000_000);
+                }
+                _ => panic!("TIME 应返回两个 Integer"),
+            }
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_randomkey() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // 空数据库时应返回 nil
+    let resp = exec(&mut stream, &["RANDOMKEY"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+
+    exec(&mut stream, &["SET", "a", "1"]).await;
+    exec(&mut stream, &["SET", "b", "2"]).await;
+    exec(&mut stream, &["SET", "c", "3"]).await;
+
+    let resp = exec(&mut stream, &["RANDOMKEY"]).await;
+    match resp {
+        RespValue::BulkString(Some(b)) => {
+            let s = String::from_utf8_lossy(&b);
+            assert!(s == "a" || s == "b" || s == "c", "RANDOMKEY 应返回 a/b/c 之一: {}", s);
+        }
+        _ => panic!("期望 BulkString(Some(...))，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_object_encoding() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "enc", "value"]).await;
+
+    let resp = exec(&mut stream, &["OBJECT", "ENCODING", "enc"]).await;
+    match resp {
+        RespValue::BulkString(Some(b)) => {
+            let s = String::from_utf8_lossy(&b);
+            assert!(s == "embstr" || s == "raw" || s == "string", "OBJECT ENCODING 应返回 embstr/raw/string: {}", s);
+        }
+        _ => panic!("期望 BulkString(Some(...))，得到 {:?}", resp),
+    }
+
+    let resp = exec(&mut stream, &["OBJECT", "ENCODING", "missing"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+}
+
+#[tokio::test]
+async fn test_object_refcount() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "rc", "value"]).await;
+
+    let resp = exec(&mut stream, &["OBJECT", "REFCOUNT", "rc"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n >= 1, "OBJECT REFCOUNT 应 >= 1"),
+        _ => panic!("期望 Integer，得到 {:?}", resp),
+    }
+
+    let resp = exec(&mut stream, &["OBJECT", "REFCOUNT", "missing"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
 }

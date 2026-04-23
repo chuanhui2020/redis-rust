@@ -791,6 +791,21 @@ impl Command {
             Command::ClusterGetKeysInSlot(slot, count) => {
                 RespValue::Array(vec![bulk("CLUSTER"), bulk("GETKEYSINSLOT"), bulk(&slot.to_string()), bulk(&count.to_string())])
             }
+            Command::ClusterLinks => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("LINKS")])
+            }
+            Command::ClusterCountFailureReports(node_id) => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("COUNTFAILUREREPORTS"), bulk(node_id)])
+            }
+            Command::ClusterFlushSlots => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("FLUSHSLOTS")])
+            }
+            Command::ClusterSaveConfig => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("SAVECONFIG")])
+            }
+            Command::ClusterSetConfigEpoch(epoch) => {
+                RespValue::Array(vec![bulk("CLUSTER"), bulk("SET-CONFIG-EPOCH"), bulk(&epoch.to_string())])
+            }
             Command::Migrate { host, port, keys, db, timeout, copy, replace } => {
                 let mut parts = vec![bulk("MIGRATE"), bulk(host), bulk(&port.to_string())];
                 if keys.len() == 1 {
