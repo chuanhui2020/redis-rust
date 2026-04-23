@@ -51,7 +51,7 @@ run_benchmark() {
     local port=$1
     local tests=$2
 
-    redis-benchmark -h 127.0.0.1 -p "$port" -t "$tests" -n 100000 -c 50 -q 2>/dev/null | tr '\r' '\n' | grep "requests per second" | grep -v "rps="
+    redis-benchmark -h 127.0.0.1 -p "$port" -t "$tests" -n 100000 -c 50 -q 2>/dev/null | tr '\r' '\n' | grep "requests per second" || true
 }
 
 # 运行 benchmark 并提取 requests per second（支持额外参数）
@@ -59,7 +59,7 @@ run_benchmark_ex() {
     local port=$1
     local tests=$2
     shift 2
-    redis-benchmark -h 127.0.0.1 -p "$port" -t "$tests" -n 100000 -q "$@" 2>/dev/null | tr '\r' '\n' | grep "requests per second" | grep -v "rps="
+    redis-benchmark -h 127.0.0.1 -p "$port" -t "$tests" -n 100000 -q "$@" 2>/dev/null | tr '\r' '\n' | grep "requests per second" || true
 }
 
 # 从 benchmark 输出中提取平均 rps
@@ -101,7 +101,7 @@ REDIS_RUST_PID=$!
 
 # 启动 redis-server
 echo "[启动] redis-server (端口 $REDIS_SERVER_PORT)..."
-redis-server --port "$REDIS_SERVER_PORT" --daemonize no &
+redis-server --port "$REDIS_SERVER_PORT" --save "" &
 REDIS_SERVER_PID=$!
 
 # 等待两个服务器就绪
@@ -136,11 +136,7 @@ run_single_test() {
         redis_val=0
     fi
 
-    if [[ "$(echo "$redis_val > 0" | bc -l)" -eq 1 ]]; then
-        pct=$(echo "scale=4; ($rust_val / $redis_val) * 100" | bc -l | awk '{printf "%.1f", $1}')
-    else
-        pct="0.0"
-    fi
+    pct=$(awk "BEGIN {v=${redis_val:-0}; if (v > 0) printf \"%.1f\", (${rust_val:-0} / v) * 100; else print \"0.0\"}")
 
     ALL_NAMES+=("$name")
     ALL_RUST_RPS+=("$rust_val")
@@ -233,9 +229,9 @@ run_single_test "GET (c=200)" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "get" -c 2
     echo "[达标]"
     passed_count=0
     for i in "${!ALL_NAMES[@]}"; do
-        if [[ "$(echo "${ALL_PCTS[$i]} >= $THRESHOLD" | bc -l)" -eq 1 ]]; then
+        if awk "BEGIN {exit !(${ALL_PCTS[$i]} >= $THRESHOLD)}" 2>/dev/null; then
             echo "  ✓ ${ALL_NAMES[$i]} (${ALL_PCTS[$i]}%)"
-            ((passed_count++))
+            passed_count=$((passed_count + 1))
         fi
     done
 
@@ -243,9 +239,9 @@ run_single_test "GET (c=200)" "$REDIS_RUST_PORT" "$REDIS_SERVER_PORT" "get" -c 2
     echo "[未达标]"
     failed_count=0
     for i in "${!ALL_NAMES[@]}"; do
-        if [[ "$(echo "${ALL_PCTS[$i]} < $THRESHOLD" | bc -l)" -eq 1 ]]; then
+        if awk "BEGIN {exit !(${ALL_PCTS[$i]} < $THRESHOLD)}" 2>/dev/null; then
             echo "  ✗ ${ALL_NAMES[$i]} (${ALL_PCTS[$i]}%)"
-            ((failed_count++))
+            failed_count=$((failed_count + 1))
         fi
     done
 
