@@ -316,6 +316,8 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::ClusterDelSlots(_) => ("CLUSTER".to_string(), vec!["DELSLOTS".to_string()]),
         Command::ClusterSetSlot { .. } => ("CLUSTER".to_string(), vec!["SETSLOT".to_string()]),
         Command::ClusterReplicate(_) => ("CLUSTER".to_string(), vec!["REPLICATE".to_string()]),
+        Command::ReadOnly => ("READONLY".to_string(), vec![]),
+        Command::ReadWrite => ("READWRITE".to_string(), vec![]),
         Command::ClusterFailover(_) => ("CLUSTER".to_string(), vec!["FAILOVER".to_string()]),
         Command::ClusterReset(_) => ("CLUSTER".to_string(), vec!["RESET".to_string()]),
         Command::ClusterKeySlot(_) => ("CLUSTER".to_string(), vec!["KEYSLOT".to_string()]),

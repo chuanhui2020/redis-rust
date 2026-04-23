@@ -650,6 +650,10 @@ pub enum Command {
     ClusterFailover(Option<String>),
     /// CLUSTER RESET [HARD|SOFT]
     ClusterReset(Option<String>),
+    /// READONLY
+    ReadOnly,
+    /// READWRITE
+    ReadWrite,
     /// CLUSTER KEYSLOT key
     ClusterKeySlot(String),
     /// CLUSTER COUNTKEYSINSLOT slot

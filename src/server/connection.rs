@@ -57,6 +57,34 @@ fn format_slot_ranges(slots: &[usize]) -> String {
     ranges.join(" ")
 }
 
+/// 判断命令是否为只读命令（用于 READONLY 模式）
+fn is_read_command(cmd: &Command) -> bool {
+    matches!(cmd,
+        Command::Get(_) | Command::MGet(_) | Command::StrLen(_) |
+        Command::GetRange(_, _, _) | Command::Type(_) | Command::Exists(_) |
+        Command::Ttl(_) | Command::LLen(_) |
+        Command::LRange(_, _, _) | Command::LIndex(_, _) |
+        Command::SCard(_) | Command::SIsMember(_, _) | Command::SMembers(_) |
+        Command::SRandMember(_, _) |
+        Command::HGet(_, _) | Command::HMGet(_, _) | Command::HGetAll(_) |
+        Command::HLen(_) | Command::HExists(_, _) | Command::HKeys(_) |
+        Command::HVals(_) | Command::HScan(_, _, _, _) |
+        Command::ZCard(_) | Command::ZScore(_, _) | Command::ZRank(_, _) |
+        Command::ZRevRank(_, _) | Command::ZRange(_, _, _, _) |
+        Command::ZRangeByScore(_, _, _, _) | Command::ZRevRangeByScore(_, _, _, _, _, _) |
+        Command::ZLexCount(_, _, _) | Command::ZRangeByLex(_, _, _) |
+        Command::ZRevRangeByLex(_, _, _, _, _) | Command::ZMScore(_, _) |
+        Command::XLen(_) | Command::XRange(_, _, _, _) | Command::XRevRange(_, _, _, _) |
+        Command::Ping(_) | Command::DbSize | Command::Info(_) |
+        Command::ObjectEncoding(_) | Command::ObjectIdleTime(_) |
+        Command::ObjectRefCount(_) |
+        Command::Scan(_, _, _) | Command::SScan(_, _, _, _) |
+        Command::ZScan(_, _, _, _) |
+        Command::GetBit(_, _) | Command::BitCount(_, _, _, _) |
+        Command::BitPos(_, _, _, _, _) | Command::PfCount(_)
+    )
+}
+
 /// 格式化集群节点列表为 CLUSTER NODES 输出格式
 fn format_cluster_nodes(cluster: &crate::cluster::ClusterState) -> String {
     let nodes = cluster.get_nodes();
@@ -510,6 +538,7 @@ pub(crate) async fn handle_connection(
 
     // 事务状态
     let mut in_transaction = false;
+    let mut readonly_mode = false;
     let mut tx_queue: Vec<Command> = Vec::new();
     let mut watched: HashMap<String, u64> = HashMap::new();
     // 保留一份 storage 用于事务中的 WATCH/EXEC 检查
@@ -996,16 +1025,23 @@ pub(crate) async fn handle_connection(
                                 }
                                 if let Some(node_id) = cluster.get_slot_node(slot) {
                                     if node_id != my_id {
-                                        if let Some(node) = cluster.get_node(&node_id) {
-                                            let resp = RespValue::Error(format!(
-                                                "MOVED {} {}:{}",
-                                                slot, node.ip, node.port
-                                            ));
-                                            if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
-                                                log::error!("写入响应失败: {}", e);
-                                                return Ok(());
+                                        // READONLY 模式下，replica 允许读取 master 的 slot
+                                        let allow_readonly = readonly_mode && is_read_command(&cmd) && {
+                                            let myself = cluster.myself();
+                                            myself.map(|n| n.master_id.as_deref() == Some(node_id.as_str())).unwrap_or(false)
+                                        };
+                                        if !allow_readonly {
+                                            if let Some(node) = cluster.get_node(&node_id) {
+                                                let resp = RespValue::Error(format!(
+                                                    "MOVED {} {}:{}",
+                                                    slot, node.ip, node.port
+                                                ));
+                                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                                    log::error!("写入响应失败: {}", e);
+                                                    return Ok(());
+                                                }
+                                                continue;
                                             }
-                                            continue;
                                         }
                                     }
                                 }
@@ -1946,6 +1982,22 @@ pub(crate) async fn handle_connection(
                                 }
                             }
                             Command::Asking => {
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ReadOnly => {
+                                readonly_mode = true;
+                                let resp = RespValue::SimpleString("OK".to_string());
+                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    log::error!("写入响应失败: {}", e);
+                                    return Ok(());
+                                }
+                            }
+                            Command::ReadWrite => {
+                                readonly_mode = false;
                                 let resp = RespValue::SimpleString("OK".to_string());
                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                     log::error!("写入响应失败: {}", e);

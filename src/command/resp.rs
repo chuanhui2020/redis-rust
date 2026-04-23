@@ -811,6 +811,12 @@ impl Command {
             Command::Asking => {
                 RespValue::Array(vec![bulk("ASKING")])
             }
+            Command::ReadOnly => {
+                RespValue::Array(vec![bulk("READONLY")])
+            }
+            Command::ReadWrite => {
+                RespValue::Array(vec![bulk("READWRITE")])
+            }
             Command::Unknown(cmd_name) => {
                 RespValue::Array(vec![bulk(cmd_name)])
             }

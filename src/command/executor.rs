@@ -1023,7 +1023,9 @@ impl CommandExecutor {
             | Command::ClusterReset(_)
             | Command::ClusterKeySlot(_)
             | Command::ClusterCountKeysInSlot(_)
-            | Command::ClusterGetKeysInSlot(_, _) => {
+            | Command::ClusterGetKeysInSlot(_, _)
+            | Command::ReadOnly
+            | Command::ReadWrite => {
                 Err(AppError::Command("CLUSTER 应在连接层处理".to_string()))
             }
             Command::Unknown(cmd_name) => {

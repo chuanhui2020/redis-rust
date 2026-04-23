@@ -273,6 +273,8 @@ impl CommandParser {
             "SENTINEL" => self.parse_sentinel(&arr),
             "MIGRATE" => self.parse_migrate(&arr),
             "ASKING" => Ok(Command::Asking),
+            "READONLY" => Ok(Command::ReadOnly),
+            "READWRITE" => Ok(Command::ReadWrite),
             "CLUSTER" => self.parse_cluster(&arr),
             other => Ok(Command::Unknown(other.to_string())),
         }
