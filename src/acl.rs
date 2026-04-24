@@ -691,6 +691,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 
 // 简单的 hex 编码（避免依赖 hex crate）
 mod hex {
+    /// 将字节数组编码为 hex 字符串
     pub fn encode(data: &[u8]) -> String {
         const HEX: &[u8; 16] = b"0123456789abcdef";
         let mut result = String::with_capacity(data.len() * 2);

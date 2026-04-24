@@ -8,6 +8,8 @@ use crate::pubsub::PubSubManager;
 use super::{ClientMessage, SubscriptionState};
 use super::handler::{ConnectionHandler, write_resp};
 
+/// 处理发布订阅相关命令
+/// 包括 SUBSCRIBE、UNSUBSCRIBE、PSUBSCRIBE、PUNSUBSCRIBE、PUBLISH 等
 pub(crate) async fn handle_pubsub_command(
     cmd: Command,
     is_subscribed: &mut bool,
@@ -307,6 +309,8 @@ pub(crate) async fn handle_pubsub_command(
     }
 }
 
+/// 处理转发给客户端的发布订阅消息
+/// 将频道消息写入客户端连接流
 pub(crate) async fn handle_pubsub_message(
     maybe_msg: Option<ClientMessage>,
     stream: &mut BufWriter<TcpStream>,

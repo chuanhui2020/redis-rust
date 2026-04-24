@@ -1,5 +1,6 @@
 use super::*;
 
+/// 从命令中提取命令名称和相关的键列表。
 pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
     match cmd {
         Command::Get(key) => ("GET".to_string(), vec![key.clone()]),

@@ -9,6 +9,8 @@ use crate::storage::StorageEngine;
 use super::ReplyMode;
 use super::handler::{ConnectionHandler, write_resp, send_reply};
 
+/// 在事务中处理命令（已执行 MULTI 后）
+/// 处理 EXEC、DISCARD、WATCH 以及将其他命令入队
 pub(crate) async fn handle_in_transaction(
     cmd: Command,
     in_transaction: &mut bool,
@@ -118,6 +120,8 @@ pub(crate) async fn handle_in_transaction(
     }
 }
 
+/// 处理事务初始化相关命令（执行 MULTI 前）
+/// 处理 MULTI、WATCH、EXEC、DISCARD、UNWATCH
 pub(crate) async fn handle_transaction_init(
     cmd: Command,
     in_transaction: &mut bool,
