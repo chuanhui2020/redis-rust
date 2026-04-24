@@ -708,6 +708,12 @@ pub enum Command {
     ClusterSetConfigEpoch(u64),
     /// CLUSTER MYSHARDID
     ClusterMyShardId,
+    /// MODULE LIST
+    ModuleList,
+    /// MODULE LOAD path [arg ...]
+    ModuleLoad(String),
+    /// MODULE UNLOAD name
+    ModuleUnload(String),
     /// MIGRATE host port key|"" destination-db timeout [COPY] [REPLACE] [AUTH password] [KEYS key [key ...]]
     Migrate { host: String, port: u16, keys: Vec<String>, db: usize, timeout: u64, copy: bool, replace: bool },
     /// ASKING

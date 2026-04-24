@@ -292,6 +292,7 @@ impl CommandParser {
             "ASKING" => Ok(Command::Asking),
             "READONLY" => Ok(Command::ReadOnly),
             "READWRITE" => Ok(Command::ReadWrite),
+            "MODULE" => self.parse_module(&arr),
             "CLUSTER" => self.parse_cluster(&arr),
             other => Ok(Command::Unknown(other.to_string())),
         }
@@ -519,6 +520,32 @@ impl CommandParser {
             AppError::Command("WAITAOF timeout 必须是整数".to_string())
         })?;
         Ok(Command::WaitAof { numlocal, numreplicas, timeout })
+    }
+
+    /// 解析 MODULE 子命令
+    fn parse_module(&self, arr: &[RespValue]) -> Result<Command> {
+        if arr.len() < 2 {
+            return Err(AppError::Command("MODULE 命令需要子命令".to_string()));
+        }
+        let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
+        match sub.as_str() {
+            "LIST" => Ok(Command::ModuleList),
+            "LOAD" => {
+                if arr.len() < 3 {
+                    return Err(AppError::Command("MODULE LOAD 命令需要 path 参数".to_string()));
+                }
+                let path = self.extract_string(&arr[2])?;
+                Ok(Command::ModuleLoad(path))
+            }
+            "UNLOAD" => {
+                if arr.len() < 3 {
+                    return Err(AppError::Command("MODULE UNLOAD 命令需要 name 参数".to_string()));
+                }
+                let name = self.extract_string(&arr[2])?;
+                Ok(Command::ModuleUnload(name))
+            }
+            _ => Err(AppError::Command(format!("未知的 MODULE 子命令: {}", sub))),
+        }
     }
 
     /// 解析 CLUSTER 子命令

@@ -972,6 +972,15 @@ impl Command {
             Command::ReadWrite => {
                 RespValue::Array(vec![bulk("READWRITE")])
             }
+            Command::ModuleList => {
+                RespValue::Array(vec![bulk("MODULE"), bulk("LIST")])
+            }
+            Command::ModuleLoad(path) => {
+                RespValue::Array(vec![bulk("MODULE"), bulk("LOAD"), bulk(path)])
+            }
+            Command::ModuleUnload(name) => {
+                RespValue::Array(vec![bulk("MODULE"), bulk("UNLOAD"), bulk(name)])
+            }
             Command::Unknown(cmd_name) => {
                 RespValue::Array(vec![bulk(cmd_name)])
             }

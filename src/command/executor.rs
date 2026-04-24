@@ -1083,6 +1083,9 @@ impl CommandExecutor {
             }
             Command::ReadOnly => Ok(RespValue::SimpleString("OK".to_string())),
             Command::ReadWrite => Ok(RespValue::SimpleString("OK".to_string())),
+            Command::ModuleList => Ok(RespValue::Array(vec![])),
+            Command::ModuleLoad(_) => Err(AppError::Command("Module loading is not supported in redis-rust".to_string())),
+            Command::ModuleUnload(_) => Err(AppError::Command("No such module with that name".to_string())),
             Command::Unknown(cmd_name) => {
                 Ok(RespValue::Error(format!(
                     "ERR unknown command '{}'",

@@ -5046,3 +5046,16 @@ async fn test_wrongtype_string_ops() {
         resp
     );
 }
+
+#[tokio::test]
+async fn test_module_list() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // MODULE LIST → 空数组
+    let resp = exec(&mut stream, &["MODULE", "LIST"]).await;
+    assert_eq!(resp, RespValue::Array(vec![]));
+}
