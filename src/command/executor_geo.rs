@@ -4,11 +4,31 @@ use crate::error::Result;
 use crate::protocol::RespValue;
 use super::executor::CommandExecutor;
 
+/// 执行 GEO_ADD 命令
+///
+/// Redis 语法: GEOADD key [NX|XX] [CH] longitude latitude member [longitude latitude member ...]
+///
+/// # 参数
+/// - `executor` - 命令执行器
+///
+/// # 返回值
+/// - `Ok(RespValue::...)` - 执行成功
+/// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_geo_add(executor: &CommandExecutor, key: String, items: Vec<(f64, f64, String)>) -> Result<RespValue> {
                 let count = executor.storage.geoadd(&key, items)?;
                 Ok(RespValue::Integer(count))
 }
 
+/// 执行 GEO_DIST 命令
+///
+/// Redis 语法: GEODIST key member1 member2 [m|km|ft|mi]
+///
+/// # 参数
+/// - `executor` - 命令执行器
+///
+/// # 返回值
+/// - `Ok(RespValue::...)` - 执行成功
+/// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_geo_dist(executor: &CommandExecutor, key: String, member1: String, member2: String, unit: String) -> Result<RespValue> {
                 match executor.storage.geodist(&key, &member1, &member2, &unit)? {
                     Some(dist) => {
@@ -19,6 +39,16 @@ pub(crate) fn execute_geo_dist(executor: &CommandExecutor, key: String, member1:
                 }
 }
 
+/// 执行 GEO_HASH 命令
+///
+/// Redis 语法: GEOHASH key member [member ...]
+///
+/// # 参数
+/// - `executor` - 命令执行器
+///
+/// # 返回值
+/// - `Ok(RespValue::...)` - 执行成功
+/// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_geo_hash(executor: &CommandExecutor, key: String, members: Vec<String>) -> Result<RespValue> {
                 let hashes = executor.storage.geohash(&key, &members)?;
                 let resp_values: Vec<RespValue> = hashes
@@ -28,6 +58,16 @@ pub(crate) fn execute_geo_hash(executor: &CommandExecutor, key: String, members:
                 Ok(RespValue::Array(resp_values))
 }
 
+/// 执行 GEO_POS 命令
+///
+/// Redis 语法: GEOPOS key member [member ...]
+///
+/// # 参数
+/// - `executor` - 命令执行器
+///
+/// # 返回值
+/// - `Ok(RespValue::...)` - 执行成功
+/// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_geo_pos(executor: &CommandExecutor, key: String, members: Vec<String>) -> Result<RespValue> {
                 let positions = executor.storage.geopos(&key, &members)?;
                 let resp_values: Vec<RespValue> = positions
@@ -52,6 +92,16 @@ pub(crate) fn execute_geo_pos(executor: &CommandExecutor, key: String, members: 
                 Ok(RespValue::Array(resp_values))
 }
 
+/// 执行 GEO_SEARCH 命令
+///
+/// Redis 语法: GEOSEARCH key [FROMMEMBER member|FROMLONLAT lon lat] [BYRADIUS radius unit|BYBOX width height unit] [ASC|DESC] [COUNT count] [WITHCOORD] [WITHDIST] [WITHHASH]
+///
+/// # 参数
+/// - `executor` - 命令执行器
+///
+/// # 返回值
+/// - `Ok(RespValue::...)` - 执行成功
+/// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_geo_search(executor: &CommandExecutor, key: String, center_lon: f64, center_lat: f64, by_radius: Option<f64>, by_box: Option<(f64, f64)>, order: Option<String>, count: usize, withcoord: bool, withdist: bool, withhash: bool) -> Result<RespValue> {
                 let results = executor.storage.geosearch(
                     &key, center_lon, center_lat, by_radius, by_box,
@@ -93,6 +143,16 @@ pub(crate) fn execute_geo_search(executor: &CommandExecutor, key: String, center
                 Ok(RespValue::Array(resp_values))
 }
 
+/// 执行 GEO_SEARCH_STORE 命令
+///
+/// Redis 语法: GEOSEARCHSTORE destination source [FROMMEMBER|FROMLONLAT ...] [BYRADIUS|BYBOX ...] [ASC|DESC] [COUNT count] [STOREDIST]
+///
+/// # 参数
+/// - `executor` - 命令执行器
+///
+/// # 返回值
+/// - `Ok(RespValue::...)` - 执行成功
+/// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_geo_search_store(executor: &CommandExecutor, destination: String, source: String, center_lon: f64, center_lat: f64, by_radius: Option<f64>, by_box: Option<(f64, f64)>, order: Option<String>, count: usize, storedist: bool) -> Result<RespValue> {
                 let count_result = executor.storage.geosearchstore(
                     &destination, &source, center_lon, center_lat, by_radius, by_box,

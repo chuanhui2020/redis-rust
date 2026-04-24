@@ -2,6 +2,18 @@ use super::*;
 
 use crate::protocol::RespValue;
 
+/// 将 Command::GeoAdd 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: GEOADD key [NX|XX] [CH] longitude latitude member [longitude latitude member ...]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::GeoAdd 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::GeoAdd 变体，将触发 unreachable!()
 pub(crate) fn to_resp_geo_add(cmd: &Command) -> RespValue {
     match cmd {
         Command::GeoAdd(key, items) => {
@@ -17,6 +29,18 @@ pub(crate) fn to_resp_geo_add(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::GeoDist 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: GEODIST key member1 member2 [m|km|ft|mi]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::GeoDist 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::GeoDist 变体，将触发 unreachable!()
 pub(crate) fn to_resp_geo_dist(cmd: &Command) -> RespValue {
     match cmd {
         Command::GeoDist(key, m1, m2, unit) => {
@@ -35,6 +59,18 @@ pub(crate) fn to_resp_geo_dist(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::GeoHash 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: GEOHASH key member [member ...]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::GeoHash 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::GeoHash 变体，将触发 unreachable!()
 pub(crate) fn to_resp_geo_hash(cmd: &Command) -> RespValue {
     match cmd {
         Command::GeoHash(key, members) => {
@@ -48,6 +84,18 @@ pub(crate) fn to_resp_geo_hash(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::GeoPos 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: GEOPOS key member [member ...]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::GeoPos 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::GeoPos 变体，将触发 unreachable!()
 pub(crate) fn to_resp_geo_pos(cmd: &Command) -> RespValue {
     match cmd {
         Command::GeoPos(key, members) => {

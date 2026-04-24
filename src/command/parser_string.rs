@@ -405,6 +405,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_substr(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 4 {
             return Err(AppError::Command(
@@ -422,6 +432,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 LCS 命令
+    ///
+    /// Redis 语法: LCS key1 key2 [LEN] [IDX] [MINMATCHLEN len] [WITHMATCHLEN]
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Lcs(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_lcs(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 3 {
             return Err(AppError::Command(

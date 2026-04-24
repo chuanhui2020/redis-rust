@@ -2,6 +2,18 @@ use super::*;
 
 use crate::protocol::RespValue;
 
+/// 将 Command::ZAdd 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZADD key score member [score member ...]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZAdd 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZAdd 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_add(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZAdd(key, pairs) => {
@@ -16,6 +28,18 @@ pub(crate) fn to_resp_z_add(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRem 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZREM key member [member ...]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRem 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRem 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_rem(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRem(key, members) => {
@@ -29,6 +53,18 @@ pub(crate) fn to_resp_z_rem(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZScore 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZSCORE key member
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZScore 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZScore 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_score(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZScore(key, member) => {
@@ -38,6 +74,18 @@ pub(crate) fn to_resp_z_score(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRank 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZRANK key member
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRank 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRank 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_rank(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRank(key, member) => {
@@ -47,6 +95,18 @@ pub(crate) fn to_resp_z_rank(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRange 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZRANGE key start stop [WITHSCORES]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRange 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRange 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_range(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRange(key, start, stop, with_scores) => {
@@ -65,6 +125,18 @@ pub(crate) fn to_resp_z_range(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRangeByScore 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZRANGEBYSCORE key min max [WITHSCORES]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRangeByScore 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRangeByScore 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_range_by_score(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRangeByScore(key, min, max, with_scores) => {
@@ -83,6 +155,18 @@ pub(crate) fn to_resp_z_range_by_score(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZCard 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZCARD key
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZCard 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZCard 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_card(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZCard(key) => {
@@ -92,6 +176,18 @@ pub(crate) fn to_resp_z_card(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRevRange 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZREVRANGE key start stop [WITHSCORES]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRevRange 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRevRange 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_rev_range(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRevRange(key, start, stop, with_scores) => {
@@ -110,6 +206,18 @@ pub(crate) fn to_resp_z_rev_range(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRevRank 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZREVRANK key member
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRevRank 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRevRank 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_rev_rank(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRevRank(key, member) => {
@@ -119,6 +227,18 @@ pub(crate) fn to_resp_z_rev_rank(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZIncrBy 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZINCRBY key increment member
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZIncrBy 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZIncrBy 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_incr_by(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZIncrBy(key, increment, member) => {
@@ -133,6 +253,18 @@ pub(crate) fn to_resp_z_incr_by(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZCount 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZCOUNT key min max
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZCount 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZCount 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_count(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZCount(key, min, max) => {
@@ -147,6 +279,18 @@ pub(crate) fn to_resp_z_count(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZPopMin 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZPOPMIN key [count]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZPopMin 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZPopMin 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_pop_min(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZPopMin(key, count) => {
@@ -160,6 +304,18 @@ pub(crate) fn to_resp_z_pop_min(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZPopMax 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZPOPMAX key [count]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZPopMax 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZPopMax 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_pop_max(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZPopMax(key, count) => {
@@ -173,6 +329,18 @@ pub(crate) fn to_resp_z_pop_max(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZUnionStore 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight ...] [AGGREGATE SUM|MIN|MAX]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZUnionStore 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZUnionStore 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_union_store(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZUnionStore(destination, keys, weights, aggregate) => {
@@ -200,6 +368,18 @@ pub(crate) fn to_resp_z_union_store(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZInterStore 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight ...] [AGGREGATE SUM|MIN|MAX]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZInterStore 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZInterStore 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_inter_store(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZInterStore(destination, keys, weights, aggregate) => {
@@ -227,6 +407,18 @@ pub(crate) fn to_resp_z_inter_store(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZScan 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZSCAN key cursor [MATCH pattern] [COUNT count]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZScan 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZScan 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_scan(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZScan(key, cursor, pattern, count) => {
@@ -249,6 +441,18 @@ pub(crate) fn to_resp_z_scan(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRangeByLex 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZRANGEBYLEX key min max [LIMIT offset count]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRangeByLex 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRangeByLex 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_range_by_lex(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRangeByLex(key, min, max) => {
@@ -258,6 +462,18 @@ pub(crate) fn to_resp_z_range_by_lex(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRemRangeByLex 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZREMRANGEBYLEX key min max
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRemRangeByLex 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRemRangeByLex 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_rem_range_by_lex(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRemRangeByLex(key, min, max) => {
@@ -267,6 +483,18 @@ pub(crate) fn to_resp_z_rem_range_by_lex(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRemRangeByRank 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZREMRANGEBYRANK key start stop
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRemRangeByRank 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRemRangeByRank 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_rem_range_by_rank(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRemRangeByRank(key, start, stop) => {
@@ -281,6 +509,18 @@ pub(crate) fn to_resp_z_rem_range_by_rank(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRemRangeByScore 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZREMRANGEBYSCORE key min max
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRemRangeByScore 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRemRangeByScore 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_rem_range_by_score(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRemRangeByScore(key, min, max) => {
@@ -295,6 +535,18 @@ pub(crate) fn to_resp_z_rem_range_by_score(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRandMember 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZRANDMEMBER key [count [WITHSCORES]]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRandMember 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRandMember 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_rand_member(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRandMember(key, count, with_scores) => {
@@ -311,6 +563,18 @@ pub(crate) fn to_resp_z_rand_member(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZDiff 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZDIFF key [key ...] [WITHSCORES]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZDiff 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZDiff 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_diff(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZDiff(keys, with_scores) => {
@@ -327,6 +591,18 @@ pub(crate) fn to_resp_z_diff(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZDiffStore 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZDIFFSTORE destination numkeys key [key ...]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZDiffStore 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZDiffStore 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_diff_store(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZDiffStore(destination, keys) => {
@@ -340,6 +616,18 @@ pub(crate) fn to_resp_z_diff_store(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZInter 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZINTER numkeys key [key ...] [WEIGHTS weight ...] [AGGREGATE SUM|MIN|MAX] [WITHSCORES]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZInter 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZInter 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_inter(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZInter(keys, weights, aggregate, with_scores) => {
@@ -366,6 +654,18 @@ pub(crate) fn to_resp_z_inter(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZUnion 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZUNION numkeys key [key ...] [WEIGHTS weight ...] [AGGREGATE SUM|MIN|MAX] [WITHSCORES]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZUnion 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZUnion 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_union(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZUnion(keys, weights, aggregate, with_scores) => {
@@ -392,6 +692,18 @@ pub(crate) fn to_resp_z_union(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRangeStore 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZRANGESTORE dst src min max [BYSCORE|BYLEX] [REV] [LIMIT offset count]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRangeStore 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRangeStore 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_range_store(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRangeStore(dst, src, min, max, by_score, by_lex, rev, limit_offset, limit_count) => {
@@ -416,6 +728,18 @@ pub(crate) fn to_resp_z_range_store(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZMpop 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZMPOP numkeys key [key ...] MIN|MAX [COUNT count]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZMpop 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZMpop 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_mpop(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZMpop(keys, min_or_max, count) => {
@@ -434,6 +758,18 @@ pub(crate) fn to_resp_z_mpop(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::BZMpop 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: BZMPOP timeout numkeys key [key ...] MIN|MAX [COUNT count]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::BZMpop 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::BZMpop 变体，将触发 unreachable!()
 pub(crate) fn to_resp_b_z_mpop(cmd: &Command) -> RespValue {
     match cmd {
         Command::BZMpop(timeout, keys, min_or_max, count) => {
@@ -452,6 +788,18 @@ pub(crate) fn to_resp_b_z_mpop(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::BZPopMin 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: BZPOPMIN key [key ...] timeout
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::BZPopMin 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::BZPopMin 变体，将触发 unreachable!()
 pub(crate) fn to_resp_b_z_pop_min(cmd: &Command) -> RespValue {
     match cmd {
         Command::BZPopMin(keys, timeout) => {
@@ -466,6 +814,18 @@ pub(crate) fn to_resp_b_z_pop_min(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::BZPopMax 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: BZPOPMAX key [key ...] timeout
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::BZPopMax 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::BZPopMax 变体，将触发 unreachable!()
 pub(crate) fn to_resp_b_z_pop_max(cmd: &Command) -> RespValue {
     match cmd {
         Command::BZPopMax(keys, timeout) => {
@@ -480,6 +840,18 @@ pub(crate) fn to_resp_b_z_pop_max(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRevRangeByScore 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZREVRANGEBYSCORE key max min [WITHSCORES] [LIMIT offset count]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRevRangeByScore 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRevRangeByScore 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_rev_range_by_score(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRevRangeByScore(key, max, min, with_scores, limit_offset, limit_count) => {
@@ -498,6 +870,18 @@ pub(crate) fn to_resp_z_rev_range_by_score(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZRevRangeByLex 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZREVRANGEBYLEX key max min [LIMIT offset count]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZRevRangeByLex 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZRevRangeByLex 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_rev_range_by_lex(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZRevRangeByLex(key, max, min, limit_offset, limit_count) => {
@@ -513,6 +897,18 @@ pub(crate) fn to_resp_z_rev_range_by_lex(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZMScore 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZMSCORE key member [member ...]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZMScore 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZMScore 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_m_score(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZMScore(key, members) => {
@@ -526,6 +922,18 @@ pub(crate) fn to_resp_z_m_score(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::ZLexCount 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: ZLEXCOUNT key min max
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::ZLexCount 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::ZLexCount 变体，将触发 unreachable!()
 pub(crate) fn to_resp_z_lex_count(cmd: &Command) -> RespValue {
     match cmd {
         Command::ZLexCount(key, min, max) => {

@@ -1,6 +1,22 @@
 use super::*;
 
 impl StorageEngine {
+    /// 从列表左侧插入一个或多个值（对标 Redis LPUSH 命令）
+    ///
+    /// 将所有 value 依次插入到列表 key 的表头。
+    /// 如果 key 不存在，则创建一个空列表再执行插入。
+    /// 如果 key 存在但不是列表类型，返回 WRONGTYPE 错误。
+    ///
+    /// # 参数
+    /// - `key` - 列表键名
+    /// - `values` - 要插入的值列表（第一个值会成为新的表头）
+    ///
+    /// # 返回值
+    /// - `Ok(usize)` - 插入后列表的长度
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn lpush(&self, key: &str, values: Vec<Bytes>) -> Result<usize> {
         self.evict_if_needed()?;
         let len = {
@@ -33,7 +49,22 @@ impl StorageEngine {
         Ok(len)
     }
 
-    /// 从列表右侧插入一个或多个值
+    /// 从列表右侧插入一个或多个值（对标 Redis RPUSH 命令）
+    ///
+    /// 将所有 value 依次插入到列表 key 的表尾。
+    /// 如果 key 不存在，则创建一个空列表再执行插入。
+    /// 如果 key 存在但不是列表类型，返回 WRONGTYPE 错误。
+    ///
+    /// # 参数
+    /// - `key` - 列表键名
+    /// - `values` - 要插入的值列表（第一个值先插入，位于较前位置）
+    ///
+    /// # 返回值
+    /// - `Ok(usize)` - 插入后列表的长度
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn rpush(&self, key: &str, values: Vec<Bytes>) -> Result<usize> {
         self.evict_if_needed()?;
         let len = {
@@ -66,8 +97,22 @@ impl StorageEngine {
         Ok(len)
     }
 
-    /// 从列表左侧弹出一个值，返回弹出的值
-    /// 键不存在返回 None，键存在但不是列表类型返回 WRONGTYPE 错误
+    /// 从列表左侧弹出一个值（对标 Redis LPOP 命令）
+    ///
+    /// 移除并返回列表 key 的表头元素。
+    /// 键不存在返回 None；键存在但不是列表类型返回 WRONGTYPE 错误。
+    /// 弹出后若列表为空，则自动删除该 key。
+    ///
+    /// # 参数
+    /// - `key` - 列表键名
+    ///
+    /// # 返回值
+    /// - `Ok(Some(Bytes))` - 弹出的表头元素
+    /// - `Ok(None)` - 键不存在
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn lpop(&self, key: &str) -> Result<Option<Bytes>> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -93,7 +138,22 @@ impl StorageEngine {
         }
     }
 
-    /// 从列表右侧弹出一个值
+    /// 从列表右侧弹出一个值（对标 Redis RPOP 命令）
+    ///
+    /// 移除并返回列表 key 的表尾元素。
+    /// 键不存在返回 None；键存在但不是列表类型返回 WRONGTYPE 错误。
+    /// 弹出后若列表为空，则自动删除该 key。
+    ///
+    /// # 参数
+    /// - `key` - 列表键名
+    ///
+    /// # 返回值
+    /// - `Ok(Some(Bytes))` - 弹出的表尾元素
+    /// - `Ok(None)` - 键不存在
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn rpop(&self, key: &str) -> Result<Option<Bytes>> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -119,7 +179,21 @@ impl StorageEngine {
         }
     }
 
-    /// 返回列表的长度
+    /// 返回列表的长度（对标 Redis LLEN 命令）
+    ///
+    /// 获取列表 key 的长度。
+    /// 如果 key 不存在，返回 0。
+    /// 如果 key 存在但不是列表类型，返回 WRONGTYPE 错误。
+    ///
+    /// # 参数
+    /// - `key` - 列表键名
+    ///
+    /// # 返回值
+    /// - `Ok(usize)` - 列表的长度（不存在则为 0）
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn llen(&self, key: &str) -> Result<usize> {
         let db = self.db();
         let mut map = db
@@ -141,7 +215,25 @@ impl StorageEngine {
         }
     }
 
-    /// 返回列表指定范围内的元素（支持负数索引）
+    /// 返回列表指定范围内的元素（对标 Redis LRANGE 命令）
+    ///
+    /// 获取列表 key 中指定区间内的元素，区间包含 start 和 stop。
+    /// 支持负数索引（-1 表示最后一个元素）。
+    /// 如果 start 超过列表末尾或 start > stop，返回空列表。
+    /// 如果 key 不存在，返回空列表。
+    /// 如果 key 存在但不是列表类型，返回 WRONGTYPE 错误。
+    ///
+    /// # 参数
+    /// - `key` - 列表键名
+    /// - `start` - 起始索引（支持负数）
+    /// - `stop` - 结束索引（支持负数）
+    ///
+    /// # 返回值
+    /// - `Ok(Vec<Bytes>)` - 区间内的元素列表（可能为空）
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn lrange(&self, key: &str, start: i64, stop: i64) -> Result<Vec<Bytes>> {
         let db = self.db();
         let mut map = db
@@ -191,7 +283,24 @@ impl StorageEngine {
         Ok(result)
     }
 
-    /// 返回列表指定索引位置的元素（支持负数索引）
+    /// 返回列表指定索引位置的元素（对标 Redis LINDEX 命令）
+    ///
+    /// 获取列表 key 中 index 位置的元素。
+    /// 支持负数索引（-1 表示最后一个元素）。
+    /// 如果 index 超出范围或 key 不存在，返回 None。
+    /// 如果 key 存在但不是列表类型，返回 WRONGTYPE 错误。
+    ///
+    /// # 参数
+    /// - `key` - 列表键名
+    /// - `index` - 索引位置（支持负数）
+    ///
+    /// # 返回值
+    /// - `Ok(Some(Bytes))` - 指定索引的元素
+    /// - `Ok(None)` - 索引越界或键不存在
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn lindex(&self, key: &str, index: i64) -> Result<Option<Bytes>> {
         let db = self.db();
         let mut map = db
@@ -225,8 +334,25 @@ impl StorageEngine {
         }
     }
 
-    /// 设置列表指定位置的值（支持负数索引）
-    /// 索引越界返回错误
+    /// 设置列表指定位置的值（对标 Redis LSET 命令）
+    ///
+    /// 将列表 key 中 index 位置的元素设置为 value。
+    /// 支持负数索引（-1 表示最后一个元素）。
+    /// 如果 index 超出范围返回 "ERR index out of range" 错误。
+    /// 如果 key 不存在返回 "ERR no such key" 错误。
+    /// 如果 key 存在但不是列表类型，返回 WRONGTYPE 错误。
+    ///
+    /// # 参数
+    /// - `key` - 列表键名
+    /// - `index` - 要设置的索引位置（支持负数）
+    /// - `value` - 新值
+    ///
+    /// # 返回值
+    /// - `Ok(())` - 设置成功
+    /// - `Err(AppError::Storage)` - 索引越界、键不存在、类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn lset(&self, key: &str, index: i64, value: Bytes) -> Result<()> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -263,8 +389,27 @@ impl StorageEngine {
         }
     }
 
-    /// 在列表中 pivot 元素的前或后插入值
-    /// 返回新长度，pivot 不存在返回 -1
+    /// 在列表中 pivot 元素的前或后插入值（对标 Redis LINSERT 命令）
+    ///
+    /// 在列表 key 中查找第一个与 pivot 相等的元素，
+    /// 在其前面（Before）或后面（After）插入 value。
+    /// 如果 key 不存在，返回 -1。
+    /// 如果 pivot 不存在，返回 -1。
+    /// 如果 key 存在但不是列表类型，返回 WRONGTYPE 错误。
+    ///
+    /// # 参数
+    /// - `key` - 列表键名
+    /// - `position` - 插入位置（Before 或 After）
+    /// - `pivot` - 参照元素值
+    /// - `value` - 要插入的新值
+    ///
+    /// # 返回值
+    /// - `Ok(i64)` - 插入后列表的长度
+    /// - `Ok(-1)` - 键不存在或 pivot 未找到
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn linsert(&self, key: &str, position: LInsertPosition, pivot: Bytes, value: Bytes) -> Result<i64> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -305,11 +450,26 @@ impl StorageEngine {
         }
     }
 
-    /// 从列表中删除 count 个等于 value 的元素
-    /// count > 0 从头开始删除 count 个
-    /// count < 0 从尾开始删除 |count| 个
-    /// count = 0 删除全部
-    /// 返回实际删除的数量
+    /// 从列表中删除 count 个等于 value 的元素（对标 Redis LREM 命令）
+    ///
+    /// 根据 count 的值，从列表 key 中移除与 value 相等的元素：
+    /// - count > 0：从表头开始向表尾搜索，移除最多 count 个
+    /// - count < 0：从表尾开始向表头搜索，移除最多 |count| 个
+    /// - count = 0：移除所有与 value 相等的元素
+    /// 如果 key 不存在，返回 0。
+    /// 如果 key 存在但不是列表类型，返回 WRONGTYPE 错误。
+    ///
+    /// # 参数
+    /// - `key` - 列表键名
+    /// - `count` - 删除方向和数量（正数从头，负数从尾，0 删除全部）
+    /// - `value` - 要删除的元素值
+    ///
+    /// # 返回值
+    /// - `Ok(i64)` - 实际删除的元素数量
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn lrem(&self, key: &str, count: i64, value: Bytes) -> Result<i64> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -382,7 +542,25 @@ impl StorageEngine {
         }
     }
 
-    /// 修剪列表，只保留指定范围的元素（支持负数索引）
+    /// 修剪列表，只保留指定范围的元素（对标 Redis LTRIM 命令）
+    ///
+    /// 对列表 key 进行修剪，只保留 [start, stop] 区间内的元素，其余删除。
+    /// 支持负数索引（-1 表示最后一个元素）。
+    /// 如果 start 超过列表末尾或 start > stop，删除整个列表。
+    /// 如果 key 不存在，直接返回成功。
+    /// 如果 key 存在但不是列表类型，返回 WRONGTYPE 错误。
+    ///
+    /// # 参数
+    /// - `key` - 列表键名
+    /// - `start` - 保留区间的起始索引（支持负数）
+    /// - `stop` - 保留区间的结束索引（支持负数）
+    ///
+    /// # 返回值
+    /// - `Ok(())` - 修剪成功
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn ltrim(&self, key: &str, start: i64, stop: i64) -> Result<()> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -430,11 +608,29 @@ impl StorageEngine {
         }
     }
 
-    /// 在列表中查找 value 的位置
-    /// rank: 从第 rank 个匹配开始计数（正数从头，负数从尾）
-    /// count: 最多返回 count 个位置（0 表示不限制）
-    /// maxlen: 最多检查 maxlen 个元素（0 表示不限制）
-    /// 返回位置列表（0-based），找不到返回空 Vec
+    /// 在列表中查找 value 的位置（对标 Redis LPOS 命令）
+    ///
+    /// 返回列表 key 中与 value 相等的元素的位置（0-based）。
+    /// 支持通过 rank 控制从第几个匹配开始返回，
+    /// 支持通过 count 限制返回数量（0 表示不限制），
+    /// 支持通过 maxlen 限制最多检查的元素数（0 表示不限制）。
+    /// 如果 rank 为 0，返回空列表。
+    /// 如果 key 不存在，返回空列表。
+    /// 如果 key 存在但不是列表类型，返回 WRONGTYPE 错误。
+    ///
+    /// # 参数
+    /// - `key` - 列表键名
+    /// - `value` - 要查找的元素值
+    /// - `rank` - 从第 rank 个匹配开始计数（正数从头，负数从尾）
+    /// - `count` - 最多返回的位置数量（0 表示不限制）
+    /// - `maxlen` - 最多检查的元素数量（0 表示不限制）
+    ///
+    /// # 返回值
+    /// - `Ok(Vec<i64>)` - 匹配位置列表（0-based），找不到则为空
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn lpos(&self, key: &str, value: Bytes, rank: i64, count: i64, maxlen: i64) -> Result<Vec<i64>> {
         let db = self.db();
         let mut map = db
@@ -485,6 +681,12 @@ impl StorageEngine {
     }
 
     /// 通知阻塞等待者有数据可消费
+    ///
+    /// 当列表 key 有新元素插入时，唤醒所有在该 key 上阻塞等待的客户端，
+    /// 使它们能够重新尝试弹出操作。
+    ///
+    /// # 参数
+    /// - `key` - 发生变化的列表键名
     pub(crate) fn notify_blocking_waiters(&self, key: &str) {
         let db = self.db();
         let waiters = {
@@ -499,7 +701,14 @@ impl StorageEngine {
         }
     }
 
-    /// 从阻塞等待者列表中注销指定 notify
+    /// 从阻塞等待者列表中注销指定的通知对象
+    ///
+    /// 在阻塞操作完成或超时时，将指定 notify 从各个 key 的等待者列表中移除，
+    /// 防止内存泄漏和重复通知。
+    ///
+    /// # 参数
+    /// - `keys` - 之前注册等待的键名列表
+    /// - `notify` - 要注销的通知对象
     fn unregister_blocking_waiter(&self, keys: &[String], notify: &Arc<tokio::sync::Notify>) {
         let db = self.db();
         let mut waiters_map = match db.blocking_waiters.write() {
@@ -516,8 +725,23 @@ impl StorageEngine {
         }
     }
 
-    /// 阻塞式左弹出，从多个 key 中找到第一个非空 list 并弹出
-    /// timeout_secs = 0 表示永久阻塞
+    /// 阻塞式左弹出（对标 Redis BLPOP 命令）
+    ///
+    /// 按顺序检查多个列表键，对第一个非空列表执行 LPOP 操作。
+    /// 如果所有列表都为空，则阻塞等待，直到有列表被 push 或超时。
+    /// timeout_secs = 0 表示永久阻塞。
+    ///
+    /// # 参数
+    /// - `keys` - 要检查的列表键名数组（按优先级顺序）
+    /// - `timeout_secs` - 超时时间（秒），0 表示无限阻塞
+    ///
+    /// # 返回值
+    /// - `Ok(Some((key, value)))` - 弹出的键名和值
+    /// - `Ok(None)` - 超时且没有数据
+    /// - `Err(AppError::Storage)` - 锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub async fn blpop(&self, keys: &[String], timeout_secs: f64) -> Result<Option<(String, Bytes)>> {
         let deadline = if timeout_secs > 0.0 {
             Some(tokio::time::Instant::now() + tokio::time::Duration::from_secs_f64(timeout_secs))
@@ -568,7 +792,23 @@ impl StorageEngine {
         }
     }
 
-    /// 阻塞式右弹出
+    /// 阻塞式右弹出（对标 Redis BRPOP 命令）
+    ///
+    /// 按顺序检查多个列表键，对第一个非空列表执行 RPOP 操作。
+    /// 如果所有列表都为空，则阻塞等待，直到有列表被 push 或超时。
+    /// timeout_secs = 0 表示永久阻塞。
+    ///
+    /// # 参数
+    /// - `keys` - 要检查的列表键名数组（按优先级顺序）
+    /// - `timeout_secs` - 超时时间（秒），0 表示无限阻塞
+    ///
+    /// # 返回值
+    /// - `Ok(Some((key, value)))` - 弹出的键名和值
+    /// - `Ok(None)` - 超时且没有数据
+    /// - `Err(AppError::Storage)` - 锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub async fn brpop(&self, keys: &[String], timeout_secs: f64) -> Result<Option<(String, Bytes)>> {
         let deadline = if timeout_secs > 0.0 {
             Some(tokio::time::Instant::now() + tokio::time::Duration::from_secs_f64(timeout_secs))
@@ -619,10 +859,26 @@ impl StorageEngine {
         }
     }
 
-    /// 原子性地从 source 列表弹出元素并推入 destination 列表
-    /// left_from: true 表示从左侧弹出，false 表示从右侧弹出
-    /// left_to: true 表示推入左侧，false 表示推入右侧
-    /// 返回移动的元素
+    /// 原子性地从 source 列表弹出元素并推入 destination 列表（对标 Redis LMOVE 命令）
+    ///
+    /// 从 source 列表弹出元素，并立即将其推入 destination 列表。
+    /// 可以分别指定从 source 的哪一侧弹出以及推入 destination 的哪一侧。
+    /// 如果 source 不存在，返回 None。
+    /// 如果 source 或 destination 存在但不是列表类型，返回 WRONGTYPE 错误。
+    ///
+    /// # 参数
+    /// - `source` - 源列表键名
+    /// - `destination` - 目标列表键名
+    /// - `left_from` - true 表示从左侧弹出，false 表示从右侧弹出
+    /// - `left_to` - true 表示推入左侧，false 表示推入右侧
+    ///
+    /// # 返回值
+    /// - `Ok(Some(Bytes))` - 移动的元素
+    /// - `Ok(None)` - source 不存在
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn lmove(&self, source: &str, destination: &str, left_from: bool, left_to: bool) -> Result<Option<Bytes>> {
         self.evict_if_needed()?;
         let mut src_map = self.write_shard(source)?;
@@ -680,13 +936,44 @@ impl StorageEngine {
         Ok(Some(value))
     }
 
-    /// RPOPLPUSH：等同于 LMOVE source destination RIGHT LEFT
+    /// 原子性地从 source 右侧弹出并推入 destination 左侧（对标 Redis RPOPLPUSH 命令）
+    ///
+    /// 等同于 LMOVE source destination RIGHT LEFT。
+    /// 这是一个已废弃命令的兼容实现，建议使用 LMOVE 替代。
+    ///
+    /// # 参数
+    /// - `source` - 源列表键名
+    /// - `destination` - 目标列表键名
+    ///
+    /// # 返回值
+    /// - `Ok(Some(Bytes))` - 移动的元素
+    /// - `Ok(None)` - source 不存在
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn rpoplpush(&self, source: &str, destination: &str) -> Result<Option<Bytes>> {
         self.lmove(source, destination, false, true)
     }
 
-    /// 从多个列表中找第一个非空的，弹出 count 个元素
-    /// 返回 (key, elements)
+    /// 从多个列表中找第一个非空的，弹出 count 个元素（对标 Redis LMPOP 命令）
+    ///
+    /// 按顺序检查多个列表键，对第一个非空列表弹出最多 count 个元素。
+    /// left 为 true 时从左侧弹出，false 时从右侧弹出。
+    /// 如果所有列表都不存在或为空，返回 None。
+    ///
+    /// # 参数
+    /// - `keys` - 要检查的列表键名数组（按优先级顺序）
+    /// - `left` - true 表示从左侧弹出，false 表示从右侧弹出
+    /// - `count` - 最多弹出的元素数量
+    ///
+    /// # 返回值
+    /// - `Ok(Some((key, elements)))` - 弹出的键名和元素列表
+    /// - `Ok(None)` - 所有列表都不存在或为空
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub fn lmpop(&self, keys: &[String], left: bool, count: usize) -> Result<Option<(String, Vec<Bytes>)>> {
         self.evict_if_needed()?;
 
@@ -722,7 +1009,26 @@ impl StorageEngine {
         Ok(None)
     }
 
-    /// 阻塞式 LMOVE
+    /// 阻塞式 LMOVE（对标 Redis BLMOVE 命令）
+    ///
+    /// 尝试原子性地从 source 列表弹出并推入 destination 列表。
+    /// 如果 source 不存在，则阻塞等待直到 source 有数据或超时。
+    /// timeout_secs = 0 表示永久阻塞。
+    ///
+    /// # 参数
+    /// - `source` - 源列表键名
+    /// - `destination` - 目标列表键名
+    /// - `left_from` - true 表示从左侧弹出，false 表示从右侧弹出
+    /// - `left_to` - true 表示推入左侧，false 表示推入右侧
+    /// - `timeout_secs` - 超时时间（秒），0 表示无限阻塞
+    ///
+    /// # 返回值
+    /// - `Ok(Some(Bytes))` - 移动的元素
+    /// - `Ok(None)` - 超时且 source 仍为空
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub async fn blmove(&self, source: &str, destination: &str, left_from: bool, left_to: bool, timeout_secs: f64) -> Result<Option<Bytes>> {
         let deadline = if timeout_secs > 0.0 {
             Some(tokio::time::Instant::now() + tokio::time::Duration::from_secs_f64(timeout_secs))
@@ -766,7 +1072,26 @@ impl StorageEngine {
         }
     }
 
-    /// 阻塞式 LMPOP
+    /// 阻塞式 LMPOP（对标 Redis BLMPOP 命令）
+    ///
+    /// 按顺序检查多个列表键，对第一个非空列表弹出最多 count 个元素。
+    /// 如果所有列表都为空，则阻塞等待直到有列表被 push 或超时。
+    /// left 为 true 时从左侧弹出，false 时从右侧弹出。
+    /// timeout_secs = 0 表示永久阻塞。
+    ///
+    /// # 参数
+    /// - `keys` - 要检查的列表键名数组（按优先级顺序）
+    /// - `left` - true 表示从左侧弹出，false 表示从右侧弹出
+    /// - `count` - 最多弹出的元素数量
+    /// - `timeout_secs` - 超时时间（秒），0 表示无限阻塞
+    ///
+    /// # 返回值
+    /// - `Ok(Some((key, elements)))` - 弹出的键名和元素列表
+    /// - `Ok(None)` - 超时
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub async fn blmpop(&self, keys: &[String], left: bool, count: usize, timeout_secs: f64) -> Result<Option<(String, Vec<Bytes>)>> {
         let deadline = if timeout_secs > 0.0 {
             Some(tokio::time::Instant::now() + tokio::time::Duration::from_secs_f64(timeout_secs))
@@ -811,7 +1136,23 @@ impl StorageEngine {
         }
     }
 
-    /// 阻塞式 RPOPLPUSH
+    /// 阻塞式 RPOPLPUSH（对标 Redis BRPOPLPUSH 命令）
+    ///
+    /// 等同于 BLMOVE source destination RIGHT LEFT。
+    /// 这是一个已废弃命令的兼容实现，建议使用 BLMOVE 替代。
+    ///
+    /// # 参数
+    /// - `source` - 源列表键名
+    /// - `destination` - 目标列表键名
+    /// - `timeout_secs` - 超时时间（秒），0 表示无限阻塞
+    ///
+    /// # 返回值
+    /// - `Ok(Some(Bytes))` - 移动的元素
+    /// - `Ok(None)` - 超时
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为差异
+    /// 与 Redis 7 行为一致。
     pub async fn brpoplpush(&self, source: &str, destination: &str, timeout_secs: f64) -> Result<Option<Bytes>> {
         self.blmove(source, destination, false, true, timeout_secs).await
     }

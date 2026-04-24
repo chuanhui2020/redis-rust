@@ -241,6 +241,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_xgroup(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
             return Err(AppError::Command("XGROUP 需要子命令".to_string()));
@@ -302,6 +312,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_xreadgroup(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 7 {
             return Err(AppError::Command("XREADGROUP 参数不足".to_string()));
@@ -347,6 +367,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_xack(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 4 {
             return Err(AppError::Command("XACK 需要 key group id".to_string()));
@@ -361,6 +391,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_xclaim(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 6 {
             return Err(AppError::Command("XCLAIM 参数不足".to_string()));
@@ -385,6 +425,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_xautoclaim(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 6 {
             return Err(AppError::Command("XAUTOCLAIM 参数不足".to_string()));
@@ -417,6 +467,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_xpending(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 3 {
             return Err(AppError::Command("XPENDING 需要 key group".to_string()));
@@ -444,6 +504,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_xinfo(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 3 {
             return Err(AppError::Command("XINFO 需要子命令".to_string()));

@@ -3,6 +3,16 @@ use crate::protocol::RespValue;
 use super::{Command, CommandParser};
 
 impl CommandParser {
+    /// 解析 DEL 命令
+    ///
+    /// Redis 语法: DEL key [key ...]
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Del(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_del(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
             return Err(AppError::Command(
@@ -17,6 +27,16 @@ impl CommandParser {
 
         Ok(Command::Del(keys))
     }
+    /// 解析 EXISTS 命令
+    ///
+    /// Redis 语法: EXISTS key [key ...]
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Exists(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_exists(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
             return Err(AppError::Command(
@@ -31,6 +51,16 @@ impl CommandParser {
 
         Ok(Command::Exists(keys))
     }
+    /// 解析 EXPIRE 命令
+    ///
+    /// Redis 语法: EXPIRE key seconds
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Expire(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_expire(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
             return Err(AppError::Command(
@@ -45,6 +75,16 @@ impl CommandParser {
 
         Ok(Command::Expire(key, seconds))
     }
+    /// 解析 TTL 命令
+    ///
+    /// Redis 语法: TTL key
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Ttl(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_ttl(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
             return Err(AppError::Command(
@@ -55,6 +95,16 @@ impl CommandParser {
         let key = self.extract_string(&arr[1])?;
         Ok(Command::Ttl(key))
     }
+    /// 解析 KEYS 命令
+    ///
+    /// Redis 语法: KEYS pattern
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Keys(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_keys(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
             return Err(AppError::Command(
@@ -64,6 +114,16 @@ impl CommandParser {
         let pattern = self.extract_string(&arr[1])?;
         Ok(Command::Keys(pattern))
     }
+    /// 解析 SCAN 命令
+    ///
+    /// Redis 语法: SCAN cursor [MATCH pattern] [COUNT count]
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Scan(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_scan(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
             return Err(AppError::Command(
@@ -102,6 +162,16 @@ impl CommandParser {
         }
         Ok(Command::Scan(cursor, pattern, count))
     }
+    /// 解析 RENAME 命令
+    ///
+    /// Redis 语法: RENAME key newkey
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Rename(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_rename(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
             return Err(AppError::Command(
@@ -112,6 +182,16 @@ impl CommandParser {
         let newkey = self.extract_string(&arr[2])?;
         Ok(Command::Rename(key, newkey))
     }
+    /// 解析 TYPE 命令
+    ///
+    /// Redis 语法: TYPE key
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Type(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_type(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
             return Err(AppError::Command(
@@ -121,6 +201,16 @@ impl CommandParser {
         let key = self.extract_string(&arr[1])?;
         Ok(Command::Type(key))
     }
+    /// 解析 PERSIST 命令
+    ///
+    /// Redis 语法: PERSIST key
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Persist(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_persist(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
             return Err(AppError::Command(
@@ -130,6 +220,16 @@ impl CommandParser {
         let key = self.extract_string(&arr[1])?;
         Ok(Command::Persist(key))
     }
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_pexpire(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
             return Err(AppError::Command(
@@ -141,6 +241,16 @@ impl CommandParser {
             .map_err(|_| AppError::Command("PEXPIRE 时间必须是数字".to_string()))?;
         Ok(Command::PExpire(key, ms))
     }
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_pttl(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
             return Err(AppError::Command(
@@ -150,6 +260,16 @@ impl CommandParser {
         let key = self.extract_string(&arr[1])?;
         Ok(Command::PTtl(key))
     }
+    /// 解析 UNLINK 命令
+    ///
+    /// Redis 语法: UNLINK key [key ...]
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unlink(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_unlink(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
             return Err(AppError::Command(
@@ -162,6 +282,16 @@ impl CommandParser {
         }
         Ok(Command::Unlink(keys))
     }
+    /// 解析 COPY 命令
+    ///
+    /// Redis 语法: COPY source destination [REPLACE]
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Copy(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_copy(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 3 {
             return Err(AppError::Command(
@@ -183,6 +313,16 @@ impl CommandParser {
         }
         Ok(Command::Copy(source, destination, replace))
     }
+    /// 解析 DUMP 命令
+    ///
+    /// Redis 语法: DUMP key
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Dump(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_dump(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
             return Err(AppError::Command(
@@ -192,6 +332,16 @@ impl CommandParser {
         let key = self.extract_string(&arr[1])?;
         Ok(Command::Dump(key))
     }
+    /// 解析 RESTORE 命令
+    ///
+    /// Redis 语法: RESTORE key ttl serialized-value [REPLACE]
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Restore(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_restore(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 4 {
             return Err(AppError::Command(
@@ -216,6 +366,16 @@ impl CommandParser {
         }
         Ok(Command::Restore(key, ttl_ms, serialized.to_vec(), replace))
     }
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_expireat(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
             return Err(AppError::Command(
@@ -228,6 +388,16 @@ impl CommandParser {
         })?;
         Ok(Command::ExpireAt(key, timestamp))
     }
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_pexpireat(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
             return Err(AppError::Command(
@@ -240,6 +410,16 @@ impl CommandParser {
         })?;
         Ok(Command::PExpireAt(key, timestamp))
     }
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_expiretime(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
             return Err(AppError::Command(
@@ -248,6 +428,16 @@ impl CommandParser {
         }
         Ok(Command::ExpireTime(self.extract_string(&arr[1])?))
     }
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_pexpiretime(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
             return Err(AppError::Command(
@@ -256,6 +446,16 @@ impl CommandParser {
         }
         Ok(Command::PExpireTime(self.extract_string(&arr[1])?))
     }
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_renamenx(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
             return Err(AppError::Command(
@@ -267,6 +467,16 @@ impl CommandParser {
             self.extract_string(&arr[2])?,
         ))
     }
+    /// 解析 TOUCH 命令
+    ///
+    /// Redis 语法: TOUCH key [key ...]
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Touch(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_touch(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
             return Err(AppError::Command(

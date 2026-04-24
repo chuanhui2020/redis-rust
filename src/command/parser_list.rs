@@ -304,6 +304,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 LMOVE 命令
+    ///
+    /// Redis 语法: LMOVE source destination LEFT|RIGHT LEFT|RIGHT
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Lmove(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_lmove(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 5 {
             return Err(AppError::Command("LMOVE 命令需要 4 个参数".to_string()));
@@ -326,6 +336,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 RPOPLPUSH 命令
+    ///
+    /// Redis 语法: RPOPLPUSH source destination
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Rpoplpush(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_rpoplpush(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
             return Err(AppError::Command("RPOPLPUSH 命令需要 2 个参数".to_string()));
@@ -337,6 +357,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 LMPOP 命令
+    ///
+    /// Redis 语法: LMPOP numkeys key [key ...] LEFT|RIGHT [COUNT count]
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Lmpop(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_lmpop(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 4 {
             return Err(AppError::Command("LMPOP 命令需要至少 3 个参数".to_string()));
@@ -376,6 +406,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_blmove(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 6 {
             return Err(AppError::Command("BLMOVE 命令需要 5 个参数".to_string()));
@@ -401,6 +441,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_blmpop(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 5 {
             return Err(AppError::Command("BLMPOP 命令需要至少 4 个参数".to_string()));
@@ -443,6 +493,16 @@ impl CommandParser {
     }
 
 
+    /// 解析 UNKNOWN 命令
+    ///
+    /// Redis 语法: 
+    ///
+    /// # 参数
+    /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
+    ///
+    /// # 返回值
+    /// - `Ok(Command::Unknown(...))` - 解析成功
+    /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_brpoplpush(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 4 {
             return Err(AppError::Command("BRPOPLPUSH 命令需要 3 个参数".to_string()));

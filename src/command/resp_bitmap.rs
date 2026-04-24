@@ -2,6 +2,18 @@ use super::*;
 
 use crate::protocol::RespValue;
 
+/// 将 Command::SetBit 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: SETBIT key offset value
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::SetBit 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::SetBit 变体，将触发 unreachable!()
 pub(crate) fn to_resp_set_bit(cmd: &Command) -> RespValue {
     match cmd {
         Command::SetBit(key, offset, value) => {
@@ -16,6 +28,18 @@ pub(crate) fn to_resp_set_bit(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::GetBit 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: GETBIT key offset
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::GetBit 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::GetBit 变体，将触发 unreachable!()
 pub(crate) fn to_resp_get_bit(cmd: &Command) -> RespValue {
     match cmd {
         Command::GetBit(key, offset) => {
@@ -29,6 +53,18 @@ pub(crate) fn to_resp_get_bit(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::BitCount 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: BITCOUNT key [start end [BYTE|BIT]]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::BitCount 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::BitCount 变体，将触发 unreachable!()
 pub(crate) fn to_resp_bit_count(cmd: &Command) -> RespValue {
     match cmd {
         Command::BitCount(key, start, end, is_byte) => {
@@ -42,6 +78,18 @@ pub(crate) fn to_resp_bit_count(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::BitOp 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: BITOP AND|OR|XOR|NOT destkey key [key ...]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::BitOp 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::BitOp 变体，将触发 unreachable!()
 pub(crate) fn to_resp_bit_op(cmd: &Command) -> RespValue {
     match cmd {
         Command::BitOp(op, destkey, keys) => {
@@ -55,6 +103,18 @@ pub(crate) fn to_resp_bit_op(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::BitPos 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: BITPOS key bit [start [end [BYTE|BIT]]]
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::BitPos 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::BitPos 变体，将触发 unreachable!()
 pub(crate) fn to_resp_bit_pos(cmd: &Command) -> RespValue {
     match cmd {
         Command::BitPos(key, bit, start, end, is_byte) => {
@@ -72,6 +132,18 @@ pub(crate) fn to_resp_bit_pos(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::BitField 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: BITFIELD key [GET type offset] [SET type offset value] [INCRBY type offset increment] [OVERFLOW WRAP|SAT|FAIL] ...
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::BitField 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::BitField 变体，将触发 unreachable!()
 pub(crate) fn to_resp_bit_field(cmd: &Command) -> RespValue {
     match cmd {
         Command::BitField(key, ops) => {
@@ -127,6 +199,18 @@ pub(crate) fn to_resp_bit_field(cmd: &Command) -> RespValue {
     }
 }
 
+/// 将 Command::BitFieldRo 序列化为 RESP 数组
+///
+/// 对应 Redis 命令: BITFIELD_RO key [GET type offset] ...
+///
+/// # 参数
+/// - `cmd` - Command 枚举引用（预期为 Command::BitFieldRo 变体）
+///
+/// # 返回值
+/// RESP 数组，适合写入 AOF 或发送给副本
+///
+/// # panic
+/// 如果传入的 cmd 不是 Command::BitFieldRo 变体，将触发 unreachable!()
 pub(crate) fn to_resp_bit_field_ro(cmd: &Command) -> RespValue {
     match cmd {
         Command::BitFieldRo(key, ops) => {

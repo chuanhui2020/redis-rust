@@ -1,6 +1,22 @@
 use super::*;
 
 impl StorageEngine {
+    /// 获取字符串值（对标 Redis GET 命令）
+    ///
+    /// 返回 key 对应的字符串值。如果 key 不存在，返回 None。
+    /// 如果 key 已过期，会在读取时自动删除并返回 None。
+    /// 如果 key 不是字符串类型，返回 WRONGTYPE 错误。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    ///
+    /// # 返回值
+    /// - `Ok(Some(Bytes))` - 键存在且未过期
+    /// - `Ok(None)` - 键不存在或已过期
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 性能说明
+    /// 先使用读锁检查，仅在需要删除过期键时才升级为写锁，减少锁竞争。
     pub fn get(&self, key: &str) -> Result<Option<Bytes>> {
         let dbs = &self.dbs;
         let db = &dbs[self.current_db.load(Ordering::Relaxed).min(15)];
@@ -55,7 +71,19 @@ impl StorageEngine {
         Ok(None)
     }
 
-    /// 设置键值对
+    /// 设置键值对（对标 Redis SET 命令）
+    ///
+    /// 将 key 设置为指定的字符串值。如果 key 已存在则覆盖，无论其类型为何。
+    /// 新设置的键没有过期时间（持久键）。
+    /// 如果启用了 maxmemory，会在设置前后检查并执行内存淘汰。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `value` - 字符串值
+    ///
+    /// # 返回值
+    /// - `Ok(())` - 设置成功
+    /// - `Err(AppError::Storage)` - 锁中毒或内存淘汰失败
     pub fn set(&self, key: String, value: Bytes) -> Result<()> {
         let has_maxmem = self.maxmemory.load(Ordering::Relaxed) > 0;
         if has_maxmem {
@@ -84,6 +112,22 @@ impl StorageEngine {
     }
 
     /// 设置带过期时间的键值对（单位：毫秒）
+    ///
+    /// 将 key 设置为指定的字符串值，并指定其过期时间（毫秒）。
+    /// 过期时间通过绝对时间戳（毫秒级 Unix 时间）存储。
+    /// 如果 key 已存在则覆盖。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `value` - 字符串值
+    /// - `ttl_ms` - 过期时间，单位为毫秒
+    ///
+    /// # 返回值
+    /// - `Ok(())` - 设置成功
+    /// - `Err(AppError::Storage)` - 锁中毒或内存淘汰失败
+    ///
+    /// # Redis 兼容性
+    /// 对标 `SET key value PX ttl_ms` 和 `PSETEX` 命令。
     pub fn set_with_ttl(&self, key: String, value: Bytes, ttl_ms: u64) -> Result<()> {
         self.evict_if_needed()?;
         let expire_at = Self::now_millis().saturating_add(ttl_ms);
@@ -101,11 +145,27 @@ impl StorageEngine {
         Ok(())
     }
 
-    /// 带完整选项的 SET 操作
-    /// 返回 (设置成功, 旧值)
-    /// - nx=true 且 key 存在 → (false, None)
-    /// - xx=true 且 key 不存在 → (false, None)
-    /// - get=true → 返回旧值（即使未设置也可能返回旧值）
+    /// 带完整选项的 SET 操作（对标 Redis SET 命令全选项）
+    ///
+    /// 支持 NX（仅当不存在时设置）、XX（仅当存在时设置）、
+    /// GET（返回旧值）、KEEPTTL（保留原有过期时间）、
+    /// EX/PX/EXAT/PXAT（指定过期时间）等全部选项组合。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `value` - 要设置的字符串值
+    /// - `options` - SET 选项，包含 nx/xx/get/keepttl/expire 等字段
+    ///
+    /// # 返回值
+    /// - `Ok((true, old_value))` - 设置成功，old_value 仅在 get=true 时有意义
+    /// - `Ok((false, old_value))` - 因 NX/XX 条件未设置，old_value 仅在 get=true 时有意义
+    /// - `Err(AppError::Storage)` - 类型错误或锁中毒
+    ///
+    /// # 行为说明
+    /// - `nx=true` 且 key 存在 → 不设置，返回 `(false, old_value)`
+    /// - `xx=true` 且 key 不存在 → 不设置，返回 `(false, old_value)`
+    /// - `get=true` → 无论是否设置成功，都返回旧值（如果 key 存在且未过期）
+    /// - `keepttl=true` → 保留原有 TTL，忽略其他过期选项
     pub fn set_with_options(
         &self,
         key: String,
@@ -187,8 +247,19 @@ impl StorageEngine {
         Ok((true, old_value))
     }
 
-    /// 最长公共子串（LCS）
-    /// 返回两个字符串值的最长公共子串
+    /// 最长公共子串（LCS，对标 Redis LCS 命令）
+    ///
+    /// 计算并返回两个字符串值的最长公共子串（Longest Common Substring）。
+    /// 使用动态规划算法实现，时间复杂度 O(N×M)。
+    ///
+    /// # 参数
+    /// - `key1` - 第一个键名
+    /// - `key2` - 第二个键名
+    ///
+    /// # 返回值
+    /// - `Ok(Some(String))` - 两个键都存在，返回最长公共子串（可能为空字符串）
+    /// - `Ok(None)` - 任一键不存在或已过期
+    /// - `Err(AppError::Storage)` - 键不是字符串类型或包含非法 UTF-8
     pub fn lcs(&self, key1: &str, key2: &str) -> Result<Option<String>> {
         let v1 = match self.get(key1)? {
             Some(b) => match std::str::from_utf8(&b) {
@@ -239,8 +310,19 @@ impl StorageEngine {
         Ok(Some(lcs_str))
     }
 
-    /// 为已有键设置过期时间（单位：秒）
-    /// 成功返回 true，键不存在或已过期返回 false
+    /// 为已有键设置过期时间（对标 Redis EXPIRE 命令）
+    ///
+    /// 为已存在的键设置秒级过期时间。如果键已设置过期时间，则覆盖。
+    /// 仅支持字符串类型（包括普通字符串和带过期时间的字符串）。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `seconds` - 过期时间，单位为秒
+    ///
+    /// # 返回值
+    /// - `Ok(true)` - 设置成功
+    /// - `Ok(false)` - 键不存在或已过期
+    /// - `Err(AppError::Storage)` - 键不是字符串类型或锁中毒
     pub fn expire(&self, key: &str, seconds: u64) -> Result<bool> {
         let db = self.db();
         let mut map = db
@@ -277,10 +359,22 @@ impl StorageEngine {
         }
     }
 
-    /// 返回键的剩余生存时间（单位：毫秒）
-    /// - 返回正数：剩余毫秒数
-    /// - 返回 -1：键存在但没有设置过期时间
-    /// - 返回 -2：键不存在或已过期
+    /// 返回键的剩余生存时间（对标 Redis TTL 命令）
+    ///
+    /// 查询 key 的剩余生存时间，单位为毫秒。
+    /// 如果 key 已过期，会在查询时自动删除。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    ///
+    /// # 返回值
+    /// - `Ok(正数)` - 剩余毫秒数
+    /// - `Ok(-1)` - 键存在但没有设置过期时间
+    /// - `Ok(-2)` - 键不存在或已过期
+    /// - `Err(AppError::Storage)` - 键不是字符串类型或锁中毒
+    ///
+    /// # Redis 兼容性
+    /// 注意：Redis TTL 命令返回秒，此函数返回毫秒，对应 Redis PTTL。
     pub fn ttl(&self, key: &str) -> Result<i64> {
         let db = self.db();
         let mut map = db
@@ -314,8 +408,19 @@ impl StorageEngine {
         }
     }
 
-    /// 删除指定键，返回该键是否存在（未过期的才算存在）
-    /// 支持删除任意类型的键（String、List、Hash、Set、ZSet、HyperLogLog、Stream）
+    /// 删除指定键（对标 Redis DEL 命令）
+    ///
+    /// 删除指定的 key。如果 key 已过期，会先清理再返回 false。
+    /// 支持删除任意类型的键（String、List、Hash、Set、ZSet、HyperLogLog、Stream）。
+    /// 删除时会同步清理 Hash 字段级过期记录和阻塞等待者。
+    ///
+    /// # 参数
+    /// - `key` - 要删除的键名
+    ///
+    /// # 返回值
+    /// - `Ok(true)` - 键存在且未过期，删除成功
+    /// - `Ok(false)` - 键不存在或已过期
+    /// - `Err(AppError::Storage)` - 锁中毒
     pub fn del(&self, key: &str) -> Result<bool> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -353,7 +458,17 @@ impl StorageEngine {
         Ok(true)
     }
 
-    /// 检查键是否存在（过期的不算）
+    /// 检查键是否存在（对标 Redis EXISTS 命令）
+    ///
+    /// 检查 key 是否存在且未过期。如果 key 已过期，会在检查时自动删除并返回 false。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    ///
+    /// # 返回值
+    /// - `Ok(true)` - 键存在且未过期
+    /// - `Ok(false)` - 键不存在或已过期
+    /// - `Err(AppError::Storage)` - 锁中毒
     pub fn exists(&self, key: &str) -> Result<bool> {
         let db = self.db();
         let mut map = db
@@ -375,7 +490,14 @@ impl StorageEngine {
         }
     }
 
-    /// 清空所有数据（所有 16 个数据库）
+    /// 清空所有数据（对标 Redis FLUSHALL 命令）
+    ///
+    /// 清空所有 16 个数据库中的全部数据，包括键值对、版本号、访问时间和访问次数。
+    /// 此操作不可撤销，请谨慎使用。
+    ///
+    /// # 返回值
+    /// - `Ok(())` - 清空成功
+    /// - `Err(AppError::Storage)` - 锁中毒
     pub fn flush(&self) -> Result<()> {
         for db in self.dbs.iter() {
             for shard in db.inner.all_shards() {
@@ -394,7 +516,17 @@ impl StorageEngine {
         Ok(())
     }
 
-    /// 批量获取多个键的值
+    /// 批量获取多个键的值（对标 Redis MGET 命令）
+    ///
+    /// 同时获取多个 key 的字符串值。对于不存在的键或已过期键，对应位置返回 None。
+    /// 非字符串类型的键对应位置也返回 None（不会返回 WRONGTYPE 错误）。
+    ///
+    /// # 参数
+    /// - `keys` - 键名列表
+    ///
+    /// # 返回值
+    /// - `Ok(Vec<Option<Bytes>>)` - 与输入 keys 顺序对应的结果列表
+    /// - `Err(AppError::Storage)` - 锁中毒
     pub fn mget(&self, keys: &[String]) -> Result<Vec<Option<Bytes>>> {
         let db = self.db();
         let mut results = Vec::with_capacity(keys.len());
@@ -427,7 +559,17 @@ impl StorageEngine {
         Ok(results)
     }
 
-    /// 批量设置多个键值对
+    /// 批量设置多个键值对（对标 Redis MSET 命令）
+    ///
+    /// 同时设置多个 key-value 对。如果某个 key 已存在则覆盖。
+    /// 所有新设置的键均为持久键（无过期时间）。
+    ///
+    /// # 参数
+    /// - `pairs` - 键值对列表，每个元素为 `(key, value)`
+    ///
+    /// # 返回值
+    /// - `Ok(())` - 设置成功
+    /// - `Err(AppError::Storage)` - 锁中毒
     pub fn mset(&self, pairs: &[(String, Bytes)]) -> Result<()> {
         let db = self.db();
         for (key, value) in pairs {
@@ -441,7 +583,17 @@ impl StorageEngine {
         Ok(())
     }
 
-    /// 将当前值解析为 i64，不存在则返回 0
+    /// 将存储值解析为 i64，不存在则返回 0
+    ///
+    /// 内部辅助函数，用于 INCR/DECR/INCRBY/DECRBY 等命令。
+    /// 支持普通字符串和带过期时间的字符串。键不存在时视为 0。
+    ///
+    /// # 参数
+    /// - `value` - 存储值引用，None 表示键不存在
+    ///
+    /// # 返回值
+    /// - `Ok(i64)` - 解析成功或键不存在（返回 0）
+    /// - `Err(AppError::Storage)` - 值不是有效的整数字符串或类型错误
     fn parse_int_value(value: Option<&StorageValue>) -> Result<i64> {
         match value {
             Some(StorageValue::String(v)) => {
@@ -472,17 +624,48 @@ impl StorageEngine {
         }
     }
 
-    /// 递增键的值（+1），键不存在则从 0 开始
+    /// 递增键的值（对标 Redis INCR 命令）
+    ///
+    /// 将 key 中存储的整数值增 1。如果 key 不存在，则先将其设为 0 再执行递增。
+    /// 使用饱和加法，不会溢出。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    ///
+    /// # 返回值
+    /// - `Ok(i64)` - 递增后的新值
+    /// - `Err(AppError::Storage)` - 值不是有效整数、类型错误或锁中毒
     pub fn incr(&self, key: &str) -> Result<i64> {
         self.incrby(key, 1)
     }
 
-    /// 递减键的值（-1），键不存在则从 0 开始
+    /// 递减键的值（对标 Redis DECR 命令）
+    ///
+    /// 将 key 中存储的整数值减 1。如果 key 不存在，则先将其设为 0 再执行递减。
+    /// 使用饱和减法，不会下溢。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    ///
+    /// # 返回值
+    /// - `Ok(i64)` - 递减后的新值
+    /// - `Err(AppError::Storage)` - 值不是有效整数、类型错误或锁中毒
     pub fn decr(&self, key: &str) -> Result<i64> {
         self.decrby(key, 1)
     }
 
-    /// 递增键的值（+delta），键不存在则从 0 开始
+    /// 按指定步长递增键的值（对标 Redis INCRBY 命令）
+    ///
+    /// 将 key 中存储的整数值增加 delta。如果 key 不存在，则先将其设为 0 再执行递增。
+    /// 使用饱和加法，不会溢出。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `delta` - 增量（可为负数，实现递减效果）
+    ///
+    /// # 返回值
+    /// - `Ok(i64)` - 递增后的新值
+    /// - `Err(AppError::Storage)` - 值不是有效整数、类型错误或锁中毒
     pub fn incrby(&self, key: &str, delta: i64) -> Result<i64> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -521,12 +704,34 @@ impl StorageEngine {
         Ok(new_val)
     }
 
-    /// 递减键的值（-delta），键不存在则从 0 开始
+    /// 按指定步长递减键的值（对标 Redis DECRBY 命令）
+    ///
+    /// 将 key 中存储的整数值减少 delta。如果 key 不存在，则先将其设为 0 再执行递减。
+    /// 内部通过调用 `incrby(key, -delta)` 实现。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `delta` - 减量
+    ///
+    /// # 返回值
+    /// - `Ok(i64)` - 递减后的新值
+    /// - `Err(AppError::Storage)` - 值不是有效整数、类型错误或锁中毒
     pub fn decrby(&self, key: &str, delta: i64) -> Result<i64> {
         self.incrby(key, -delta)
     }
 
-    /// 追加值到键的末尾，键不存在则视为空字符串
+    /// 追加值到字符串末尾（对标 Redis APPEND 命令）
+    ///
+    /// 将 value 追加到 key 原有值的末尾。如果 key 不存在，则将其设为空字符串后再追加。
+    /// 追加后返回新字符串的长度。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `value` - 要追加的字节值
+    ///
+    /// # 返回值
+    /// - `Ok(usize)` - 追加后字符串的新长度
+    /// - `Err(AppError::Storage)` - 键不是字符串类型或锁中毒
     pub fn append(&self, key: &str, value: Bytes) -> Result<usize> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -570,6 +775,19 @@ impl StorageEngine {
 }
 
 impl StorageEngine {
+    /// 仅在键不存在时设置值（对标 Redis SETNX 命令）
+    ///
+    /// 将 key 的值设为 value，仅当 key 不存在时生效。
+    /// 如果 key 已过期，会先删除过期键再设置。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `value` - 要设置的字符串值
+    ///
+    /// # 返回值
+    /// - `Ok(true)` - 设置成功（key 原本不存在或已过期）
+    /// - `Ok(false)` - key 已存在且未过期，未执行设置
+    /// - `Err(AppError::Storage)` - 锁中毒
     pub fn setnx(&self, key: String, value: Bytes) -> Result<bool> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -598,17 +816,55 @@ impl StorageEngine {
         }
     }
 
-    /// 设置秒级过期时间的键值对
+    /// 设置秒级过期时间的键值对（对标 Redis SETEX 命令）
+    ///
+    /// 将 key 设置为 value，并指定秒级过期时间。
+    /// 如果 key 已存在则覆盖。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `seconds` - 过期时间，单位为秒
+    /// - `value` - 要设置的字符串值
+    ///
+    /// # 返回值
+    /// - `Ok(())` - 设置成功
+    /// - `Err(AppError::Storage)` - 锁中毒或内存淘汰失败
     pub fn setex(&self, key: String, seconds: u64, value: Bytes) -> Result<()> {
         self.set_with_ttl(key, value, seconds * 1000)
     }
 
-    /// 设置毫秒级过期时间的键值对
+    /// 设置毫秒级过期时间的键值对（对标 Redis PSETEX 命令）
+    ///
+    /// 将 key 设置为 value，并指定毫秒级过期时间。
+    /// 如果 key 已存在则覆盖。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `ms` - 过期时间，单位为毫秒
+    /// - `value` - 要设置的字符串值
+    ///
+    /// # 返回值
+    /// - `Ok(())` - 设置成功
+    /// - `Err(AppError::Storage)` - 锁中毒或内存淘汰失败
     pub fn psetex(&self, key: String, ms: u64, value: Bytes) -> Result<()> {
         self.set_with_ttl(key, value, ms)
     }
 
-    /// 设置新值并返回旧值，键不存在返回 None
+    /// 设置新值并返回旧值（对标 Redis GETSET 命令）
+    ///
+    /// 将 key 设为 value，并返回 key 的旧值。
+    /// 如果 key 不存在，则返回 None 并设置新值。
+    /// 如果 key 已过期，会先删除再返回 None 并设置新值。
+    /// 新值不会保留原有过期时间（变为持久键）。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `value` - 新值
+    ///
+    /// # 返回值
+    /// - `Ok(Some(Bytes))` - 返回旧值
+    /// - `Ok(None)` - 键不存在或已过期
+    /// - `Err(AppError::Storage)` - 键不是字符串类型或锁中毒
     pub fn getset(&self, key: &str, value: Bytes) -> Result<Option<Bytes>> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -647,7 +903,18 @@ impl StorageEngine {
         Ok(old)
     }
 
-    /// 获取值并删除键，键不存在返回 None
+    /// 获取值并删除键（对标 Redis GETDEL 命令，Redis 6.2+）
+    ///
+    /// 返回 key 的值，并在返回前删除该 key。
+    /// 如果 key 不存在或已过期，返回 None。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    ///
+    /// # 返回值
+    /// - `Ok(Some(Bytes))` - 键存在，返回其值并删除
+    /// - `Ok(None)` - 键不存在或已过期
+    /// - `Err(AppError::Storage)` - 键不是字符串类型或锁中毒
     pub fn getdel(&self, key: &str) -> Result<Option<Bytes>> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -685,7 +952,19 @@ impl StorageEngine {
         Ok(result)
     }
 
-    /// 获取值并修改过期时间，键不存在返回 None
+    /// 获取值并修改过期时间（对标 Redis GETEX 命令，Redis 6.2+）
+    ///
+    /// 返回 key 的值，并根据选项修改其过期时间。
+    /// 支持 Persist（移除过期时间）、Ex/Px（设置相对过期时间）、ExAt/PxAt（设置绝对过期时间）。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `option` - 过期时间选项
+    ///
+    /// # 返回值
+    /// - `Ok(Some(Bytes))` - 键存在，返回其值并修改过期时间
+    /// - `Ok(None)` - 键不存在或已过期
+    /// - `Err(AppError::Storage)` - 键不是字符串类型或锁中毒
     pub fn getex(&self, key: &str, option: GetExOption) -> Result<Option<Bytes>> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -772,7 +1051,18 @@ impl StorageEngine {
         Ok(result)
     }
 
-    /// 仅当所有 key 都不存在时才批量设置，原子操作，返回 1 成功 0 失败
+    /// 仅当所有 key 都不存在时才批量设置（对标 Redis MSETNX 命令）
+    ///
+    /// 原子性地同时设置多个 key-value 对，仅当所有给定 key 都不存在时才执行。
+    /// 如果任一 key 已存在且未过期，则不做任何设置，返回 0。
+    ///
+    /// # 参数
+    /// - `pairs` - 键值对列表
+    ///
+    /// # 返回值
+    /// - `Ok(1)` - 所有 key 都不存在，设置成功
+    /// - `Ok(0)` - 至少一个 key 已存在，未执行设置
+    /// - `Err(AppError::Storage)` - 锁中毒
     pub fn msetnx(&self, pairs: &[(String, Bytes)]) -> Result<i64> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -803,7 +1093,18 @@ impl StorageEngine {
         Ok(1)
     }
 
-    /// 浮点数递增，键不存在视为 0.0，返回新值字符串
+    /// 浮点数递增（对标 Redis INCRBYFLOAT 命令）
+    ///
+    /// 将 key 中存储的浮点数值增加 delta。如果 key 不存在，则先将其设为 0.0 再执行递增。
+    /// 返回新值的字符串表示，去除末尾多余的 0 以兼容 Redis 行为。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `delta` - 浮点增量
+    ///
+    /// # 返回值
+    /// - `Ok(String)` - 递增后的新值字符串
+    /// - `Err(AppError::Storage)` - 值不是有效浮点数、类型错误或锁中毒
     pub fn incrbyfloat(&self, key: &str, delta: f64) -> Result<String> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -850,7 +1151,20 @@ impl StorageEngine {
         Ok(new_str)
     }
 
-    /// 从 offset 位置覆盖写入，不足部分用 \x00 填充，返回新长度
+    /// 从指定偏移覆盖写入（对标 Redis SETRANGE 命令）
+    ///
+    /// 从 offset 开始用 value 覆盖 key 原有值的内容。
+    /// 如果 offset 超过原值长度，中间不足部分用 `\x00` 填充。
+    /// 如果 key 不存在，则将其视为空字符串后执行覆盖。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `offset` - 起始偏移位置（从 0 开始）
+    /// - `value` - 要覆盖写入的字节值
+    ///
+    /// # 返回值
+    /// - `Ok(usize)` - 修改后字符串的新长度
+    /// - `Err(AppError::Storage)` - 键不是字符串类型或锁中毒
     pub fn setrange(&self, key: &str, offset: usize, value: Bytes) -> Result<usize> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -900,7 +1214,21 @@ impl StorageEngine {
         Ok(new_len)
     }
 
-    /// 获取字符串的子范围（支持负数索引）
+    /// 获取字符串的子范围（对标 Redis GETRANGE 命令）
+    ///
+    /// 返回 key 对应字符串值从 start 到 end 之间的子串。
+    /// 支持负数索引（-1 表示最后一个字符）。
+    /// 如果 start 大于 end，返回空字符串。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    /// - `start` - 起始位置（包含），支持负数
+    /// - `end` - 结束位置（包含），支持负数
+    ///
+    /// # 返回值
+    /// - `Ok(Some(Bytes))` - 返回子范围字节值（可能为空）
+    /// - `Ok(None)` - 键不存在或已过期
+    /// - `Err(AppError::Storage)` - 键不是字符串类型或锁中毒
     pub fn getrange(&self, key: &str, start: i64, end: i64) -> Result<Option<Bytes>> {
         let db = self.db();
         let mut map = db
@@ -953,7 +1281,17 @@ impl StorageEngine {
         )))
     }
 
-    /// 返回字符串值的长度，键不存在返回 0
+    /// 返回字符串值的长度（对标 Redis STRLEN 命令）
+    ///
+    /// 返回 key 对应字符串值的字节长度。
+    /// 如果 key 不存在或已过期，返回 0。
+    ///
+    /// # 参数
+    /// - `key` - 键名
+    ///
+    /// # 返回值
+    /// - `Ok(usize)` - 字符串的字节长度
+    /// - `Err(AppError::Storage)` - 键不是字符串类型或锁中毒
     pub fn strlen(&self, key: &str) -> Result<usize> {
         let db = self.db();
         let mut map = db
