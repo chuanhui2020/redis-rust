@@ -304,8 +304,8 @@ impl StorageEngine {
         // 排序
         if let Some(order_str) = order {
             match order_str.to_ascii_uppercase().as_str() {
-                "ASC" => results.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap()),
-                "DESC" => results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap()),
+                "ASC" => results.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)),
+                "DESC" => results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)),
                 _ => {}
             }
         }

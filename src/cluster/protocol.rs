@@ -218,7 +218,9 @@ pub fn decode_message(data: &[u8]) -> Result<ClusterMessage, String> {
     let msg_type = data[4];
     let flags = data[5];
     let sender_port = u16::from_be_bytes([data[6], data[7]]);
-    let current_epoch = u64::from_be_bytes(data[8..16].try_into().unwrap());
+    let current_epoch = u64::from_be_bytes(
+        data[8..16].try_into().map_err(|e| format!("invalid epoch bytes: {}", e))?
+    );
 
     let mut offset = 16usize;
 
@@ -308,7 +310,9 @@ pub async fn read_message<R: AsyncReadExt + Unpin>(
     let msg_type = header[4];
     let flags = header[5];
     let sender_port = u16::from_be_bytes([header[6], header[7]]);
-    let current_epoch = u64::from_be_bytes(header[8..16].try_into().unwrap());
+    let current_epoch = u64::from_be_bytes(
+        header[8..16].try_into().map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+    );
 
     let mut sender_id_buf = [0u8; 40];
     stream.read_exact(&mut sender_id_buf).await?;

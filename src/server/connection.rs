@@ -1040,7 +1040,7 @@ pub(crate) async fn handle_connection(
                                                         let epoch = c.get_current_epoch();
                                                         log::warn!("CLUSTER FAILOVER: 本节点已提升为 master，接管 master {} 的 slot，epoch={}", master_id, epoch);
                                                         // 广播拓扑更新
-                                                        let cluster_clone = cluster.clone().unwrap();
+                                                        let cluster_clone = c.clone();
                                                         tokio::spawn(async move {
                                                             crate::cluster::gossip::broadcast_topology_update(cluster_clone).await;
                                                         });
