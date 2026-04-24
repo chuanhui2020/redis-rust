@@ -897,7 +897,7 @@ impl CommandParser {
 
     /// 解析 ZREVRANGEBYSCORE 命令：ZREVRANGEBYSCORE key max min [WITHSCORES] [LIMIT offset count]
     pub(crate) fn parse_zrevrangebyscore(&self, arr: &[RespValue]) -> Result<Command> {
-        if arr.len() < 5 {
+        if arr.len() < 4 {
             return Err(AppError::Command(
                 "ZREVRANGEBYSCORE 命令需要至少 4 个参数".to_string(),
             ));
@@ -940,7 +940,7 @@ impl CommandParser {
 
     /// 解析 ZREVRANGEBYLEX 命令：ZREVRANGEBYLEX key max min [LIMIT offset count]
     pub(crate) fn parse_zrevrangebylex(&self, arr: &[RespValue]) -> Result<Command> {
-        if arr.len() < 5 {
+        if arr.len() < 4 {
             return Err(AppError::Command(
                 "ZREVRANGEBYLEX 命令需要至少 4 个参数".to_string(),
             ));

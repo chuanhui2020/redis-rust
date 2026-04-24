@@ -2012,7 +2012,13 @@ pub(crate) async fn handle_connection(
                                 let cmd = Command::ZPopMin(keys[0].clone(), 1);
                                 match handler.executor.execute(cmd) {
                                     Ok(RespValue::Array(ref arr)) if !arr.is_empty() => {
-                                        if let Err(e) = write_resp(&mut stream, &handler, &RespValue::Array(arr.clone())).await {
+                                        let key = &keys[0];
+                                        let resp = RespValue::Array(vec![
+                                            RespValue::BulkString(Some(bytes::Bytes::from(key.clone()))),
+                                            arr[0].clone(),
+                                            arr[1].clone(),
+                                        ]);
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                             log::error!("写入响应失败: {}", e);
                                             return Ok(());
                                         }
@@ -2053,7 +2059,13 @@ pub(crate) async fn handle_connection(
                                 let cmd = Command::ZPopMax(keys[0].clone(), 1);
                                 match handler.executor.execute(cmd) {
                                     Ok(RespValue::Array(ref arr)) if !arr.is_empty() => {
-                                        if let Err(e) = write_resp(&mut stream, &handler, &RespValue::Array(arr.clone())).await {
+                                        let key = &keys[0];
+                                        let resp = RespValue::Array(vec![
+                                            RespValue::BulkString(Some(bytes::Bytes::from(key.clone()))),
+                                            arr[0].clone(),
+                                            arr[1].clone(),
+                                        ]);
+                                        if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                             log::error!("写入响应失败: {}", e);
                                             return Ok(());
                                         }

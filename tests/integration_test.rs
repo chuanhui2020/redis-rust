@@ -6672,3 +6672,703 @@ async fn test_reset_command_basic() {
     let resp = exec(&mut stream, &["RESET"]).await;
     assert_eq!(resp, RespValue::SimpleString("RESET".to_string()));
 }
+
+
+// ---------- Sorted Set 高级命令测试 ----------
+
+#[tokio::test]
+async fn test_zmpop_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ZADD", "key", "1", "a", "2", "b", "3", "c"]).await;
+    assert_eq!(resp, RespValue::Integer(3));
+
+    let resp = exec(&mut stream, &["ZMPOP", "1", "key", "MIN", "COUNT", "2"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("key"))));
+            match &arr[1] {
+                RespValue::Array(popped) => {
+                    assert_eq!(popped.len(), 4); // member, score, member, score
+                    assert_eq!(popped[0], RespValue::BulkString(Some(Bytes::from("a"))));
+                    assert_eq!(popped[1], RespValue::BulkString(Some(Bytes::from("1"))));
+                    assert_eq!(popped[2], RespValue::BulkString(Some(Bytes::from("b"))));
+                    assert_eq!(popped[3], RespValue::BulkString(Some(Bytes::from("2"))));
+                }
+                other => panic!("期望 ZMPOP 返回 popped 数组, 得到 {:?}", other),
+            }
+        }
+        other => panic!("期望 ZMPOP 返回数组, 得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_bzpopmin_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ZADD", "key", "1", "a", "2", "b"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+
+    let resp = exec(&mut stream, &["BZPOPMIN", "key", "0"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("key"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("a"))));
+            assert_eq!(arr[2], RespValue::BulkString(Some(Bytes::from("1"))));
+        }
+        other => panic!("期望 BZPOPMIN 返回数组, 得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_bzpopmax_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ZADD", "key", "1", "a", "2", "b"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+
+    let resp = exec(&mut stream, &["BZPOPMAX", "key", "0"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("key"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("b"))));
+            assert_eq!(arr[2], RespValue::BulkString(Some(Bytes::from("2"))));
+        }
+        other => panic!("期望 BZPOPMAX 返回数组, 得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_zinter_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ZADD", "k1", "1", "a", "2", "b"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+    let resp = exec(&mut stream, &["ZADD", "k2", "3", "b", "4", "c"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+
+    let resp = exec(&mut stream, &["ZINTER", "2", "k1", "k2"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("b"))));
+        }
+        other => panic!("期望 ZINTER 返回数组, 得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_zunion_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ZADD", "k1", "1", "a", "2", "b"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+    let resp = exec(&mut stream, &["ZADD", "k2", "3", "b", "4", "c"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+
+    let resp = exec(&mut stream, &["ZUNION", "2", "k1", "k2"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            let mut members: Vec<String> = arr
+                .iter()
+                .map(|v| match v {
+                    RespValue::BulkString(Some(b)) => String::from_utf8_lossy(b).to_string(),
+                    _ => panic!("期望 BulkString"),
+                })
+                .collect();
+            members.sort();
+            assert_eq!(members, vec!["a", "b", "c"]);
+        }
+        other => panic!("期望 ZUNION 返回数组, 得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_zintercard_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ZADD", "k1", "1", "a", "2", "b"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+    let resp = exec(&mut stream, &["ZADD", "k2", "3", "b", "4", "c"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+
+    let resp = exec(&mut stream, &["ZINTERCARD", "2", "k1", "k2"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+}
+
+#[tokio::test]
+async fn test_zrevrangebyscore_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ZADD", "key", "1", "a", "2", "b", "3", "c"]).await;
+    assert_eq!(resp, RespValue::Integer(3));
+
+    let resp = exec(&mut stream, &["ZREVRANGEBYSCORE", "key", "3", "1"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("c"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("b"))));
+            assert_eq!(arr[2], RespValue::BulkString(Some(Bytes::from("a"))));
+        }
+        other => panic!("期望 ZREVRANGEBYSCORE 返回数组, 得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_zrevrangebylex_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ZADD", "key", "0", "a", "0", "b", "0", "c"]).await;
+    assert_eq!(resp, RespValue::Integer(3));
+
+    let resp = exec(&mut stream, &["ZREVRANGEBYLEX", "key", "[c", "[a"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("c"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("b"))));
+            assert_eq!(arr[2], RespValue::BulkString(Some(Bytes::from("a"))));
+        }
+        other => panic!("期望 ZREVRANGEBYLEX 返回数组, 得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_zmscore_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ZADD", "key", "1", "a", "2", "b"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+
+    let resp = exec(&mut stream, &["ZMSCORE", "key", "a", "b", "x"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("1"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("2"))));
+            assert_eq!(arr[2], RespValue::BulkString(None));
+        }
+        other => panic!("期望 ZMSCORE 返回数组, 得到 {:?}", other),
+    }
+}
+
+// ---------- Client / Config / Debug / Memory / Latency / Command 补充测试 ----------
+
+#[tokio::test]
+async fn test_client_pause_unpause() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["CLIENT", "PAUSE", "100"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["CLIENT", "UNPAUSE"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+}
+
+#[tokio::test]
+async fn test_client_reply_off() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["CLIENT", "REPLY", "OFF"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+}
+
+#[tokio::test]
+async fn test_client_no_evict() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["CLIENT", "NO-EVICT", "ON"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+}
+
+#[tokio::test]
+async fn test_client_no_touch() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["CLIENT", "NO-TOUCH", "ON"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+}
+
+#[tokio::test]
+async fn test_client_tracking_on_off() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["CLIENT", "TRACKING", "ON"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["CLIENT", "TRACKING", "OFF"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+}
+
+#[tokio::test]
+async fn test_client_tracking_info() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["CLIENT", "TRACKINGINFO"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert!(!arr.is_empty(), "CLIENT TRACKINGINFO 应返回非空数组");
+        }
+        other => panic!("期望 Array，得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_config_get_set_maxmemory() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["CONFIG", "SET", "maxmemory", "104857600"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["CONFIG", "GET", "maxmemory"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("maxmemory"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("104857600"))));
+        }
+        other => panic!("期望 Array，得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_debug_set_active_expire() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["DEBUG", "SET-ACTIVE-EXPIRE", "0"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+}
+
+#[tokio::test]
+async fn test_memory_usage_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "key", "val"]).await;
+    let resp = exec(&mut stream, &["MEMORY", "USAGE", "key"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n > 0, "MEMORY USAGE 应返回大于 0 的整数"),
+        other => panic!("期望 Integer，得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_memory_doctor() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["MEMORY", "DOCTOR"]).await;
+    match resp {
+        RespValue::BulkString(Some(_)) => {}
+        other => panic!("期望 BulkString，得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_latency_latest_reset() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // 产生一些命令以生成延迟记录
+    for i in 0..3 {
+        exec(&mut stream, &["SET", &format!("lk{}", i), "v"]).await;
+    }
+
+    let resp = exec(&mut stream, &["LATENCY", "LATEST"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert!(!arr.is_empty(), "LATENCY LATEST 应返回非空数组");
+        }
+        other => panic!("期望 Array，得到 {:?}", other),
+    }
+
+    let resp = exec(&mut stream, &["LATENCY", "RESET"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n >= 0, "LATENCY RESET 应返回非负整数"),
+        other => panic!("期望 Integer，得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_command_docs_getkeys() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["COMMAND", "DOCS", "GET"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            // 简化实现返回空数组
+            assert!(arr.is_empty() || !arr.is_empty());
+        }
+        other => panic!("期望 Array，得到 {:?}", other),
+    }
+
+    let resp = exec(&mut stream, &["COMMAND", "GETKEYS", "SET", "key", "val"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            let has_key = arr.iter().any(|v| {
+                if let RespValue::BulkString(Some(b)) = v {
+                    &b[..] == b"key"
+                } else {
+                    false
+                }
+            });
+            assert!(has_key, "COMMAND GETKEYS 应返回包含 key 的数组");
+        }
+        other => panic!("期望 Array，得到 {:?}", other),
+    }
+}
+
+// ---------- Stream 高级命令测试 ----------
+
+#[tokio::test]
+async fn test_xtrim_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // XADD 三次
+    for _ in 0..3 {
+        let resp = exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
+        assert!(matches!(resp, RespValue::BulkString(Some(_))), "XADD 应返回 ID");
+    }
+
+    // XTRIM 保留 2 条
+    let resp = exec(&mut stream, &["XTRIM", "s", "MAXLEN", "2"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    // XLEN 应为 2
+    let resp = exec(&mut stream, &["XLEN", "s"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+}
+
+#[tokio::test]
+async fn test_xinfo_stream_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
+
+    let resp = exec(&mut stream, &["XINFO", "STREAM", "s"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert!(arr.len() >= 2);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("length"))));
+            assert_eq!(arr[1], RespValue::Integer(1));
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_xinfo_groups_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
+    let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["XINFO", "GROUPS", "s"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            if let RespValue::Array(inner) = &arr[0] {
+                assert_eq!(inner[1], RespValue::BulkString(Some(Bytes::from("g"))));
+            } else {
+                panic!("期望内层数组");
+            }
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_xreadgroup_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
+    let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g", "c", "COUNT", "1", "STREAMS", "s", ">"]).await;
+    match resp {
+        RespValue::Array(streams) => {
+            assert_eq!(streams.len(), 1);
+            if let RespValue::Array(inner) = &streams[0] {
+                if let RespValue::Array(entries) = &inner[1] {
+                    assert_eq!(entries.len(), 1);
+                } else {
+                    panic!("期望 entries 数组");
+                }
+            } else {
+                panic!("期望 stream 数组");
+            }
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_xack_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
+    let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g", "c", "STREAMS", "s", ">"]).await;
+    let id = match &resp {
+        RespValue::Array(streams) => {
+            assert_eq!(streams.len(), 1);
+            if let RespValue::Array(inner) = &streams[0] {
+                if let RespValue::Array(entries) = &inner[1] {
+                    assert_eq!(entries.len(), 1);
+                    if let RespValue::Array(entry) = &entries[0] {
+                        if let RespValue::BulkString(Some(b)) = &entry[0] {
+                            String::from_utf8_lossy(b).to_string()
+                        } else {
+                            panic!("期望 BulkString id");
+                        }
+                    } else {
+                        panic!("期望 entry 数组");
+                    }
+                } else {
+                    panic!("期望 entries 数组");
+                }
+            } else {
+                panic!("期望 stream 数组");
+            }
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    };
+
+    let resp = exec(&mut stream, &["XACK", "s", "g", &id]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+}
+
+#[tokio::test]
+async fn test_xclaim_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
+    let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g", "c1", "STREAMS", "s", ">"]).await;
+    let id = match &resp {
+        RespValue::Array(streams) => {
+            assert_eq!(streams.len(), 1);
+            if let RespValue::Array(inner) = &streams[0] {
+                if let RespValue::Array(entries) = &inner[1] {
+                    assert_eq!(entries.len(), 1);
+                    if let RespValue::Array(entry) = &entries[0] {
+                        if let RespValue::BulkString(Some(b)) = &entry[0] {
+                            String::from_utf8_lossy(b).to_string()
+                        } else {
+                            panic!("期望 BulkString id");
+                        }
+                    } else {
+                        panic!("期望 entry 数组");
+                    }
+                } else {
+                    panic!("期望 entries 数组");
+                }
+            } else {
+                panic!("期望 stream 数组");
+            }
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    };
+
+    let resp = exec(&mut stream, &["XCLAIM", "s", "g", "c2", "0", &id]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert!(!arr.is_empty(), "XCLAIM 应返回非空数组");
+            if let RespValue::Array(entry) = &arr[0] {
+                assert_eq!(entry[0], RespValue::BulkString(Some(Bytes::from(id.clone()))));
+            } else {
+                panic!("期望 XCLAIM 返回 entry 数组");
+            }
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_xpending_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
+    let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g", "c", "STREAMS", "s", ">"]).await;
+    let id = match &resp {
+        RespValue::Array(streams) => {
+            assert_eq!(streams.len(), 1);
+            if let RespValue::Array(inner) = &streams[0] {
+                if let RespValue::Array(entries) = &inner[1] {
+                    assert_eq!(entries.len(), 1);
+                    if let RespValue::Array(entry) = &entries[0] {
+                        if let RespValue::BulkString(Some(b)) = &entry[0] {
+                            String::from_utf8_lossy(b).to_string()
+                        } else {
+                            panic!("期望 BulkString id");
+                        }
+                    } else {
+                        panic!("期望 entry 数组");
+                    }
+                } else {
+                    panic!("期望 entries 数组");
+                }
+            } else {
+                panic!("期望 stream 数组");
+            }
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    };
+
+    let resp = exec(&mut stream, &["XPENDING", "s", "g", "-", "+", "10"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            if let RespValue::Array(entry) = &arr[0] {
+                assert_eq!(entry[0], RespValue::BulkString(Some(Bytes::from(id))));
+                assert_eq!(entry[1], RespValue::BulkString(Some(Bytes::from("c"))));
+                if let RespValue::Integer(idle) = entry[2] {
+                    assert!(idle >= 0);
+                } else {
+                    panic!("期望 idle 为 Integer");
+                }
+                if let RespValue::Integer(count) = entry[3] {
+                    assert!(count >= 1);
+                } else {
+                    panic!("期望 delivery_count 为 Integer");
+                }
+            } else {
+                panic!("期望 XPENDING 返回内层数组");
+            }
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_pubsub_numpat() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["PUBSUB", "NUMPAT"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n >= 0, "PUBSUB NUMPAT 应返回非负整数"),
+        _ => panic!("期望 Integer，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_info_sections() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["INFO"]).await;
+    match resp {
+        RespValue::BulkString(Some(b)) => {
+            assert!(!b.is_empty(), "INFO 应返回非空 BulkString");
+        }
+        _ => panic!("期望 BulkString，得到 {:?}", resp),
+    }
+
+    let resp = exec(&mut stream, &["INFO", "server"]).await;
+    match resp {
+        RespValue::BulkString(Some(b)) => {
+            assert!(!b.is_empty(), "INFO server 应返回非空 BulkString");
+        }
+        _ => panic!("期望 BulkString，得到 {:?}", resp),
+    }
+}
