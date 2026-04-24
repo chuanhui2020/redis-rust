@@ -7742,3 +7742,317 @@ async fn test_geohash_basic() {
         _ => panic!("期望 Array, 得到 {:?}", resp),
     }
 }
+
+
+#[tokio::test]
+async fn test_ssubscribe_spublish() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+
+    // 订阅者连接
+    let mut sub_stream = TcpStream::connect(addr).await.unwrap();
+
+    // SSUBSCRIBE ch
+    send_cmd(&mut sub_stream, &["SSUBSCRIBE", "ch"]).await;
+    let resp = recv_resp(&mut sub_stream).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("ssubscribe"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("ch"))));
+            assert_eq!(arr[2], RespValue::Integer(1));
+        }
+        _ => panic!("期望 ssubscribe 确认数组, 得到 {:?}", resp),
+    }
+
+    // 另一个连接发布消息
+    let mut pub_stream = TcpStream::connect(addr).await.unwrap();
+    send_cmd(&mut pub_stream, &["SPUBLISH", "ch", "hello"]).await;
+    let resp = recv_resp(&mut pub_stream).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    // 订阅者收到推送消息
+    let resp = recv_resp(&mut sub_stream).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("smessage"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("ch"))));
+            assert_eq!(arr[2], RespValue::BulkString(Some(Bytes::from("hello"))));
+        }
+        _ => panic!("期望 smessage 推送数组, 得到 {:?}", resp),
+    }
+
+    // 取消订阅
+    send_cmd(&mut sub_stream, &["SUNSUBSCRIBE", "ch"]).await;
+    let resp = recv_resp(&mut sub_stream).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("sunsubscribe"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("ch"))));
+            assert_eq!(arr[2], RespValue::Integer(0));
+        }
+        _ => panic!("期望 sunsubscribe 确认数组, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_pubsub_shardchannels() {
+    let storage = StorageEngine::new();
+    let pubsub = PubSubManager::new();
+    let server = Server::new("127.0.0.1:0", storage, None, pubsub.clone(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // 先让一个连接订阅分片频道
+    let mut sub = TcpStream::connect(addr).await.unwrap();
+    send_cmd(&mut sub, &["SSUBSCRIBE", "sh1", "sh2"]).await;
+    let _ = recv_resp(&mut sub).await;
+    let _ = recv_resp(&mut sub).await;
+
+    // PUBSUB SHARDCHANNELS
+    let resp = exec(&mut stream, &["PUBSUB", "SHARDCHANNELS"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+        }
+        _ => panic!("期望 PUBSUB SHARDCHANNELS 返回 Array, 得到 {:?}", resp),
+    }
+
+    // PUBSUB SHARDCHANNELS sh*
+    let resp = exec(&mut stream, &["PUBSUB", "SHARDCHANNELS", "sh*"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+        }
+        _ => panic!("期望 PUBSUB SHARDCHANNELS 返回 Array, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_pubsub_shardnumsub() {
+    let storage = StorageEngine::new();
+    let pubsub = PubSubManager::new();
+    let server = Server::new("127.0.0.1:0", storage, None, pubsub.clone(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // 先让一个连接订阅分片频道
+    let mut sub = TcpStream::connect(addr).await.unwrap();
+    send_cmd(&mut sub, &["SSUBSCRIBE", "sh1"]).await;
+    let _ = recv_resp(&mut sub).await;
+
+    // PUBSUB SHARDNUMSUB sh1 sh2
+    let resp = exec(&mut stream, &["PUBSUB", "SHARDNUMSUB", "sh1", "sh2"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 4);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("sh1"))));
+            assert_eq!(arr[1], RespValue::Integer(1));
+            assert_eq!(arr[2], RespValue::BulkString(Some(Bytes::from("sh2"))));
+            assert_eq!(arr[3], RespValue::Integer(0));
+        }
+        _ => panic!("期望 PUBSUB SHARDNUMSUB 返回 Array, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_wait_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["WAIT", "0", "0"]).await;
+    match resp {
+        RespValue::Integer(n) => assert_eq!(n, 0),
+        _ => panic!("期望 WAIT 返回 Integer, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_waitaof_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["WAITAOF", "0", "0", "0"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+            assert_eq!(arr[0], RespValue::Integer(0));
+            assert_eq!(arr[1], RespValue::Integer(0));
+        }
+        _ => panic!("期望 WAITAOF 返回 Array, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_expireat_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SET", "key", "val"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let future_ts = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() + 100)
+        .to_string();
+
+    let resp = exec(&mut stream, &["EXPIREAT", "key", &future_ts]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["TTL", "key"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n > 0 && n <= 100, "TTL 应 > 0, 得到 {}", n),
+        _ => panic!("期望 TTL 返回 Integer, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_pexpireat_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SET", "key", "val"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let future_ms = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64 + 100000)
+        .to_string();
+
+    let resp = exec(&mut stream, &["PEXPIREAT", "key", &future_ms]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["PTTL", "key"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n > 0 && n <= 100000, "PTTL 应 > 0, 得到 {}", n),
+        _ => panic!("期望 PTTL 返回 Integer, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_renamenx_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SET", "key1", "val"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["RENAMENX", "key1", "key2"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["GET", "key2"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("val"))));
+}
+
+#[tokio::test]
+async fn test_move_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SET", "key", "val"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["MOVE", "key", "1"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+}
+
+#[tokio::test]
+async fn test_debug_sleep() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["DEBUG", "SLEEP", "0"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+}
+
+#[tokio::test]
+async fn test_xautoclaim_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // XADD
+    let resp = exec(&mut stream, &["XADD", "stream", "*", "f", "v"]).await;
+    let msg_id = match resp {
+        RespValue::BulkString(Some(b)) => String::from_utf8_lossy(&b).to_string(),
+        _ => panic!("期望 XADD 返回 BulkString, 得到 {:?}", resp),
+    };
+
+    // XGROUP CREATE
+    let resp = exec(&mut stream, &["XGROUP", "CREATE", "stream", "g1", "$", "MKSTREAM"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // XREADGROUP (c1 读取，消息进入 pending)
+    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "stream", ">"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert!(!arr.is_empty(), "XREADGROUP 应返回至少一个流");
+        }
+        _ => panic!("期望 XREADGROUP 返回 Array, 得到 {:?}", resp),
+    }
+
+    // XAUTOCLAIM (c2 自动认领)
+    let resp = exec(&mut stream, &["XAUTOCLAIM", "stream", "g1", "c2", "0", "0-0", "COUNT", "1"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3); // next_id, claimed, deleted
+            // 验证 next_id 是 BulkString
+            match &arr[0] {
+                RespValue::BulkString(Some(b)) => {
+                    let s = String::from_utf8_lossy(b);
+                    assert!(!s.is_empty(), "XAUTOCLAIM next_id 不应为空");
+                }
+                _ => panic!("期望 XAUTOCLAIM next_id 为 BulkString, 得到 {:?}", arr[0]),
+            }
+            // 验证 claimed 数组包含消息
+            match &arr[1] {
+                RespValue::Array(claimed) => {
+                    assert!(!claimed.is_empty(), "XAUTOCLAIM 应认领至少一条消息");
+                    // 验证第一条消息 ID
+                    match &claimed[0] {
+                        RespValue::Array(entry) => {
+                            assert_eq!(entry.len(), 2); // id + fields
+                            match &entry[0] {
+                                RespValue::BulkString(Some(b)) => {
+                                    let id = String::from_utf8_lossy(b);
+                                    assert_eq!(id, msg_id, "XAUTOCLAIM 认领的消息 ID 应匹配");
+                                }
+                                _ => panic!("期望消息 ID 为 BulkString, 得到 {:?}", entry[0]),
+                            }
+                        }
+                        _ => panic!("期望 claimed 条目为 Array, 得到 {:?}", claimed[0]),
+                    }
+                }
+                _ => panic!("期望 XAUTOCLAIM claimed 为 Array, 得到 {:?}", arr[1]),
+            }
+            // 验证 deleted 为空数组
+            match &arr[2] {
+                RespValue::Array(deleted) => {
+                    assert!(deleted.is_empty(), "XAUTOCLAIM deleted 应为空");
+                }
+                _ => panic!("期望 XAUTOCLAIM deleted 为 Array, 得到 {:?}", arr[2]),
+            }
+        }
+        _ => panic!("期望 XAUTOCLAIM 返回 Array, 得到 {:?}", resp),
+    }
+}
