@@ -1,3 +1,5 @@
+//! Sorted Set 高级操作（ZUNIONSTORE/ZINTERSTORE/ZDIFF 等集合运算）
+
 use crate::error::{AppError, Result};
 use crate::storage::{StorageEngine, StorageValue, ZSetData};
 use ordered_float::OrderedFloat;

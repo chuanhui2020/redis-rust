@@ -1,3 +1,5 @@
+//! 命令执行器，调用存储引擎执行命令并返回 RESP 响应
+
 use super::*;
 
 use std::sync::atomic::{AtomicBool, Ordering};

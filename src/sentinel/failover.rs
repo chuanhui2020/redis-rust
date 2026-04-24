@@ -1,4 +1,4 @@
-// Sentinel ODOWN 判定与 Leader 选举模块
+//! Sentinel 故障转移模块，实现 ODOWN 检测、leader 选举和自动 failover
 
 use std::sync::Arc;
 use std::time::Duration;

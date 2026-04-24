@@ -1,3 +1,5 @@
+//! Bitmap 数据类型操作（SETBIT/GETBIT/BITCOUNT/BITOP/BITFIELD）
+
 use super::*;
 
 /// 从字节数组中按大端序读取指定位域（返回无符号值）

@@ -1,3 +1,5 @@
+//! 客户端连接处理模块，实现请求解析、命令路由、pipeline 和 Cluster 重定向
+
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};

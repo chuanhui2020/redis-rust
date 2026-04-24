@@ -1,3 +1,5 @@
+//! 命令 RESP 序列化模块，将 Command 转换为 RESP 数组用于 AOF 持久化
+
 use super::*;
 
 use crate::protocol::RespValue;

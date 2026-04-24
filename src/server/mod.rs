@@ -1,3 +1,5 @@
+//! TCP 服务器模块，管理连接接受和客户端生命周期
+
 // TCP 服务器模块，负责监听连接和处理客户端请求
 
 use std::collections::{HashMap, HashSet};

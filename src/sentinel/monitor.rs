@@ -1,4 +1,4 @@
-// Sentinel 监控模块：定期 PING master 并通过 INFO replication 发现 replica
+//! Sentinel 监控模块，定期 PING master 并通过 INFO replication 发现 replica
 
 use std::sync::Arc;
 use std::time::Duration;

@@ -1,3 +1,5 @@
+//! 发布订阅命令处理模块
+
 use tokio::io::BufWriter;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;

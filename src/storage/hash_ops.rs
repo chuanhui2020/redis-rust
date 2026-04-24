@@ -1,3 +1,5 @@
+//! Hash 数据类型操作（对标 Redis Hash 命令族）
+
 use super::*;
 
 impl StorageEngine {

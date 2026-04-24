@@ -1,4 +1,4 @@
-// Sentinel 模块
+//! Sentinel 管理器模块，维护被监控 master 的状态和故障转移逻辑
 
 pub mod monitor;
 pub mod discovery;

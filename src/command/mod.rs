@@ -1,3 +1,4 @@
+//! 命令定义模块，包含 Command 枚举和辅助方法
 // 命令解析与分发模块
 
 use std::sync::atomic::Ordering;

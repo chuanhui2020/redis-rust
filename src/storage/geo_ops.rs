@@ -1,3 +1,5 @@
+//! Geo 数据类型操作（GEOADD/GEODIST/GEOSEARCH 等）
+
 use super::*;
 
 impl StorageEngine {

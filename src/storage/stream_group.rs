@@ -1,3 +1,5 @@
+//! Stream 消费者组操作（XGROUP/XREADGROUP/XACK/XCLAIM/XPENDING）
+
 use super::*;
 
 impl StorageEngine {

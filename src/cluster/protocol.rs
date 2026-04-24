@@ -1,5 +1,4 @@
-// Cluster 二进制总线协议模块
-// 定义消息格式、编解码逻辑和辅助函数
+//! 集群总线二进制协议编解码模块
 
 use super::state::NodeFlag;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

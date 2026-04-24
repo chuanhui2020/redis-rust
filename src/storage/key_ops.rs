@@ -1,3 +1,5 @@
+//! Key 管理操作（KEYS/SCAN/RENAME/TYPE/EXPIRE/DUMP/RESTORE 等）
+
 use super::*;
 
 impl StorageEngine {

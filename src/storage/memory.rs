@@ -1,3 +1,5 @@
+//! 内存使用统计模块（MEMORY USAGE/MEMORY DOCTOR）
+
 use bytes::Bytes;
 use ordered_float::OrderedFloat;
 use crate::error::{AppError, Result};

@@ -1,3 +1,5 @@
+//! 命令解析器入口，将 RESP 数组解析为 Command 枚举
+
 use super::*;
 
 use crate::error::{AppError, Result};

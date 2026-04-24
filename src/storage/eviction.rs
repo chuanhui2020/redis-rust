@@ -1,3 +1,5 @@
+//! 内存淘汰模块，支持 LRU/LFU/Random/TTL 策略
+
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 use crate::error::{AppError, Result};

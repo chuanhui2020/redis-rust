@@ -1,3 +1,5 @@
+//! HyperLogLog 数据类型操作（PFADD/PFCOUNT/PFMERGE）
+
 use super::*;
 
 /// HyperLogLog 数据结构，使用 16384 个 6 位寄存器

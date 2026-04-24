@@ -1,3 +1,5 @@
+//! 存储引擎核心模块，基于 64 分片 RwLock HashMap 实现高并发内存存储
+
 // 内存存储引擎，提供键值对的增删改查能力
 
 use std::collections::hash_map::DefaultHasher;
