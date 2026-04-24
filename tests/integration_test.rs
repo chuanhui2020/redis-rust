@@ -4579,3 +4579,470 @@ async fn test_client_tracking_and_caching() {
     let resp = exec(&mut stream, &["CLIENT", "TRACKING", "OFF"]).await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 }
+
+
+// ---------- String 命令边界条件测试 ----------
+
+#[tokio::test]
+async fn test_set_nx_xx_get() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // SET NX on non-existent key → OK
+    let resp = exec(&mut stream, &["SET", "nxkey", "val", "NX"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // SET NX on existing key → nil
+    let resp = exec(&mut stream, &["SET", "nxkey", "new", "NX"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+    let resp = exec(&mut stream, &["GET", "nxkey"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("val"))));
+
+    // SET XX on existing key → OK
+    let resp = exec(&mut stream, &["SET", "nxkey", "updated", "XX"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // SET XX on non-existent key → nil
+    let resp = exec(&mut stream, &["SET", "xxkey", "val", "XX"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+
+    // SET GET on existing key → returns old value, sets new value
+    let resp = exec(&mut stream, &["SET", "nxkey", "final", "GET"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("updated"))));
+    let resp = exec(&mut stream, &["GET", "nxkey"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("final"))));
+
+    // SET GET on non-existent key → nil, sets value
+    let resp = exec(&mut stream, &["SET", "getkey", "v", "GET"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+    let resp = exec(&mut stream, &["GET", "getkey"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v"))));
+
+    // SET NX GET on existing key → returns old value, does not set
+    let resp = exec(&mut stream, &["SET", "nxkey", "should_not_set", "NX", "GET"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("final"))));
+    let resp = exec(&mut stream, &["GET", "nxkey"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("final"))));
+
+    // SET XX GET on non-existent key → nil, does not set
+    let resp = exec(&mut stream, &["SET", "xxnew", "should_not_set", "XX", "GET"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+    let resp = exec(&mut stream, &["GET", "xxnew"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+}
+
+#[tokio::test]
+async fn test_set_ex_px_exat_pxat() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // SET EX 1 → expires after 1.5s
+    let resp = exec(&mut stream, &["SET", "exkey", "v1", "EX", "1"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    sleep(Duration::from_millis(1500)).await;
+    let resp = exec(&mut stream, &["GET", "exkey"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+
+    // SET PX 100 → expires after 200ms
+    let resp = exec(&mut stream, &["SET", "pxkey", "v2", "PX", "100"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    sleep(Duration::from_millis(200)).await;
+    let resp = exec(&mut stream, &["GET", "pxkey"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+
+    // SET EXAT with future timestamp → key exists
+    let future_ts = 2000000000u64; // ~2033
+    let resp = exec(&mut stream, &["SET", "exatkey", "v3", "EXAT", &future_ts.to_string()]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    let resp = exec(&mut stream, &["GET", "exatkey"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v3"))));
+    let resp = exec(&mut stream, &["TTL", "exatkey"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n > 1000000, "TTL 应非常大, 得到 {}", n),
+        _ => panic!("期望 Integer TTL, 得到 {:?}", resp),
+    }
+
+    // SET PXAT with past timestamp → key immediately expired
+    let resp = exec(&mut stream, &["SET", "pxatkey", "v4", "PXAT", "1"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    let resp = exec(&mut stream, &["GET", "pxatkey"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+}
+
+#[tokio::test]
+async fn test_set_keepttl() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // Set key with TTL
+    let resp = exec(&mut stream, &["SET", "ktl", "old", "EX", "100"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // SET KEEPTTL should preserve TTL
+    let resp = exec(&mut stream, &["SET", "ktl", "new", "KEEPTTL"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["GET", "ktl"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("new"))));
+
+    let resp = exec(&mut stream, &["TTL", "ktl"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n > 90 && n <= 100, "TTL 应在 90~100 之间, 得到 {}", n),
+        _ => panic!("期望 Integer TTL, 得到 {:?}", resp),
+    }
+
+    // SET without KEEPTTL should clear TTL
+    let resp = exec(&mut stream, &["SET", "ktl", "no_ttl"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["TTL", "ktl"]).await;
+    assert_eq!(resp, RespValue::Integer(-1));
+}
+
+#[tokio::test]
+async fn test_getex_options() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "gex", "value"]).await;
+
+    // GETEX EX 10
+    let resp = exec(&mut stream, &["GETEX", "gex", "EX", "10"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("value"))));
+    let resp = exec(&mut stream, &["TTL", "gex"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n > 8 && n <= 10, "TTL 应在 8~10 之间, 得到 {}", n),
+        _ => panic!("期望 Integer TTL, 得到 {:?}", resp),
+    }
+
+    // GETEX PX 5000
+    let resp = exec(&mut stream, &["GETEX", "gex", "PX", "5000"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("value"))));
+    let resp = exec(&mut stream, &["PTTL", "gex"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n > 3000 && n <= 5000, "PTTL 应在 3000~5000 之间, 得到 {}", n),
+        _ => panic!("期望 Integer PTTL, 得到 {:?}", resp),
+    }
+
+    // GETEX EXAT future
+    let future_ts = 2000000000u64;
+    let resp = exec(&mut stream, &["GETEX", "gex", "EXAT", &future_ts.to_string()]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("value"))));
+    let resp = exec(&mut stream, &["TTL", "gex"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n > 1000000, "TTL 应非常大, 得到 {}", n),
+        _ => panic!("期望 Integer TTL, 得到 {:?}", resp),
+    }
+
+    // GETEX PXAT past → key expired on next access
+    let resp = exec(&mut stream, &["GETEX", "gex", "PXAT", "1"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("value"))));
+    let resp = exec(&mut stream, &["GET", "gex"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+
+    // GETEX PERSIST
+    exec(&mut stream, &["SET", "gex2", "value2", "EX", "100"]).await;
+    let resp = exec(&mut stream, &["GETEX", "gex2", "PERSIST"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("value2"))));
+    let resp = exec(&mut stream, &["TTL", "gex2"]).await;
+    assert_eq!(resp, RespValue::Integer(-1));
+}
+
+#[tokio::test]
+async fn test_incr_overflow() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // Set to i64::MAX
+    let max = i64::MAX.to_string();
+    exec(&mut stream, &["SET", "maxkey", &max]).await;
+
+    // INCR should saturate at i64::MAX
+    let resp = exec(&mut stream, &["INCR", "maxkey"]).await;
+    assert_eq!(resp, RespValue::Integer(i64::MAX));
+
+    // INCRBY large positive from 0 should also saturate
+    let resp = exec(&mut stream, &["INCRBY", "zero", &max]).await;
+    assert_eq!(resp, RespValue::Integer(i64::MAX));
+
+    // DECR from i64::MIN should saturate
+    let min = i64::MIN.to_string();
+    exec(&mut stream, &["SET", "minkey", &min]).await;
+    let resp = exec(&mut stream, &["DECR", "minkey"]).await;
+    assert_eq!(resp, RespValue::Integer(i64::MIN));
+}
+
+#[tokio::test]
+async fn test_incrbyfloat_precision() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // 0.1 + 0.2 should be 0.3 (or close)
+    let resp = exec(&mut stream, &["INCRBYFLOAT", "fp", "0.1"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("0.1"))));
+
+    let resp = exec(&mut stream, &["INCRBYFLOAT", "fp", "0.2"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("0.3"))));
+
+    // Multiple small increments
+    let resp = exec(&mut stream, &["INCRBYFLOAT", "fp2", "1.23456789"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("1.23456789"))));
+
+    let resp = exec(&mut stream, &["INCRBYFLOAT", "fp2", "0.00000001"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("1.2345679"))));
+}
+
+#[tokio::test]
+async fn test_append_nonexistent() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // APPEND to non-existent key should create it
+    let resp = exec(&mut stream, &["APPEND", "newapp", "hello"]).await;
+    assert_eq!(resp, RespValue::Integer(5));
+
+    let resp = exec(&mut stream, &["GET", "newapp"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("hello"))));
+
+    // Another APPEND
+    let resp = exec(&mut stream, &["APPEND", "newapp", "world"]).await;
+    assert_eq!(resp, RespValue::Integer(10));
+
+    let resp = exec(&mut stream, &["GET", "newapp"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("helloworld"))));
+}
+
+#[tokio::test]
+async fn test_setrange_extend() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "sr", "hello"]).await;
+
+    // SETRANGE within current length
+    let resp = exec(&mut stream, &["SETRANGE", "sr", "1", "a"]).await;
+    assert_eq!(resp, RespValue::Integer(5));
+    let resp = exec(&mut stream, &["GET", "sr"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("hallo"))));
+
+    // SETRANGE beyond current length should fill with \x00
+    let resp = exec(&mut stream, &["SETRANGE", "sr", "10", "end"]).await;
+    assert_eq!(resp, RespValue::Integer(13));
+    let resp = exec(&mut stream, &["GET", "sr"]).await;
+    match resp {
+        RespValue::BulkString(Some(b)) => {
+            assert_eq!(b.len(), 13);
+            assert_eq!(&b[..5], b"hallo");
+            assert_eq!(&b[5..10], &[0, 0, 0, 0, 0]);
+            assert_eq!(&b[10..], b"end");
+        }
+        _ => panic!("期望 BulkString, 得到 {:?}", resp),
+    }
+
+    // SETRANGE on non-existent key
+    let resp = exec(&mut stream, &["SETRANGE", "srnew", "5", "mid"]).await;
+    assert_eq!(resp, RespValue::Integer(8));
+    let resp = exec(&mut stream, &["GET", "srnew"]).await;
+    match resp {
+        RespValue::BulkString(Some(b)) => {
+            assert_eq!(b.len(), 8);
+            assert_eq!(&b[..5], &[0, 0, 0, 0, 0]);
+            assert_eq!(&b[5..], b"mid");
+        }
+        _ => panic!("期望 BulkString, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_getrange_negative() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["SET", "gr", "hello world"]).await;
+
+    // GETRANGE with negative start
+    let resp = exec(&mut stream, &["GETRANGE", "gr", "-5", "-1"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("world"))));
+
+    // GETRANGE with negative end
+    let resp = exec(&mut stream, &["GETRANGE", "gr", "0", "-7"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("hello"))));
+
+    // GETRANGE with both negative
+    let resp = exec(&mut stream, &["GETRANGE", "gr", "-11", "-6"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("hello "))));
+
+    // GETRANGE out of bounds
+    let resp = exec(&mut stream, &["GETRANGE", "gr", "100", "200"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from(""))));
+}
+
+#[tokio::test]
+async fn test_mset_mget_large() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // Build MSET with 50 keys
+    let mut mset_args = vec!["MSET"];
+    let mut keys = Vec::new();
+    let mut values = Vec::new();
+    for i in 0..50 {
+        keys.push(format!("lk{}", i));
+        values.push(format!("lv{}", i));
+    }
+    for i in 0..50 {
+        mset_args.push(&keys[i]);
+        mset_args.push(&values[i]);
+    }
+
+    let resp = exec(&mut stream, &mset_args).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // MGET all 50 keys
+    let mut mget_args = vec!["MGET"];
+    for i in 0..50 {
+        mget_args.push(&keys[i]);
+    }
+    let resp = exec(&mut stream, &mget_args).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 50);
+            for i in 0..50 {
+                assert_eq!(arr[i], RespValue::BulkString(Some(bytes::Bytes::from(values[i].clone()))));
+            }
+        }
+        _ => panic!("期望 Array, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_msetnx_partial() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // Pre-set one key
+    exec(&mut stream, &["SET", "existing", "old"]).await;
+
+    // MSETNX with one existing and one new → should fail (return 0)
+    let resp = exec(&mut stream, &["MSETNX", "existing", "new", "brandnew", "val"]).await;
+    assert_eq!(resp, RespValue::Integer(0));
+
+    // existing should remain unchanged
+    let resp = exec(&mut stream, &["GET", "existing"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("old"))));
+
+    // brandnew should not have been created
+    let resp = exec(&mut stream, &["GET", "brandnew"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+
+    // MSETNX with all new keys → should succeed (return 1)
+    let resp = exec(&mut stream, &["MSETNX", "a", "1", "b", "2"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+    let resp = exec(&mut stream, &["MGET", "a", "b"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("1"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("2"))));
+        }
+        _ => panic!("期望 Array, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_wrongtype_string_ops() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // Create a list key
+    let resp = exec(&mut stream, &["LPUSH", "listkey", "item"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    // GET on list → WRONGTYPE
+    let resp = exec(&mut stream, &["GET", "listkey"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        "期望 WRONGTYPE 错误，得到 {:?}",
+        resp
+    );
+
+    // APPEND on list → WRONGTYPE
+    let resp = exec(&mut stream, &["APPEND", "listkey", "val"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        "期望 WRONGTYPE 错误，得到 {:?}",
+        resp
+    );
+
+    // INCR on list → WRONGTYPE
+    let resp = exec(&mut stream, &["INCR", "listkey"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        "期望 WRONGTYPE 错误，得到 {:?}",
+        resp
+    );
+
+    // INCRBYFLOAT on list → WRONGTYPE
+    let resp = exec(&mut stream, &["INCRBYFLOAT", "listkey", "1.0"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        "期望 WRONGTYPE 错误，得到 {:?}",
+        resp
+    );
+
+    // SETRANGE on list → WRONGTYPE
+    let resp = exec(&mut stream, &["SETRANGE", "listkey", "0", "val"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        "期望 WRONGTYPE 错误，得到 {:?}",
+        resp
+    );
+
+    // GETRANGE on list → WRONGTYPE
+    let resp = exec(&mut stream, &["GETRANGE", "listkey", "0", "3"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        "期望 WRONGTYPE 错误，得到 {:?}",
+        resp
+    );
+
+    // STRLEN on list → WRONGTYPE
+    let resp = exec(&mut stream, &["STRLEN", "listkey"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        "期望 WRONGTYPE 错误，得到 {:?}",
+        resp
+    );
+
+    // GETEX on list → WRONGTYPE
+    let resp = exec(&mut stream, &["GETEX", "listkey", "EX", "10"]).await;
+    assert!(
+        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        "期望 WRONGTYPE 错误，得到 {:?}",
+        resp
+    );
+}

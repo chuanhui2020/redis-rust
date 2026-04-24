@@ -72,7 +72,7 @@ impl RespParser {
 
     fn parse_integer_from_bytes(buf: &[u8]) -> std::result::Result<i64, AppError> {
         let mut neg = false;
-        let mut val: i64 = 0;
+        let mut val: u64 = 0;
         let mut i = 0;
         if i < buf.len() && buf[i] == b'-' {
             neg = true;
@@ -86,10 +86,27 @@ impl RespParser {
             if !b.is_ascii_digit() {
                 return Err(AppError::Protocol(format!("整数解析失败: 非法字符 {}", b as char)));
             }
-            val = val * 10 + (b - b'0') as i64;
+            let digit = (b - b'0') as u64;
+            val = val.checked_mul(10)
+                .and_then(|v| v.checked_add(digit))
+                .ok_or_else(|| AppError::Protocol("整数解析失败: 溢出".to_string()))?;
             i += 1;
         }
-        Ok(if neg { -val } else { val })
+        if neg {
+            if val > (i64::MAX as u64) + 1 {
+                return Err(AppError::Protocol("整数解析失败: 溢出".to_string()));
+            }
+            if val == (i64::MAX as u64) + 1 {
+                Ok(i64::MIN)
+            } else {
+                Ok(-(val as i64))
+            }
+        } else {
+            if val > i64::MAX as u64 {
+                return Err(AppError::Protocol("整数解析失败: 溢出".to_string()));
+            }
+            Ok(val as i64)
+        }
     }
 
     /// 解析简单字符串：+OK\r\n

@@ -412,14 +412,12 @@ impl StorageEngine {
                                         entry.consumer = consumer_name.to_string();
                                         entry.delivery_time = now;
                                         entry.delivery_count += 1;
-
                                         let consumer = group
                                             .consumers
                                             .entry(consumer_name.to_string())
                                             .or_insert_with(|| Consumer::new(consumer_name.to_string()));
                                         consumer.seen_time = now;
                                         consumer.pel.insert(*id);
-
                                         if justid {
                                             result.push((*id, None));
                                         } else if let Some(fields) = s.entries.get(id) {
@@ -474,14 +472,12 @@ impl StorageEngine {
                             })?;
                             let mut result = Vec::new();
                             let mut next_id = start;
-
                             // 遍历 PEL 中从 start 开始的消息
                             let pel_ids: Vec<StreamId> = group.pel
                                 .keys()
                                 .filter(|id| **id >= start)
                                 .copied()
                                 .collect();
-
                             for (processed, id) in pel_ids.into_iter().enumerate() {
                                 if processed >= count {
                                     next_id = id;
@@ -498,14 +494,12 @@ impl StorageEngine {
                                         entry.consumer = consumer_name.to_string();
                                         entry.delivery_time = now;
                                         entry.delivery_count += 1;
-
                                         let consumer = group
                                             .consumers
                                             .entry(consumer_name.to_string())
                                             .or_insert_with(|| Consumer::new(consumer_name.to_string()));
                                         consumer.seen_time = now;
                                         consumer.pel.insert(id);
-
                                         if justid {
                                             result.push((id, None));
                                         } else if let Some(fields) = s.entries.get(&id) {
@@ -515,7 +509,6 @@ impl StorageEngine {
                                 }
                                 next_id = StreamId::new(id.ms_time, id.seq + 1);
                             }
-
                             self.bump_version(key);
                             Ok((next_id, result))
                         }
@@ -556,18 +549,15 @@ impl StorageEngine {
                             Some(g) => g,
                             None => return Ok((0, None, None, vec![], vec![])),
                         };
-
                         let total = group.pel.len();
                         let min_id = group.pel.keys().next().copied();
                         let max_id = group.pel.keys().next_back().copied();
-
                         // 消费者统计
                         let mut consumer_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
                         for entry in group.pel.values() {
                             *consumer_counts.entry(entry.consumer.clone()).or_insert(0) += 1;
                         }
                         let consumers: Vec<(String, usize)> = consumer_counts.into_iter().collect();
-
                         // 详细列表（如果提供了范围参数）
                         let mut details = Vec::new();
                         if let (Some(s), Some(e), Some(c)) = (start, end, count) {
@@ -584,7 +574,6 @@ impl StorageEngine {
                                 }
                             }
                         }
-
                         Ok((total, min_id, max_id, consumers, details))
                     }
                     _ => Ok((0, None, None, vec![], vec![])),

@@ -1016,23 +1016,19 @@ impl StorageEngine {
                             .keys()
                             .map(|(score, member)| (member.clone(), score.into_inner()))
                             .collect();
-
                         let mut filtered = Vec::new();
                         for (member, score) in items {
                             if Self::glob_match(&member, pattern) {
                                 filtered.push((member, score));
                             }
                         }
-
                         if cursor >= filtered.len() {
                             return Ok((0, vec![]));
                         }
-
                         let count = if count == 0 { 10 } else { count };
                         let end = (cursor + count).min(filtered.len());
                         let result = filtered[cursor..end].to_vec();
                         let new_cursor = if end >= filtered.len() { 0 } else { end };
-
                         Ok((new_cursor, result))
                     }
                     _ => unreachable!(),

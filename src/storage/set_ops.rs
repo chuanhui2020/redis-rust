@@ -631,23 +631,19 @@ impl StorageEngine {
                     StorageValue::Set(s) => {
                         let mut members: Vec<Bytes> = s.iter().cloned().collect();
                         members.sort();
-
                         let mut filtered = Vec::new();
                         for member in members {
                             if Self::glob_match(&String::from_utf8_lossy(&member), pattern) {
                                 filtered.push(member);
                             }
                         }
-
                         if cursor >= filtered.len() {
                             return Ok((0, vec![]));
                         }
-
                         let count = if count == 0 { 10 } else { count };
                         let end = (cursor + count).min(filtered.len());
                         let result = filtered[cursor..end].to_vec();
                         let new_cursor = if end >= filtered.len() { 0 } else { end };
-
                         Ok((new_cursor, result))
                     }
                     _ => unreachable!(),
@@ -659,4 +655,3 @@ impl StorageEngine {
 
     // ---------- ZSet 操作 ----------
 }
-
