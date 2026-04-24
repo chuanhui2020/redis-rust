@@ -22,6 +22,8 @@ pub struct SentinelInstance {
     pub quorum: u32,
     /// down-after-milliseconds（判定主观下线的超时时间）
     pub down_after_ms: u64,
+    /// failover-timeout（故障转移超时时间）
+    pub failover_timeout: u64,
     /// 当前是否主观下线
     pub sdown: bool,
     /// 当前是否客观下线
@@ -46,6 +48,7 @@ impl Clone for SentinelInstance {
             port: self.port,
             quorum: self.quorum,
             down_after_ms: self.down_after_ms,
+            failover_timeout: self.failover_timeout,
             sdown: self.sdown,
             odown: self.odown,
             last_ping_reply: self.last_ping_reply,
@@ -223,6 +226,7 @@ impl SentinelManager {
             port,
             quorum,
             down_after_ms: 30000,
+            failover_timeout: 180000,
             sdown: false,
             odown: false,
             last_ping_reply: None,
@@ -345,6 +349,33 @@ impl SentinelManager {
         if let Some(master) = masters.get_mut(name) {
             master.down_after_ms = ms;
         }
+    }
+
+    /// 设置 master 的 failover-timeout
+    pub fn set_failover_timeout(&self, name: &str, timeout: u64) {
+        let mut masters = self.masters.write().unwrap();
+        if let Some(master) = masters.get_mut(name) {
+            master.failover_timeout = timeout;
+        }
+    }
+
+    /// 根据 pattern 重置 master 状态，返回重置的数量
+    pub fn reset(&self, pattern: &str) -> usize {
+        let mut masters = self.masters.write().unwrap();
+        let mut count = 0;
+        for master in masters.values_mut() {
+            if crate::storage::StorageEngine::glob_match(&master.name, pattern) {
+                master.sdown = false;
+                master.odown = false;
+                master.last_ping_reply = None;
+                master.sentinels.clear();
+                master.replicas.clear();
+                master.failover_epoch = 0;
+                master.voted_epoch.store(0, Ordering::Relaxed);
+                count += 1;
+            }
+        }
+        count
     }
 
     /// 更新或添加 Sentinel 节点信息

@@ -4523,3 +4523,59 @@ async fn test_object_refcount() {
     let resp = exec(&mut stream, &["OBJECT", "REFCOUNT", "missing"]).await;
     assert_eq!(resp, RespValue::BulkString(None));
 }
+
+#[tokio::test]
+async fn test_object_freq() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    exec(&mut stream, &["CONFIG", "SET", "maxmemory", "1048576"]).await;
+    exec(&mut stream, &["SET", "freq_key", "value"]).await;
+    // 访问增加计数
+    exec(&mut stream, &["GET", "freq_key"]).await;
+
+    let resp = exec(&mut stream, &["OBJECT", "FREQ", "freq_key"]).await;
+    match resp {
+        RespValue::Integer(n) => assert!(n >= 1, "OBJECT FREQ 应 >= 1"),
+        _ => panic!("期望 Integer，得到 {:?}", resp),
+    }
+
+    let resp = exec(&mut stream, &["OBJECT", "FREQ", "missing"]).await;
+    assert_eq!(resp, RespValue::BulkString(None));
+}
+
+#[tokio::test]
+async fn test_client_tracking_and_caching() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // CLIENT TRACKING ON 应返回 OK
+    let resp = exec(&mut stream, &["CLIENT", "TRACKING", "ON"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // CLIENT TRACKINGINFO 应包含 on
+    let resp = exec(&mut stream, &["CLIENT", "TRACKINGINFO"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            let flags = arr.iter().find(|v| matches!(v, RespValue::BulkString(Some(b)) if b.as_ref() == b"flags"));
+            assert!(flags.is_some());
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+
+    // CLIENT CACHING YES 应返回 OK
+    let resp = exec(&mut stream, &["CLIENT", "CACHING", "YES"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // CLIENT CACHING NO 应返回 OK
+    let resp = exec(&mut stream, &["CLIENT", "CACHING", "NO"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    // CLIENT TRACKING OFF 应返回 OK
+    let resp = exec(&mut stream, &["CLIENT", "TRACKING", "OFF"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+}

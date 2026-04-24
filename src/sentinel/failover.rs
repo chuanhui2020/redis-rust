@@ -64,7 +64,9 @@ pub fn start_odown_checker(sentinel: Arc<SentinelManager>) -> tokio::task::JoinH
                                 "Sentinel: 当选为 leader，准备对 master {} 执行故障转移",
                                 master.name
                             );
-                            execute_failover(&sentinel, &master.name).await;
+                            if let Err(e) = execute_failover(&sentinel, &master.name).await {
+                                log::warn!("自动故障转移失败: {}", e);
+                            }
                         }
                     }
                 } else if was_odown {
@@ -268,18 +270,20 @@ async fn request_vote(
 }
 
 /// 执行自动故障转移
-pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) {
+pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) -> Result<(), String> {
     let master = match sentinel.get_master(master_name) {
         Some(m) => m,
         None => {
-            log::error!("故障转移失败：找不到 master {}", master_name);
-            return;
+            let msg = format!("故障转移失败：找不到 master {}", master_name);
+            log::error!("{}", msg);
+            return Err(msg);
         }
     };
 
     if master.replicas.is_empty() {
-        log::error!("故障转移失败：master {} 没有可用的 replica", master_name);
-        return;
+        let msg = format!("故障转移失败：master {} 没有可用的 replica", master_name);
+        log::error!("{}", msg);
+        return Err(msg);
     }
 
     // 选择最优 replica（offset 最大的）
@@ -290,8 +294,9 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) {
     let replica = match best_replica {
         Some(r) => r.clone(),
         None => {
-            log::error!("故障转移失败：master {} 没有健康的 replica", master_name);
-            return;
+            let msg = format!("故障转移失败：master {} 没有健康的 replica", master_name);
+            log::error!("{}", msg);
+            return Err(msg);
         }
     };
 
@@ -306,8 +311,9 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) {
             log::info!("故障转移：已向 {}:{} 发送 REPLICAOF NO ONE", replica.ip, replica.port);
         }
         Err(e) => {
-            log::error!("故障转移失败：向 {}:{} 发送 REPLICAOF NO ONE 失败: {}", replica.ip, replica.port, e);
-            return;
+            let msg = format!("故障转移失败：向 {}:{} 发送 REPLICAOF NO ONE 失败: {}", replica.ip, replica.port, e);
+            log::error!("{}", msg);
+            return Err(msg);
         }
     }
 
@@ -409,6 +415,7 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) {
         "故障转移完成：master {} 已切换到 {}:{}",
         master_name, replica.ip, replica.port
     );
+    Ok(())
 }
 
 /// 向 replica 发送 REPLICAOF NO ONE

@@ -564,6 +564,8 @@ pub enum Command {
     ObjectRefCount(String),
     /// OBJECT IDLETIME key
     ObjectIdleTime(String),
+    /// OBJECT FREQ key
+    ObjectFreq(String),
     /// OBJECT HELP
     ObjectHelp,
     /// DEBUG SET-ACTIVE-EXPIRE 0|1

@@ -2348,6 +2348,19 @@ mod tests {
         assert!(help.iter().any(|s| s.contains("ENCODING")));
         assert!(help.iter().any(|s| s.contains("REFCOUNT")));
         assert!(help.iter().any(|s| s.contains("IDLETIME")));
+        assert!(help.iter().any(|s| s.contains("FREQ")));
+    }
+
+    #[test]
+    fn test_object_freq() {
+        let engine = StorageEngine::new();
+        engine.set_maxmemory(1024 * 1024); // 启用访问计数
+        engine.set("k".to_string(), Bytes::from("v")).unwrap();
+        // 访问一次增加计数
+        let _ = engine.get("k").unwrap();
+        let freq = engine.object_freq("k").unwrap();
+        assert!(freq.is_some() && freq.unwrap() >= 1, "OBJECT FREQ 应 >= 1");
+        assert_eq!(engine.object_freq("missing").unwrap(), None);
     }
 
     #[test]

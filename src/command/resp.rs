@@ -704,6 +704,9 @@ impl Command {
             Command::ObjectIdleTime(key) => {
                 RespValue::Array(vec![bulk("OBJECT"), bulk("IDLETIME"), bulk(key)])
             }
+            Command::ObjectFreq(key) => {
+                RespValue::Array(vec![bulk("OBJECT"), bulk("FREQ"), bulk(key)])
+            }
             Command::ObjectHelp => {
                 RespValue::Array(vec![bulk("OBJECT"), bulk("HELP")])
             }

@@ -1,5 +1,6 @@
 // Sentinel 间通信与发现模块
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -13,6 +14,7 @@ use super::{SentinelManager, SentinelPeer};
 pub fn start_discovery(sentinel: Arc<SentinelManager>, listen_port: u16) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(2));
+        let mut subscribers: HashSet<(String, u16)> = HashSet::new();
         
         loop {
             interval.tick().await;
@@ -24,6 +26,11 @@ pub fn start_discovery(sentinel: Arc<SentinelManager>, listen_port: u16) -> toki
                 let port = master.port;
                 let name = master.name.clone();
                 let runid = sentinel.runid.clone();
+                
+                // 为每个 master 启动 hello_subscriber（如果还没启动）
+                if subscribers.insert((ip.clone(), port)) {
+                    let _ = start_hello_subscriber(sentinel.clone(), ip.clone(), port, name.clone());
+                }
                 
                 // 发布 hello 消息到 master 的 __sentinel__:hello 频道
                 // 格式: "ip,port,runid,epoch,master_name"

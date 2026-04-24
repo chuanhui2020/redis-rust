@@ -245,6 +245,7 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::ObjectEncoding(key) => ("OBJECT".to_string(), vec!["ENCODING".to_string(), key.clone()]),
         Command::ObjectRefCount(key) => ("OBJECT".to_string(), vec!["REFCOUNT".to_string(), key.clone()]),
         Command::ObjectIdleTime(key) => ("OBJECT".to_string(), vec!["IDLETIME".to_string(), key.clone()]),
+        Command::ObjectFreq(key) => ("OBJECT".to_string(), vec!["FREQ".to_string(), key.clone()]),
         Command::ObjectHelp => ("OBJECT".to_string(), vec!["HELP".to_string()]),
         Command::DebugSetActiveExpire(flag) => ("DEBUG".to_string(), vec!["SET-ACTIVE-EXPIRE".to_string(), if *flag { "1".to_string() } else { "0".to_string() }]),
         Command::DebugSleep(seconds) => ("DEBUG".to_string(), vec!["SLEEP".to_string(), seconds.to_string()]),

@@ -624,6 +624,12 @@ impl CommandExecutor {
                     None => Ok(RespValue::BulkString(None)),
                 }
             }
+            Command::ObjectFreq(key) => {
+                match self.storage.object_freq(&key)? {
+                    Some(count) => Ok(RespValue::Integer(count as i64)),
+                    None => Ok(RespValue::BulkString(None)),
+                }
+            }
             Command::ObjectHelp => {
                 let help = crate::storage::StorageEngine::object_help();
                 let arr: Vec<RespValue> = help

@@ -473,6 +473,35 @@ impl StorageEngine {
         }
     }
 
+    /// 返回 key 的 LFU 访问频率计数
+    pub fn object_freq(&self, key: &str) -> Result<Option<u64>> {
+        let db = self.db();
+        let map = db
+            .inner
+            .get_shard(key)
+            .read()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        if let Some(v) = map.get(key) {
+            if Self::is_expired(v) {
+                return Ok(None);
+            }
+        } else {
+            return Ok(None);
+        }
+        drop(map);
+
+        let counts = db
+            .access_counts
+            .read()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+        match counts.get(key) {
+            Some(count) => Ok(Some(*count)),
+            None => Ok(Some(0)),
+        }
+    }
+
     /// 返回 OBJECT 命令帮助信息
     pub fn object_help() -> Vec<String> {
         vec![
@@ -483,6 +512,8 @@ impl StorageEngine {
             "    Return the refcount (number of references) of <key>.".to_string(),
             "IDLETIME <key>".to_string(),
             "    Return the idle time of <key>.".to_string(),
+            "FREQ <key>".to_string(),
+            "    Return the access frequency of <key>.".to_string(),
             "HELP".to_string(),
             "    Print this help.".to_string(),
         ]

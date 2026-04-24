@@ -77,12 +77,36 @@ fn is_read_command(cmd: &Command) -> bool {
         Command::XLen(_) | Command::XRange(_, _, _, _) | Command::XRevRange(_, _, _, _) |
         Command::Ping(_) | Command::DbSize | Command::Info(_) |
         Command::ObjectEncoding(_) | Command::ObjectIdleTime(_) |
-        Command::ObjectRefCount(_) |
+        Command::ObjectRefCount(_) | Command::ObjectFreq(_) |
         Command::Scan(_, _, _) | Command::SScan(_, _, _, _) |
         Command::ZScan(_, _, _, _) |
         Command::GetBit(_, _) | Command::BitCount(_, _, _, _) |
         Command::BitPos(_, _, _, _, _) | Command::PfCount(_)
     )
+}
+
+/// 提取读命令中需要追踪的 key 列表（简化实现）
+fn extract_tracking_keys(cmd: &Command) -> Vec<String> {
+    use Command::*;
+    match cmd {
+        Get(k) | StrLen(k) | GetRange(k, _, _) | Type(k) | Ttl(k) |
+        LLen(k) | LRange(k, _, _) | LIndex(k, _) |
+        SCard(k) | SIsMember(k, _) | SMembers(k) | SRandMember(k, _) |
+        HGetAll(k) | HLen(k) | HExists(k, _) | HKeys(k) | HVals(k) | HScan(k, _, _, _) |
+        ZCard(k) | ZScore(k, _) | ZRank(k, _) | ZRevRank(k, _) |
+        ZRange(k, _, _, _) | ZRangeByScore(k, _, _, _) |
+        ZLexCount(k, _, _) | ZRangeByLex(k, _, _) |
+        ZRevRangeByLex(k, _, _, _, _) | ZMScore(k, _) |
+        XLen(k) | XRange(k, _, _, _) | XRevRange(k, _, _, _) |
+        GetBit(k, _) | BitCount(k, _, _, _) | BitPos(k, _, _, _, _) |
+        ObjectEncoding(k) | ObjectIdleTime(k) | ObjectRefCount(k) | ObjectFreq(k) |
+        HGet(k, _) | HMGet(k, _) | HStrLen(k, _) |
+        SScan(k, _, _, _) | ZScan(k, _, _, _) |
+        ZRevRangeByScore(k, _, _, _, _, _) => vec![k.clone()],
+        MGet(ks) | Exists(ks) | SInter(ks) | SUnion(ks) | SDiff(ks) | PfCount(ks) => ks.clone(),
+        Scan(_, _, _) => vec![],
+        _ => vec![],
+    }
 }
 
 /// 格式化集群节点列表为 CLUSTER NODES 输出格式
@@ -533,6 +557,8 @@ pub(crate) async fn handle_connection(
     let mut tracking_optin = false;
     let mut tracking_optout = false;
     let mut tracking_noloop = false;
+    let mut tracked_keys: HashSet<String> = HashSet::new();
+    let mut caching_next: Option<bool> = None;
 
     let mut executor = match aof.clone() {
         Some(aof_writer) => {
@@ -803,21 +829,36 @@ pub(crate) async fn handle_connection(
                                                 }
                                             }
                                             "failover-timeout" => {
-                                                // TODO: 实现 failover-timeout 设置
+                                                if let Ok(timeout) = value.parse::<u64>() {
+                                                    s.set_failover_timeout(&name, timeout);
+                                                }
                                             }
                                             _ => {}
                                         }
                                         let _ = s.save_config();
                                         RespValue::SimpleString("OK".to_string())
                                     }
-                                    Command::SentinelFailover(_) => {
-                                        RespValue::SimpleString("OK".to_string())
+                                    Command::SentinelFailover(name) => {
+                                        match crate::sentinel::failover::execute_failover(s, &name).await {
+                                            Ok(()) => RespValue::SimpleString("OK".to_string()),
+                                            Err(e) => RespValue::Error(format!("ERR {}", e)),
+                                        }
                                     }
-                                    Command::SentinelReset(_) => {
-                                        RespValue::SimpleString("OK".to_string())
+                                    Command::SentinelReset(pattern) => {
+                                        let count = s.reset(&pattern);
+                                        RespValue::Integer(count as i64)
                                     }
-                                    Command::SentinelCkquorum(_) => {
-                                        RespValue::SimpleString("OK".to_string())
+                                    Command::SentinelCkquorum(name) => {
+                                        if let Some(master) = s.get_master(&name) {
+                                            let sentinel_count = master.sentinels.len() as u32 + 1; // 包括自己
+                                            if sentinel_count >= master.quorum {
+                                                RespValue::SimpleString(format!("OK {} usable Sentinels. Quorum and failover authorization is possible.", sentinel_count))
+                                            } else {
+                                                RespValue::Error(format!("ERR {} usable Sentinels, but need {} for quorum", sentinel_count, master.quorum))
+                                            }
+                                        } else {
+                                            RespValue::Error("ERR No such master with that name".to_string())
+                                        }
                                     }
                                     Command::SentinelMyId => {
                                         RespValue::BulkString(Some(Bytes::from(s.runid.clone())))
@@ -1525,14 +1566,17 @@ pub(crate) async fn handle_connection(
                                 tracking_optin = optin;
                                 tracking_optout = optout;
                                 tracking_noloop = noloop;
+                                if !on {
+                                    tracked_keys.clear();
+                                }
                                 let resp = RespValue::SimpleString("OK".to_string());
                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                     log::error!("写入响应失败: {}", e);
                                     return Ok(());
                                 }
                             }
-                            Command::ClientCaching(_flag) => {
-                                // 简化实现：直接返回 OK
+                            Command::ClientCaching(flag) => {
+                                caching_next = Some(flag);
                                 let resp = RespValue::SimpleString("OK".to_string());
                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                     log::error!("写入响应失败: {}", e);
@@ -2112,6 +2156,8 @@ pub(crate) async fn handle_connection(
                                 tracking_optin = false;
                                 tracking_optout = false;
                                 tracking_noloop = false;
+                                tracked_keys.clear();
+                                caching_next = None;
                                 in_transaction = false;
                                 tx_queue.clear();
                                 watched.clear();
@@ -2287,6 +2333,12 @@ pub(crate) async fn handle_connection(
                                     args.iter().map(|a| format!("\"{}\"", a)).collect::<Vec<_>>().join(" ")
                                 );
                                 let _ = monitor_tx.send(monitor_str);
+                                let is_read = is_read_command(&other);
+                                let tracking_keys = if is_read {
+                                    extract_tracking_keys(&other)
+                                } else {
+                                    vec![]
+                                };
                                 match handler.executor.execute(other) {
                                     Ok(response) => {
                                         // 处理 CONTINUE 增量同步响应
@@ -2320,6 +2372,27 @@ pub(crate) async fn handle_connection(
                                         if let Err(e) = send_reply(&mut stream, &handler, &response, &mut reply_mode).await {
                                             log::error!("写入响应失败: {}", e);
                                             return Ok(());
+                                        }
+
+                                        // CLIENT TRACKING: 追踪读命令的 key
+                                        if is_read {
+                                            let should_track = if !tracking_enabled {
+                                                false
+                                            } else if caching_next == Some(true) {
+                                                true
+                                            } else if caching_next == Some(false) {
+                                                false
+                                            } else if tracking_optin {
+                                                false
+                                            } else {
+                                                true
+                                            };
+                                            if should_track {
+                                                for key in tracking_keys {
+                                                    tracked_keys.insert(key);
+                                                }
+                                            }
+                                            caching_next = None;
                                         }
 
                                         // 检测到 FULLRESYNC 响应后发送 RDB 数据

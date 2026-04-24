@@ -1063,6 +1063,14 @@ impl CommandParser {
                 }
                 Ok(Command::ObjectIdleTime(self.extract_string(&arr[2])?))
             }
+            "FREQ" => {
+                if arr.len() != 3 {
+                    return Err(AppError::Command(
+                        "OBJECT FREQ 需要 1 个 key 参数".to_string(),
+                    ));
+                }
+                Ok(Command::ObjectFreq(self.extract_string(&arr[2])?))
+            }
             "HELP" => Ok(Command::ObjectHelp),
             _ => Err(AppError::Command(
                 format!("OBJECT 未知子命令: {}", sub),
