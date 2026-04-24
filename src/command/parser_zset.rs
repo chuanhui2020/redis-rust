@@ -734,9 +734,9 @@ impl CommandParser {
 
     /// 解析 ZRANGESTORE 命令：ZRANGESTORE dst src min max [BYSCORE|BYLEX] [REV] [LIMIT offset count]
     pub(crate) fn parse_zrangestore(&self, arr: &[RespValue]) -> Result<Command> {
-        if arr.len() < 6 {
+        if arr.len() < 5 {
             return Err(AppError::Command(
-                "ZRANGESTORE 命令需要至少 5 个参数".to_string(),
+                "ZRANGESTORE 命令需要至少 4 个参数".to_string(),
             ));
         }
         let dst = self.extract_string(&arr[1])?;
