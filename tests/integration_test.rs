@@ -7372,3 +7372,373 @@ async fn test_info_sections() {
         _ => panic!("期望 BulkString，得到 {:?}", resp),
     }
 }
+
+#[tokio::test]
+async fn test_role_master() {
+    use redis_rust::replication::ReplicationManager;
+
+    let storage = StorageEngine::new();
+    let repl = Arc::new(ReplicationManager::new());
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_replication(repl);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ROLE"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert!(!arr.is_empty(), "ROLE 应返回非空数组");
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("master"))),
+                "ROLE 第一个元素应为 master"
+            );
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_script_debug_help() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SCRIPT", "HELP"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert!(!arr.is_empty(), "SCRIPT HELP 应返回非空数组");
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_acl_log_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_acl(redis_rust::acl::AclManager::new());
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ACL", "LOG"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            // ACL LOG 可能为空或包含日志条目
+            assert!(
+                arr.iter().all(|v| matches!(v, RespValue::Array(_))),
+                "ACL LOG 每项应为内层数组"
+            );
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_acl_save_load() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_acl(redis_rust::acl::AclManager::new());
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ACL", "SAVE"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["ACL", "LOAD"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+}
+
+#[tokio::test]
+async fn test_acl_dryrun() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_acl(redis_rust::acl::AclManager::new());
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["ACL", "DRYRUN", "default", "GET", "key"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+}
+
+#[tokio::test]
+async fn test_function_flush_stats() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["FUNCTION", "FLUSH"]).await;
+    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+
+    let resp = exec(&mut stream, &["FUNCTION", "STATS"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert!(!arr.is_empty(), "FUNCTION STATS 应返回非空数组");
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_script_exists_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["SCRIPT", "LOAD", "return 1"]).await;
+    let sha1 = match resp {
+        RespValue::BulkString(Some(b)) => String::from_utf8_lossy(&b).to_string(),
+        _ => panic!("期望 BulkString SHA1，得到 {:?}", resp),
+    };
+    assert_eq!(sha1.len(), 40);
+
+    let resp = exec(&mut stream, &["SCRIPT", "EXISTS", &sha1]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0], RespValue::Integer(1));
+        }
+        _ => panic!("期望 Array，得到 {:?}", resp),
+    }
+}
+
+
+// ---------- List/Hash/Geo 阻塞和高级命令补全测试 ----------
+
+#[tokio::test]
+async fn test_blmove_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["LPUSH", "src", "a", "b", "c"]).await;
+    assert_eq!(resp, RespValue::Integer(3));
+
+    let resp = exec(&mut stream, &["BLMOVE", "src", "dst", "LEFT", "RIGHT", "0"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("c"))));
+
+    // 验证 dst
+    let resp = exec(&mut stream, &["LRANGE", "dst", "0", "-1"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("c"))));
+        }
+        _ => panic!("期望 Array, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_brpoplpush_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["LPUSH", "src", "a", "b"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+
+    let resp = exec(&mut stream, &["BRPOPLPUSH", "src", "dst", "0"]).await;
+    assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("a"))));
+
+    // 验证 dst
+    let resp = exec(&mut stream, &["LRANGE", "dst", "0", "-1"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("a"))));
+        }
+        _ => panic!("期望 Array, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_lmpop_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["LPUSH", "key", "a", "b", "c"]).await;
+    assert_eq!(resp, RespValue::Integer(3));
+
+    let resp = exec(&mut stream, &["LMPOP", "1", "key", "LEFT", "COUNT", "2"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("key"))));
+            match &arr[1] {
+                RespValue::Array(vals) => {
+                    assert_eq!(vals.len(), 2);
+                    assert_eq!(vals[0], RespValue::BulkString(Some(Bytes::from("c"))));
+                    assert_eq!(vals[1], RespValue::BulkString(Some(Bytes::from("b"))));
+                }
+                other => panic!("期望内层 Array, 得到 {:?}", other),
+            }
+        }
+        _ => panic!("期望 Array, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_sort_ro_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["LPUSH", "mylist", "3", "1", "2"]).await;
+    assert_eq!(resp, RespValue::Integer(3));
+
+    let resp = exec(&mut stream, &["SORT_RO", "mylist"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("1"))));
+            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("2"))));
+            assert_eq!(arr[2], RespValue::BulkString(Some(Bytes::from("3"))));
+        }
+        _ => panic!("期望 Array, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_hexpireat_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["HSET", "key", "f", "v"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let future_ts = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() + 100)
+        .to_string();
+
+    let resp = exec(&mut stream, &["HEXPIREAT", "key", "f", &future_ts]).await;
+    assert_eq!(resp, RespValue::Array(vec![RespValue::Integer(1)]));
+}
+
+#[tokio::test]
+async fn test_hpexpireat_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["HSET", "key", "f", "v"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let future_ms = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64 + 100000)
+        .to_string();
+
+    let resp = exec(&mut stream, &["HPEXPIREAT", "key", "f", &future_ms]).await;
+    assert_eq!(resp, RespValue::Array(vec![RespValue::Integer(1)]));
+}
+
+#[tokio::test]
+async fn test_hexpiretime_hpexpiretime() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["HSET", "key", "f", "v"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["HEXPIRE", "key", "f", "100"]).await;
+    assert_eq!(resp, RespValue::Array(vec![RespValue::Integer(1)]));
+
+    let resp = exec(&mut stream, &["HEXPIRETIME", "key", "f"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            match arr[0] {
+                RespValue::Integer(ts) => assert!(ts > 1_700_000_000, "HEXPIRETIME 应返回未来秒级时间戳, 得到 {}", ts),
+                _ => panic!("期望 Integer, 得到 {:?}", arr[0]),
+            }
+        }
+        _ => panic!("期望 Array, 得到 {:?}", resp),
+    }
+
+    let resp = exec(&mut stream, &["HPEXPIRETIME", "key", "f"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            match arr[0] {
+                RespValue::Integer(ts) => assert!(ts > 1_700_000_000_000i64, "HPEXPIRETIME 应返回未来毫秒级时间戳, 得到 {}", ts),
+                _ => panic!("期望 Integer, 得到 {:?}", arr[0]),
+            }
+        }
+        _ => panic!("期望 Array, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_hgetex_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["HSET", "key", "f", "v"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["HGETEX", "key", "EX", "100", "f"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("v"))));
+        }
+        _ => panic!("期望 Array, 得到 {:?}", resp),
+    }
+
+    // 验证 HTTL 已设置
+    let resp = exec(&mut stream, &["HTTL", "key", "f"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            match arr[0] {
+                RespValue::Integer(n) => assert!(n > 0 && n <= 100, "HTTL 应返回 >0 且 <=100, 得到 {}", n),
+                _ => panic!("期望 Integer, 得到 {:?}", arr[0]),
+            }
+        }
+        _ => panic!("期望 Array, 得到 {:?}", resp),
+    }
+}
+
+#[tokio::test]
+async fn test_geohash_basic() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["GEOADD", "key", "13.361", "38.115", "Palermo"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+
+    let resp = exec(&mut stream, &["GEOHASH", "key", "Palermo"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 1);
+            match &arr[0] {
+                RespValue::BulkString(Some(b)) => {
+                    let s = String::from_utf8_lossy(b);
+                    assert!(!s.is_empty(), "GEOHASH 应返回非空字符串");
+                }
+                other => panic!("期望 BulkString(Some(...)), 得到 {:?}", other),
+            }
+        }
+        _ => panic!("期望 Array, 得到 {:?}", resp),
+    }
+}
