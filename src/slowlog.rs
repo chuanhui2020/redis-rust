@@ -1,3 +1,4 @@
+//! 慢查询日志模块，记录执行时间超过阈值的命令
 // 慢查询日志模块
 
 use std::collections::VecDeque;

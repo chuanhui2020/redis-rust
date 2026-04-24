@@ -1,3 +1,4 @@
+//! RDB 持久化模块，支持快照保存和加载
 // RDB 快照持久化模块
 
 use std::collections::{HashMap, HashSet, VecDeque};

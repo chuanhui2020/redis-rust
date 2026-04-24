@@ -1,3 +1,4 @@
+//! AOF 持久化模块，追加写入命令日志并支持重放
 // AOF (Append Only File) 持久化模块
 
 use std::fs::{File, OpenOptions};

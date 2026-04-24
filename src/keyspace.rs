@@ -1,3 +1,4 @@
+//! Keyspace 通知模块，当 key 被修改时向订阅者推送事件
 // Keyspace 通知模块，实现 Redis 风格的键空间事件发布
 
 use std::sync::{Arc, RwLock};

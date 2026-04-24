@@ -1,3 +1,4 @@
+//! 错误类型定义模块，提供统一的 AppError 枚举和 Result 别名
 // 错误类型定义，统一处理项目中的各类错误
 
 use thiserror::Error;

@@ -1,3 +1,4 @@
+//! 发布订阅管理器，维护频道/模式订阅关系并广播消息
 // 发布订阅模块，基于 tokio broadcast channel 实现
 
 use std::collections::HashMap;
