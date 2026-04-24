@@ -1,4 +1,4 @@
-// Sentinel 间通信与发现模块
+//! Sentinel 间通信与发现模块
 
 use std::sync::Arc;
 use std::time::Duration;

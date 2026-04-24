@@ -1,4 +1,4 @@
-// redis-rust 库入口，暴露公共模块供二进制和集成测试使用
+//! redis-rust 库入口，暴露公共模块供二进制和集成测试使用
 
 pub mod acl;
 pub mod aof;

@@ -1,4 +1,4 @@
-// 集群总线模块：处理节点间通信
+//! 集群总线模块：处理节点间通信
 
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

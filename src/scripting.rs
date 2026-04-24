@@ -1,4 +1,4 @@
-// Lua 脚本执行模块
+//! Lua 脚本执行模块
 //
 // 本模块实现 Redis 的 Lua 脚本执行环境，支持：
 // - EVAL / EVALSHA：即时执行 Lua 脚本，通过 redis.call / redis.pcall 调用 Redis 命令

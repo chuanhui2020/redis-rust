@@ -1,4 +1,4 @@
-// Cluster Gossip 协议模块
+//! Cluster Gossip 协议模块
 
 use std::sync::Arc;
 use std::time::Duration;

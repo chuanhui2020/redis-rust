@@ -1,4 +1,4 @@
-// Cluster 状态管理
+//! Cluster 状态管理
 
 use std::collections::HashMap;
 use std::sync::RwLock;

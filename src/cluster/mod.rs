@@ -1,4 +1,4 @@
-// Redis Cluster 模块
+//! Redis Cluster 模块
 
 pub mod bus;
 pub mod failover;

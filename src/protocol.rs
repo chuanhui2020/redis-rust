@@ -1,4 +1,4 @@
-// RESP (REdis Serialization Protocol) 协议解析模块
+//! RESP (REdis Serialization Protocol) 协议解析模块
 
 use bytes::{Buf, Bytes, BytesMut};
 use itoa;

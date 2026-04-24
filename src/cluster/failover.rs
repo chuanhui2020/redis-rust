@@ -1,4 +1,4 @@
-// Cluster 故障检测与自动故障转移模块
+//! Cluster 故障检测与自动故障转移模块
 
 use std::sync::Arc;
 use std::time::Duration;
