@@ -1,3 +1,4 @@
+//! String 数据类型操作（对标 Redis String 命令族）
 use super::*;
 
 impl StorageEngine {

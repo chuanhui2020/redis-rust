@@ -1,3 +1,4 @@
+//! Pub/Sub 命令解析器
 use crate::error::{AppError, Result};
 use crate::protocol::RespValue;
 use super::{Command, CommandParser};

@@ -1,3 +1,4 @@
+//! Bitmap 命令执行器
 
 use crate::error::Result;
 use crate::protocol::RespValue;

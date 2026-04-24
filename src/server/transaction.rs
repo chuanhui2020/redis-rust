@@ -1,3 +1,4 @@
+//! 事务处理模块（MULTI/EXEC/WATCH）
 use std::collections::HashMap;
 use tokio::io::BufWriter;
 use tokio::net::TcpStream;

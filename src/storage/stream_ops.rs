@@ -1,3 +1,4 @@
+//! Stream 数据类型操作（对标 Redis Stream 命令族）
 use super::*;
 
 // ---------- Stream 数据结构 ----------
