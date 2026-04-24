@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redis Commands Reference | Redis 命令参考</title>
+<style>
+  :root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --border-color: #30363d;
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --accent-blue: #58a6ff;
+    --accent-purple: #a371f7;
+    --accent-cyan: #39c5cf;
+    --accent-green: #3fb950;
+    --accent-orange: #d29922;
+    --accent-red: #f85149;
+    --glow-blue: rgba(88, 166, 255, 0.15);
+    --glow-purple: rgba(163, 113, 247, 0.15);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg-primary); }
+  ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent-blue); }
+
+  /* Layout */
+  .container {
+    display: flex;
+    min-height: 100vh;
+  }
+  /* Sidebar */
+  .sidebar {
+    width: 260px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    overflow-y: auto;
+    z-index: 100;
+    transition: transform 0.3s ease;
+  }
+  .sidebar-header {
+    padding: 24px 20px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .sidebar-header h1 {
+    font-size: 1.3rem;
+    background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .sidebar-header p {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+  .nav-menu {
+    list-style: none;
+    padding: 12px 0;
+  }
+  .nav-item a {
+    display: block;
+    padding: 10px 24px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+    border-left: 3px solid transparent;
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+  .nav-item a:hover, .nav-item a.active {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    border-left-color: var(--accent-blue);
+  }
+  .nav-item a.active {
+    background: linear-gradient(90deg, rgba(88,166,255,0.1), transparent);
+  }
+  .nav-count {
+    float: right;
+    font-size: 0.75rem;
+    color: var(--accent-cyan);
+    background: rgba(57,197,207,0.1);
+    padding: 1px 6px;
+    border-radius: 10px;
+  }
+
+  /* Mobile toggle */
+  .mobile-toggle {
+    display: none;
+    position: fixed;
+    top: 16px; left: 16px;
+    z-index: 200;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1.2rem;
+  }
+
+  /* Main */
+  .main {
+    margin-left: 260px;
+    flex: 1;
+    padding: 40px 48px;
+    max-width: 1200px;
+  }
+  /* Header */
+  .page-header {
+    margin-bottom: 32px;
+  }
+  .page-header h2 {
+    font-size: 2rem;
+    margin-bottom: 8px;
+    background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple), var(--accent-cyan));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .page-header p {
+    color: var(--text-secondary);
+    font-size: 1rem;
+  }
+
+  /* Search */
+  .search-box {
+    position: relative;
+    margin-bottom: 40px;
+  }
+  .search-box input {
+    width: 100%;
+    padding: 14px 20px 14px 48px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    color: var(--text-primary);
+    font-size: 1rem;
+    outline: none;
+    transition: all 0.3s ease;
+  }
+  .search-box input:focus {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 20px var(--glow-blue);
+  }
+  .search-box::before {
+    content: "🔍";
+    position: absolute;
+    left: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1rem;
+    opacity: 0.6;
+  }
+  .search-stats {
+    margin-top: 8px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+
+  /* Category section */
+  .category {
+    margin-bottom: 48px;
+    scroll-margin-top: 24px;
+  }
+  .category-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .category-header h3 {
+    font-size: 1.4rem;
+    color: var(--accent-cyan);
+  }
+  .category-count {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    padding: 2px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+  }
+
+  /* Grid */
+  .command-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
+  }
+
+  /* Card */
+  .command-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    cursor: pointer;
+  }
+  .command-card:hover {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 24px var(--glow-blue), inset 0 0 0 1px rgba(88,166,255,0.2);
+    transform: translateY(-2px);
+  }
+  .command-card.collapsed .card-body {
+    display: none;
+  }
+  .card-header {
+    padding: 16px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .command-name {
+    font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--accent-blue);
+    letter-spacing: 0.02em;
+  }
+  .card-toggle {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    transition: transform 0.3s ease;
+  }
+  .command-card.collapsed .card-toggle {
+    transform: rotate(-90deg);
+  }
+  .card-body {
+    padding: 0 20px 20px;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .syntax-box {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
+    font-size: 0.82rem;
+    color: var(--accent-orange);
+    margin-bottom: 12px;
+    word-break: break-word;
+    line-height: 1.5;
+  }
+  .desc-cn, .desc-en {
+    font-size: 0.88rem;
+    margin-bottom: 10px;
+    color: var(--text-primary);
+  }
+  .desc-en {
+    color: var(--text-secondary);
+    font-style: italic;
+    border-left: 2px solid var(--accent-purple);
+    padding-left: 10px;
+  }
+  .meta-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+  }
+  .meta-item {
+    font-size: 0.8rem;
+  }
+  .meta-label {
+    color: var(--text-secondary);
+    margin-right: 4px;
+  }
+  .meta-value {
+    color: var(--accent-green);
+    font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
+  }
+  .return-box {
+    margin-top: 10px;
+    font-size: 0.82rem;
+    background: rgba(57,197,207,0.05);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .return-cn { color: var(--accent-cyan); }
+  .return-en { color: var(--text-secondary); margin-top: 4px; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .sidebar {
+      transform: translateX(-100%);
+    }
+    .sidebar.open {
+      transform: translateX(0);
+    }
+    .mobile-toggle {
+      display: block;
+    }
+    .main {
+      margin-left: 0;
+      padding: 60px 20px 40px;
+    }
+    .command-grid {
+      grid-template-columns: 1fr;
+    }
+    .page-header h2 {
+      font-size: 1.5rem;
+    }
+  }
+  @media (max-width: 600px) {
+    .main { padding: 60px 14px 30px; }
+    .command-grid { gap: 12px; }
+  }
+
+  /* Overlay for mobile sidebar */
+  .overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 99;
+  }
+  @media (max-width: 900px) {
+    .overlay.show { display: block; }
+  }
+
+  /* No results */
+  .no-results {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+  }
+  .no-results h3 {
+    color: var(--accent-blue);
+    margin-bottom: 8px;
+  }
+
+  /* Back to top */
+  .back-to-top {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--accent-blue);
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    z-index: 50;
+    font-size: 1.2rem;
+  }
+  .back-to-top.visible {
+    opacity: 1;
+  }
+  .back-to-top:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 16px var(--glow-blue);
+  }
+</style>
+</head>
+<body>
+<button class="mobile-toggle" onclick="toggleSidebar()">☰</button>
+<div class="overlay" onclick="toggleSidebar()"></div>
+
+<div class="container">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h1>Redis Commands</h1>
+      <p>282 Commands Reference</p>
+    </div>
+    <ul class="nav-menu" id="navMenu"></ul>
+  </aside>
+
+  <main class="main">
+    <div class="page-header">
+      <h2>Redis 命令参考文档</h2>
+      <p>Redis Commands Reference — Complete documentation for all 282 commands</p>
+    </div>
+
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="搜索命令名称或描述 / Search command name or description..." autocomplete="off">
+      <div class="search-stats" id="searchStats"></div>
+    </div>
+
+    <div id="content"></div>
+  </main>
+</div>
+
+<button class="back-to-top" id="backToTop" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+
+<script>
+const categories = [
+  {
+    name: "String",
+    commands: [
+      { name: "GET", syntax: "GET key", cn: "获取指定键的字符串值。", en: "Get the value of a key.", complexity: "O(1)", returnCn: "键的值；若键不存在返回 nil", returnEn: "The value of the key, or nil if the key does not exist." },
+      { name: "SET", syntax: "SET key value [NX|XX] [GET] [EX seconds|PX milliseconds|EXAT timestamp|PXAT ms-timestamp|KEEPTTL]", cn: "设置键值对。支持条件设置（NX/XX）、获取旧值（GET）和多种过期选项。", en: "Set the string value of a key. Supports conditional set (NX/XX), get old value (GET), and various expiration options.", complexity: "O(1)", returnCn: "OK（成功）/ nil（NX/XX 条件不满足）/ 旧值（GET 选项）", returnEn: "OK on success / nil if NX/XX condition not met / old value with GET option" },
+      { name: "MGET", syntax: "MGET key [key ...]", cn: "返回所有给定键的值。", en: "Get the values of all the given keys.", complexity: "O(N)", returnCn: "值的数组；不存在的键对应 nil", returnEn: "Array of values; nil for keys that do not exist." },
+      { name: "MSET", syntax: "MSET key value [key value ...]", cn: "同时设置一个或多个键值对。", en: "Set multiple keys to multiple values.", complexity: "O(N)", returnCn: "OK", returnEn: "Always OK." },
+      { name: "INCR", syntax: "INCR key", cn: "将键中存储的数字值增一。", en: "Increment the integer value of a key by one.", complexity: "O(1)", returnCn: "增加后的值", returnEn: "The value of the key after increment." },
+      { name: "DECR", syntax: "DECR key", cn: "将键中存储的数字值减一。", en: "Decrement the integer value of a key by one.", complexity: "O(1)", returnCn: "减少后的值", returnEn: "The value of the key after decrement." },
+      { name: "INCRBY", syntax: "INCRBY key increment", cn: "将键所存储的值加上给定的增量。", en: "Increment the integer value of a key by the given amount.", complexity: "O(1)", returnCn: "增加后的值", returnEn: "The value of the key after increment." },
+      { name: "DECRBY", syntax: "DECRBY key decrement", cn: "将键所存储的值减去给定的减量。", en: "Decrement the integer value of a key by the given amount.", complexity: "O(1)", returnCn: "减少后的值", returnEn: "The value of the key after decrement." },
+      { name: "INCRBYFLOAT", syntax: "INCRBYFLOAT key increment", cn: "将键所存储的值加上给定的浮点增量。", en: "Increment the float value of a key by the given amount.", complexity: "O(1)", returnCn: "增加后的字符串表示", returnEn: "The value of the key after increment as string." },
+      { name: "APPEND", syntax: "APPEND key value", cn: "如果键已经存在并且值为字符串，则将值追加到末尾。", en: "Append a value to a key.", complexity: "O(1) amortized", returnCn: "追加后字符串的长度", returnEn: "The length of the string after append." },
+      { name: "STRLEN", syntax: "STRLEN key", cn: "返回键所存储的字符串值的长度。", en: "Get the length of the value stored in a key.", complexity: "O(1)", returnCn: "字符串长度；键不存在返回 0", returnEn: "Length of the string; 0 if key does not exist." },
+      { name: "SETNX", syntax: "SETNX key value", cn: "仅在键不存在时设置键的值。", en: "Set the value of a key, only if the key does not exist.", complexity: "O(1)", returnCn: "1（设置成功）/ 0（键已存在）", returnEn: "1 if the key was set, 0 if not." },
+      { name: "SETEX", syntax: "SETEX key seconds value", cn: "设置键值并指定过期时间（秒）。", en: "Set the value and expiration of a key (seconds).", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "PSETEX", syntax: "PSETEX key milliseconds value", cn: "设置键值并指定过期时间（毫秒）。", en: "Set the value and expiration of a key (milliseconds).", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "GETSET", syntax: "GETSET key value", cn: "设置键的值并返回旧值。", en: "Set the string value of a key and return its old value.", complexity: "O(1)", returnCn: "旧值；键不存在返回 nil", returnEn: "The old value, or nil if key did not exist." },
+      { name: "GETDEL", syntax: "GETDEL key", cn: "获取键的值并删除该键。", en: "Get the value of a key and delete the key.", complexity: "O(1)", returnCn: "值；键不存在返回 nil", returnEn: "The value, or nil if key does not exist." },
+      { name: "GETEX", syntax: "GETEX key [EX seconds|PX milliseconds|EXAT timestamp|PXAT ms-timestamp|PERSIST]", cn: "获取键的值并可选择设置过期时间。", en: "Get the value of a key and optionally set its expiration.", complexity: "O(1)", returnCn: "值；键不存在返回 nil", returnEn: "The value, or nil if key does not exist." },
+      { name: "MSETNX", syntax: "MSETNX key value [key value ...]", cn: "同时设置一个或多个键值对，仅当所有键都不存在时。", en: "Set multiple keys to multiple values, only if none of the keys exist.", complexity: "O(N)", returnCn: "1（全部设置成功）/ 0（没有设置任何键）", returnEn: "1 if all keys were set, 0 if no key was set." },
+      { name: "SETRANGE", syntax: "SETRANGE key offset value", cn: "从指定偏移量开始覆盖设置字符串的一部分。", en: "Overwrite part of a string at key starting at the specified offset.", complexity: "O(1) amortized", returnCn: "修改后字符串的长度", returnEn: "The length of the string after modification." },
+      { name: "GETRANGE", syntax: "GETRANGE key start end", cn: "返回键中字符串值的子串。", en: "Get a substring of the string stored at a key.", complexity: "O(N)", returnCn: "子串", returnEn: "The substring." },
+      { name: "LCS", syntax: "LCS key1 key2 [LEN] [IDX] [MINMATCHLEN min-match-len] [WITHMATCHLEN]", cn: "查找两个字符串的最长公共子序列。", en: "Find the longest common subsequence between strings.", complexity: "O(N*M)", returnCn: "LCS 字符串或结构化结果", returnEn: "The LCS string or structured result." }
+    ]
+  },
+  {
+    name: "List",
+    commands: [
+      { name: "LPUSH", syntax: "LPUSH key element [element ...]", cn: "将一个或多个值插入到列表头部。", en: "Prepend one or multiple elements to a list.", complexity: "O(1) per element", returnCn: "列表长度", returnEn: "The length of the list after the push." },
+      { name: "RPUSH", syntax: "RPUSH key element [element ...]", cn: "将一个或多个值插入到列表尾部。", en: "Append one or multiple elements to a list.", complexity: "O(1) per element", returnCn: "列表长度", returnEn: "The length of the list after the push." },
+      { name: "LPUSHX", syntax: "LPUSHX key element [element ...]", cn: "仅当列表存在时，将一个或多个值插入到列表头部。", en: "Prepend elements to a list, only if the list exists.", complexity: "O(1) per element", returnCn: "列表长度；列表不存在返回 0", returnEn: "List length; 0 if list does not exist." },
+      { name: "RPUSHX", syntax: "RPUSHX key element [element ...]", cn: "仅当列表存在时，将一个或多个值插入到列表尾部。", en: "Append elements to a list, only if the list exists.", complexity: "O(1) per element", returnCn: "列表长度；列表不存在返回 0", returnEn: "List length; 0 if list does not exist." },
+      { name: "LPOP", syntax: "LPOP key [count]", cn: "移除并返回列表的第一个元素。", en: "Remove and get the first elements in a list.", complexity: "O(N)", returnCn: "第一个元素；键不存在返回 nil", returnEn: "The first element, or nil if key does not exist." },
+      { name: "RPOP", syntax: "RPOP key [count]", cn: "移除并返回列表的最后一个元素。", en: "Remove and get the last elements in a list.", complexity: "O(N)", returnCn: "最后一个元素；键不存在返回 nil", returnEn: "The last element, or nil if key does not exist." },
+      { name: "LLEN", syntax: "LLEN key", cn: "返回列表的长度。", en: "Get the length of a list.", complexity: "O(1)", returnCn: "列表长度；键不存在返回 0", returnEn: "Length of the list; 0 if key does not exist." },
+      { name: "LRANGE", syntax: "LRANGE key start stop", cn: "返回列表中指定区间内的元素。", en: "Get a range of elements from a list.", complexity: "O(S+N)", returnCn: "元素数组", returnEn: "Array of elements in the specified range." },
+      { name: "LINDEX", syntax: "LINDEX key index", cn: "返回列表中指定索引的元素。", en: "Get an element from a list by its index.", complexity: "O(N)", returnCn: "元素；索引越界或键不存在返回 nil", returnEn: "The element, or nil if index is out of range or key does not exist." },
+      { name: "LSET", syntax: "LSET key index element", cn: "通过索引设置列表元素的值。", en: "Set the value of an element in a list by its index.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "LINSERT", syntax: "LINSERT key BEFORE|AFTER pivot element", cn: "在列表中的指定元素前或后插入元素。", en: "Insert an element before or after another element in a list.", complexity: "O(N)", returnCn: "列表长度； pivot 不存在返回 -1", returnEn: "List length; -1 if pivot not found." },
+      { name: "LREM", syntax: "LREM key count element", cn: "从列表中移除指定数量的匹配元素。", en: "Remove elements from a list.", complexity: "O(N+M)", returnCn: "移除的元素数量", returnEn: "The number of removed elements." },
+      { name: "LTRIM", syntax: "LTRIM key start stop", cn: "对列表进行修剪，只保留指定区间内的元素。", en: "Trim a list to the specified range.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "LPOS", syntax: "LPOS key element [RANK rank] [COUNT num-matches] [MAXLEN len]", cn: "返回列表中匹配元素的索引。", en: "Return the index of matching elements in a list.", complexity: "O(N)", returnCn: "索引或索引数组", returnEn: "Index or array of indices." },
+      { name: "BLPOP", syntax: "BLPOP key [key ...] timeout", cn: "移除并返回列表的第一个元素，如果列表为空则阻塞直到超时或有元素可用。", en: "Remove and get the first element in a list, or block until one is available.", complexity: "O(1)", returnCn: "[key, element] 数组；超时时返回 nil", returnEn: "[key, element] array; nil on timeout." },
+      { name: "BRPOP", syntax: "BRPOP key [key ...] timeout", cn: "移除并返回列表的最后一个元素，如果列表为空则阻塞直到超时或有元素可用。", en: "Remove and get the last element in a list, or block until one is available.", complexity: "O(1)", returnCn: "[key, element] 数组；超时时返回 nil", returnEn: "[key, element] array; nil on timeout." },
+      { name: "LMOVE", syntax: "LMOVE source destination LEFT|RIGHT LEFT|RIGHT", cn: "原子性地将元素从一个列表移动到另一个列表。", en: "Atomically move elements from one list to another.", complexity: "O(1)", returnCn: "移动的元素", returnEn: "The element being popped and pushed." },
+      { name: "RPOPLPUSH", syntax: "RPOPLPUSH source destination", cn: "移除源列表的最后一个元素，并将其插入到目标列表头部。", en: "Remove last element in a list and prepend it to another list.", complexity: "O(1)", returnCn: "移动的元素", returnEn: "The element being moved." },
+      { name: "LMPOP", syntax: "LMPOP numkeys key [key ...] LEFT|RIGHT [COUNT count]", cn: "从多个列表中弹出元素。", en: "Pop elements from multiple lists.", complexity: "O(N+M)", returnCn: "[key, elements] 数组", returnEn: "[key, elements] array." },
+      { name: "BLMPOP", syntax: "BLMPOP timeout numkeys key [key ...] LEFT|RIGHT [COUNT count]", cn: "阻塞式地从多个列表中弹出元素。", en: "Blocking pop elements from multiple lists.", complexity: "O(N+M)", returnCn: "[key, elements] 数组；超时时返回 nil", returnEn: "[key, elements] array; nil on timeout." },
+      { name: "BLMOVE", syntax: "BLMOVE source destination LEFT|RIGHT LEFT|RIGHT timeout", cn: "阻塞式地将元素从一个列表原子性地移动到另一个列表。", en: "Blocking move elements from one list to another.", complexity: "O(1)", returnCn: "移动的元素；超时时返回 nil", returnEn: "The element; nil on timeout." },
+      { name: "BRPOPLPUSH", syntax: "BRPOPLPUSH source destination timeout", cn: "阻塞式地移除源列表最后一个元素并插入目标列表头部。", en: "Blocking pop from one list and push to another.", complexity: "O(1)", returnCn: "移动的元素；超时时返回 nil", returnEn: "The element; nil on timeout." },
+      { name: "SORT", syntax: "SORT key [BY pattern] [LIMIT offset count] [GET pattern [GET pattern ...]] [ASC|DESC] [ALPHA] [STORE destination]", cn: "对列表、集合或有序集合中的元素进行排序。", en: "Sort the elements in a list, set or sorted set.", complexity: "O(N+M*log(M))", returnCn: "排序后的元素数组或存储的元素数量", returnEn: "Array of sorted elements or number of stored elements." },
+      { name: "SORT_RO", syntax: "SORT_RO key [BY pattern] [LIMIT offset count] [GET pattern [GET pattern ...]] [ASC|DESC] [ALPHA]", cn: "对元素进行只读排序（不修改数据）。", en: "Read-only sort of elements.", complexity: "O(N+M*log(M))", returnCn: "排序后的元素数组", returnEn: "Array of sorted elements." }
+    ]
+  },
+  {
+    name: "Hash",
+    commands: [
+      { name: "HSET", syntax: "HSET key field value [field value ...]", cn: "在散列中设置一个或多个字段的值。", en: "Set the string value of a hash field.", complexity: "O(1) per field", returnCn: "新增字段的数量", returnEn: "Number of fields that were added." },
+      { name: "HGET", syntax: "HGET key field", cn: "返回散列中指定字段的值。", en: "Get the value of a hash field.", complexity: "O(1)", returnCn: "字段值；字段不存在返回 nil", returnEn: "The value, or nil if field does not exist." },
+      { name: "HDEL", syntax: "HDEL key field [field ...]", cn: "删除散列中的一个或多个字段。", en: "Delete one or more hash fields.", complexity: "O(N)", returnCn: "成功删除的字段数量", returnEn: "Number of fields removed." },
+      { name: "HEXISTS", syntax: "HEXISTS key field", cn: "检查散列中是否存在指定字段。", en: "Determine if a hash field exists.", complexity: "O(1)", returnCn: "1（存在）/ 0（不存在）", returnEn: "1 if exists, 0 otherwise." },
+      { name: "HGETALL", syntax: "HGETALL key", cn: "返回散列的所有字段和值。", en: "Get all the fields and values in a hash.", complexity: "O(N)", returnCn: "字段和值的数组", returnEn: "Array of fields and values." },
+      { name: "HLEN", syntax: "HLEN key", cn: "返回散列中字段的数量。", en: "Get the number of fields in a hash.", complexity: "O(1)", returnCn: "字段数量；键不存在返回 0", returnEn: "Number of fields; 0 if key does not exist." },
+      { name: "HMSET", syntax: "HMSET key field value [field value ...]", cn: "同时设置散列的多个字段。", en: "Set multiple hash fields to multiple values.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "HMGET", syntax: "HMGET key field [field ...]", cn: "返回散列中一个或多个字段的值。", en: "Get the values of all the given hash fields.", complexity: "O(N)", returnCn: "值的数组；不存在的字段对应 nil", returnEn: "Array of values; nil for fields that do not exist." },
+      { name: "HINCRBY", syntax: "HINCRBY key field increment", cn: "将散列中指定字段的整数值加上增量。", en: "Increment the integer value of a hash field by the given number.", complexity: "O(1)", returnCn: "增加后的值", returnEn: "The value after increment." },
+      { name: "HINCRBYFLOAT", syntax: "HINCRBYFLOAT key field increment", cn: "将散列中指定字段的浮点数值加上增量。", en: "Increment the float value of a hash field by the given amount.", complexity: "O(1)", returnCn: "增加后的字符串表示", returnEn: "The value after increment as string." },
+      { name: "HKEYS", syntax: "HKEYS key", cn: "返回散列中所有的字段名。", en: "Get all the fields in a hash.", complexity: "O(N)", returnCn: "字段名数组", returnEn: "Array of field names." },
+      { name: "HVALS", syntax: "HVALS key", cn: "返回散列中所有的值。", en: "Get all the values in a hash.", complexity: "O(N)", returnCn: "值数组", returnEn: "Array of values." },
+      { name: "HSETNX", syntax: "HSETNX key field value", cn: "仅当字段不存在时，设置散列字段的值。", en: "Set the value of a hash field, only if the field does not exist.", complexity: "O(1)", returnCn: "1（设置成功）/ 0（字段已存在）", returnEn: "1 if field was set, 0 otherwise." },
+      { name: "HRANDFIELD", syntax: "HRANDFIELD key [count [WITHVALUES]]", cn: "随机返回散列中的字段。", en: "Get one or multiple random fields from a hash.", complexity: "O(N)", returnCn: "字段或字段数组", returnEn: "Field or array of fields." },
+      { name: "HSCAN", syntax: "HSCAN key cursor [MATCH pattern] [COUNT count]", cn: "增量迭代散列中的键值对。", en: "Incrementally iterate hash fields and associated values.", complexity: "O(1) per call; O(N) complete iteration", returnCn: "下一个游标和元素数组", returnEn: "Next cursor and array of elements." },
+      { name: "HSTRLEN", syntax: "HSTRLEN key field", cn: "返回散列中指定字段值的长度。", en: "Get the length of the value of a hash field.", complexity: "O(1)", returnCn: "字符串长度；字段不存在返回 0", returnEn: "Length of the string; 0 if field does not exist." },
+      { name: "HEXPIRE", syntax: "HEXPIRE key seconds [NX|XX|GT|LT] FIELDS field [field ...]", cn: "为散列的字段设置过期时间（秒）。", en: "Set expiration for hash fields (seconds).", complexity: "O(N)", returnCn: "每个字段的过期设置结果数组", returnEn: "Array of results for each field." },
+      { name: "HPEXPIRE", syntax: "HPEXPIRE key milliseconds [NX|XX|GT|LT] FIELDS field [field ...]", cn: "为散列的字段设置过期时间（毫秒）。", en: "Set expiration for hash fields (milliseconds).", complexity: "O(N)", returnCn: "每个字段的过期设置结果数组", returnEn: "Array of results for each field." },
+      { name: "HEXPIREAT", syntax: "HEXPIREAT key timestamp [NX|XX|GT|LT] FIELDS field [field ...]", cn: "为散列的字段设置 UNIX 时间戳过期时间（秒）。", en: "Set expiration for hash fields using UNIX timestamp (seconds).", complexity: "O(N)", returnCn: "每个字段的过期设置结果数组", returnEn: "Array of results for each field." },
+      { name: "HPEXPIREAT", syntax: "HPEXPIREAT key ms-timestamp [NX|XX|GT|LT] FIELDS field [field ...]", cn: "为散列的字段设置 UNIX 时间戳过期时间（毫秒）。", en: "Set expiration for hash fields using UNIX timestamp (milliseconds).", complexity: "O(N)", returnCn: "每个字段的过期设置结果数组", returnEn: "Array of results for each field." },
+      { name: "HTTL", syntax: "HTTL key FIELDS field [field ...]", cn: "返回散列字段的剩余生存时间（秒）。", en: "Get remaining TTL for hash fields (seconds).", complexity: "O(N)", returnCn: "每个字段的 TTL 数组", returnEn: "Array of TTLs for each field." },
+      { name: "HPTTL", syntax: "HPTTL key FIELDS field [field ...]", cn: "返回散列字段的剩余生存时间（毫秒）。", en: "Get remaining TTL for hash fields (milliseconds).", complexity: "O(N)", returnCn: "每个字段的 TTL 数组", returnEn: "Array of TTLs for each field." },
+      { name: "HPERSIST", syntax: "HPERSIST key FIELDS field [field ...]", cn: "移除散列字段的过期时间。", en: "Remove expiration from hash fields.", complexity: "O(N)", returnCn: "每个字段的持久化结果数组", returnEn: "Array of results for each field." },
+      { name: "HGETDEL", syntax: "HGETDEL key FIELDS field [field ...]", cn: "获取并删除散列中的字段。", en: "Get and delete hash fields.", complexity: "O(N)", returnCn: "字段值的数组", returnEn: "Array of field values." },
+      { name: "HGETEX", syntax: "HGETEX key [EX seconds|PX milliseconds|EXAT timestamp|PXAT ms-timestamp|PERSIST] FIELDS field [field ...]", cn: "获取散列字段值并可设置过期时间。", en: "Get hash field values and optionally set expiration.", complexity: "O(N)", returnCn: "字段值的数组", returnEn: "Array of field values." },
+      { name: "HSETEX", syntax: "HSETEX key [NX|XX] [EX seconds|PX milliseconds|EXAT timestamp|PXAT ms-timestamp|KEEPTTL] field value [field value ...]", cn: "设置散列字段并可指定过期选项。", en: "Set hash fields with optional expiration.", complexity: "O(N)", returnCn: "新增字段数量", returnEn: "Number of fields added." }
+    ]
+  },
+  {
+    name: "Set",
+    commands: [
+      { name: "SADD", syntax: "SADD key member [member ...]", cn: "向集合中添加一个或多个成员。", en: "Add one or more members to a set.", complexity: "O(1) per member", returnCn: "新增成员的数量", returnEn: "Number of elements added." },
+      { name: "SREM", syntax: "SREM key member [member ...]", cn: "从集合中移除一个或多个成员。", en: "Remove one or more members from a set.", complexity: "O(N)", returnCn: "成功移除的成员数量", returnEn: "Number of members removed." },
+      { name: "SMEMBERS", syntax: "SMEMBERS key", cn: "返回集合中的所有成员。", en: "Get all the members in a set.", complexity: "O(N)", returnCn: "成员数组", returnEn: "Array of all members." },
+      { name: "SISMEMBER", syntax: "SISMEMBER key member", cn: "判断成员是否在集合中。", en: "Determine if a given value is a member of a set.", complexity: "O(1)", returnCn: "1（是成员）/ 0（不是成员）", returnEn: "1 if member, 0 otherwise." },
+      { name: "SCARD", syntax: "SCARD key", cn: "返回集合中成员的数量。", en: "Get the number of members in a set.", complexity: "O(1)", returnCn: "成员数量；键不存在返回 0", returnEn: "Number of members; 0 if key does not exist." },
+      { name: "SINTER", syntax: "SINTER key [key ...]", cn: "返回给定所有集合的交集。", en: "Intersect multiple sets.", complexity: "O(N*M)", returnCn: "交集成员数组", returnEn: "Array of members of the intersection." },
+      { name: "SUNION", syntax: "SUNION key [key ...]", cn: "返回给定所有集合的并集。", en: "Add multiple sets.", complexity: "O(N)", returnCn: "并集成员数组", returnEn: "Array of members of the union." },
+      { name: "SDIFF", syntax: "SDIFF key [key ...]", cn: "返回给定集合的差集。", en: "Subtract multiple sets.", complexity: "O(N)", returnCn: "差集成员数组", returnEn: "Array of members of the difference." },
+      { name: "SPOP", syntax: "SPOP key [count]", cn: "随机移除并返回集合中指定数量的成员。", en: "Remove and return random members from a set.", complexity: "O(N)", returnCn: "移除的成员或数组；键不存在返回 nil", returnEn: "Removed member(s); nil if key does not exist." },
+      { name: "SRANDMEMBER", syntax: "SRANDMEMBER key [count]", cn: "随机返回集合中指定数量的成员。", en: "Get random members from a set.", complexity: "O(N)", returnCn: "随机成员或数组；键不存在返回 nil", returnEn: "Random member(s); nil if key does not exist." },
+      { name: "SMOVE", syntax: "SMOVE source destination member", cn: "将成员从源集合移动到目标集合。", en: "Move a member from one set to another.", complexity: "O(1)", returnCn: "1（移动成功）/ 0（成员不存在）", returnEn: "1 if moved, 0 if member not in source." },
+      { name: "SINTERSTORE", syntax: "SINTERSTORE destination key [key ...]", cn: "将多个集合的交集存储到目标集合中。", en: "Intersect multiple sets and store the result.", complexity: "O(N*M)", returnCn: "结果集合的成员数量", returnEn: "Number of members in the resulting set." },
+      { name: "SUNIONSTORE", syntax: "SUNIONSTORE destination key [key ...]", cn: "将多个集合的并集存储到目标集合中。", en: "Add multiple sets and store the result.", complexity: "O(N)", returnCn: "结果集合的成员数量", returnEn: "Number of members in the resulting set." },
+      { name: "SDIFFSTORE", syntax: "SDIFFSTORE destination key [key ...]", cn: "将多个集合的差集存储到目标集合中。", en: "Subtract multiple sets and store the result.", complexity: "O(N)", returnCn: "结果集合的成员数量", returnEn: "Number of members in the resulting set." },
+      { name: "SSCAN", syntax: "SSCAN key cursor [MATCH pattern] [COUNT count]", cn: "增量迭代集合中的元素。", en: "Incrementally iterate set elements.", complexity: "O(1) per call; O(N) complete", returnCn: "下一个游标和成员数组", returnEn: "Next cursor and array of elements." },
+      { name: "SMISMEMBER", syntax: "SMISMEMBER key member [member ...]", cn: "返回给定成员是否存在于集合中。", en: "Returns whether each member is in the set.", complexity: "O(N)", returnCn: "0/1 数组", returnEn: "Array of 0/1 values." },
+      { name: "SINTERCARD", syntax: "SINTERCARD numkeys key [key ...] [LIMIT limit]", cn: "返回多个集合交集的基数，不返回实际元素。", en: "Return the cardinality of the intersection of multiple sets.", complexity: "O(N*M)", returnCn: "交集基数", returnEn: "Cardinality of the intersection." }
+    ]
+  },
+  {
+    name: "Sorted Set",
+    commands: [
+      { name: "ZADD", syntax: "ZADD key [NX|XX] [GT|LT] [CH] [INCR] score member [score member ...]", cn: "向有序集合添加一个或多个成员，或更新其分数。", en: "Add one or more members to a sorted set, or update its score.", complexity: "O(log(N)) per member", returnCn: "新增成员数量；CH 时返回变更总数；INCR 时返回新分数", returnEn: "Number of new members, or changed count with CH, or new score with INCR." },
+      { name: "ZREM", syntax: "ZREM key member [member ...]", cn: "从有序集合中移除一个或多个成员。", en: "Remove one or more members from a sorted set.", complexity: "O(M*log(N))", returnCn: "成功移除的成员数量", returnEn: "Number of members removed." },
+      { name: "ZSCORE", syntax: "ZSCORE key member", cn: "返回有序集合中指定成员的分数。", en: "Get the score of a member in a sorted set.", complexity: "O(1)", returnCn: "分数字符串；成员不存在返回 nil", returnEn: "Score as string; nil if member does not exist." },
+      { name: "ZRANK", syntax: "ZRANK key member [WITHSCORE]", cn: "返回有序集合中指定成员的排名（按分数从小到大）。", en: "Determine the index of a member in a sorted set (low to high).", complexity: "O(log(N))", returnCn: "排名；成员不存在返回 nil", returnEn: "Rank as integer; nil if member does not exist." },
+      { name: "ZRANGE", syntax: "ZRANGE key start stop [BYSCORE|BYLEX] [REV] [LIMIT offset count] [WITHSCORES]", cn: "返回有序集合中指定排名区间内的成员。", en: "Return a range of members in a sorted set by index.", complexity: "O(log(N)+M)", returnCn: "成员数组；WITHSCORES 时返回 [member, score] 数组", returnEn: "Array of members; with scores if WITHSCORES." },
+      { name: "ZRANGEBYSCORE", syntax: "ZRANGEBYSCORE key min max [WITHSCORES] [LIMIT offset count]", cn: "返回有序集合中指定分数区间内的成员。", en: "Return a range of members in a sorted set by score.", complexity: "O(log(N)+M)", returnCn: "成员数组", returnEn: "Array of members." },
+      { name: "ZCARD", syntax: "ZCARD key", cn: "返回有序集合中成员的数量。", en: "Get the number of members in a sorted set.", complexity: "O(1)", returnCn: "成员数量；键不存在返回 0", returnEn: "Number of members; 0 if key does not exist." },
+      { name: "ZREVRANGE", syntax: "ZREVRANGE key start stop [WITHSCORES]", cn: "返回有序集合中指定排名区间内的成员（按分数从大到小）。", en: "Return a range of members in a sorted set by index, high to low.", complexity: "O(log(N)+M)", returnCn: "成员数组", returnEn: "Array of members." },
+      { name: "ZREVRANK", syntax: "ZREVRANK key member [WITHSCORE]", cn: "返回有序集合中指定成员的排名（按分数从大到小）。", en: "Determine the index of a member in a sorted set (high to low).", complexity: "O(log(N))", returnCn: "排名；成员不存在返回 nil", returnEn: "Rank as integer; nil if member does not exist." },
+      { name: "ZINCRBY", syntax: "ZINCRBY key increment member", cn: "将有序集合中指定成员的分数加上增量。", en: "Increment the score of a member in a sorted set.", complexity: "O(log(N))", returnCn: "新的分数字符串", returnEn: "The new score as string." },
+      { name: "ZCOUNT", syntax: "ZCOUNT key min max", cn: "返回有序集合中指定分数区间内的成员数量。", en: "Count the members in a sorted set with scores within range.", complexity: "O(log(N))", returnCn: "数量", returnEn: "Number of members in range." },
+      { name: "ZPOPMIN", syntax: "ZPOPMIN key [count]", cn: "移除并返回有序集合中分数最低的成员。", en: "Remove and return members with the lowest scores.", complexity: "O(log(N)*M)", returnCn: "[member, score] 数组", returnEn: "Array of [member, score] pairs." },
+      { name: "ZPOPMAX", syntax: "ZPOPMAX key [count]", cn: "移除并返回有序集合中分数最高的成员。", en: "Remove and return members with the highest scores.", complexity: "O(log(N)*M)", returnCn: "[member, score] 数组", returnEn: "Array of [member, score] pairs." },
+      { name: "ZUNIONSTORE", syntax: "ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]", cn: "计算多个有序集合的并集，并将结果存储到目标集合。", en: "Add multiple sorted sets and store the result.", complexity: "O(N)+O(M*log(M))", returnCn: "结果集合的成员数量", returnEn: "Number of members in the resulting set." },
+      { name: "ZINTERSTORE", syntax: "ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]", cn: "计算多个有序集合的交集，并将结果存储到目标集合。", en: "Intersect multiple sorted sets and store the result.", complexity: "O(N*K)+O(M*log(M))", returnCn: "结果集合的成员数量", returnEn: "Number of members in the resulting set." },
+      { name: "ZSCAN", syntax: "ZSCAN key cursor [MATCH pattern] [COUNT count]", cn: "增量迭代有序集合中的元素和相关分数。", en: "Incrementally iterate sorted set elements and scores.", complexity: "O(1) per call; O(N) complete", returnCn: "下一个游标和元素数组", returnEn: "Next cursor and array of elements." },
+      { name: "ZRANGEBYLEX", syntax: "ZRANGEBYLEX key min max [LIMIT offset count]", cn: "返回有序集合中指定字典区间内的成员（分数相同）。", en: "Return a range of members in a sorted set by lexicographical range.", complexity: "O(log(N)+M)", returnCn: "成员数组", returnEn: "Array of members." },
+      { name: "ZRANDMEMBER", syntax: "ZRANDMEMBER key [count [WITHSCORES]]", cn: "随机返回有序集合中的成员。", en: "Get random members from a sorted set.", complexity: "O(N)", returnCn: "成员或数组", returnEn: "Member or array of members." },
+      { name: "ZDIFF", syntax: "ZDIFF numkeys key [key ...] [WITHSCORES]", cn: "计算多个有序集合的差集。", en: "Subtract multiple sorted sets.", complexity: "O(L+(N-K)log(N))", returnCn: "成员数组", returnEn: "Array of members." },
+      { name: "ZDIFFSTORE", syntax: "ZDIFFSTORE destination numkeys key [key ...]", cn: "计算多个有序集合的差集并存储结果。", en: "Subtract multiple sorted sets and store the result.", complexity: "O(L+(N-K)log(N))", returnCn: "结果集合的成员数量", returnEn: "Number of members in resulting set." },
+      { name: "ZINTER", syntax: "ZINTER numkeys key [key ...] [WEIGHTS weight ...] [AGGREGATE SUM|MIN|MAX] [WITHSCORES]", cn: "计算多个有序集合的交集。", en: "Intersect multiple sorted sets.", complexity: "O(N*K)+O(M*log(M))", returnCn: "成员数组", returnEn: "Array of members." },
+      { name: "ZUNION", syntax: "ZUNION numkeys key [key ...] [WEIGHTS weight ...] [AGGREGATE SUM|MIN|MAX] [WITHSCORES]", cn: "计算多个有序集合的并集。", en: "Add multiple sorted sets.", complexity: "O(N)+O(M*log(M))", returnCn: "成员数组", returnEn: "Array of members." },
+      { name: "ZRANGESTORE", syntax: "ZRANGESTORE dst src min max [BYSCORE|BYLEX] [REV] [LIMIT offset count]", cn: "将有序集合中指定范围的成员存储到目标集合。", en: "Store a range of members from a sorted set into another key.", complexity: "O(log(N)+M)", returnCn: "存储的成员数量", returnEn: "Number of members stored." },
+      { name: "ZMPOP", syntax: "ZMPOP numkeys key [key ...] MIN|MAX [COUNT count]", cn: "从多个有序集合中弹出分数最低/最高的成员。", en: "Remove and return members with min/max scores from multiple sorted sets.", complexity: "O(K)+O(M*log(N))", returnCn: "[key, [member, score]] 数组", returnEn: "[key, [member, score]] array." },
+      { name: "BZMPOP", syntax: "BZMPOP timeout numkeys key [key ...] MIN|MAX [COUNT count]", cn: "阻塞式地从多个有序集合中弹出成员。", en: "Blocking pop from multiple sorted sets.", complexity: "O(K)+O(M*log(N))", returnCn: "[key, [member, score]] 数组；超时时返回 nil", returnEn: "[key, [member, score]] array; nil on timeout." },
+      { name: "BZPOPMIN", syntax: "BZPOPMIN key [key ...] timeout", cn: "阻塞式地移除并返回分数最低的成员。", en: "Blocking remove and return member with lowest score.", complexity: "O(log(N))", returnCn: "[key, member, score] 数组；超时时返回 nil", returnEn: "[key, member, score] array; nil on timeout." },
+      { name: "BZPOPMAX", syntax: "BZPOPMAX key [key ...] timeout", cn: "阻塞式地移除并返回分数最高的成员。", en: "Blocking remove and return member with highest score.", complexity: "O(log(N))", returnCn: "[key, member, score] 数组；超时时返回 nil", returnEn: "[key, member, score] array; nil on timeout." },
+      { name: "ZREVRANGEBYSCORE", syntax: "ZREVRANGEBYSCORE key max min [WITHSCORES] [LIMIT offset count]", cn: "返回有序集合中指定分数区间内的成员（按分数从高到低）。", en: "Return a range by score from high to low.", complexity: "O(log(N)+M)", returnCn: "成员数组", returnEn: "Array of members." },
+      { name: "ZREVRANGEBYLEX", syntax: "ZREVRANGEBYLEX key max min [LIMIT offset count]", cn: "返回有序集合中指定字典区间内的成员（按字典逆序）。", en: "Return a range by lexicographical range in reverse order.", complexity: "O(log(N)+M)", returnCn: "成员数组", returnEn: "Array of members." },
+      { name: "ZMSCORE", syntax: "ZMSCORE key member [member ...]", cn: "返回有序集合中多个成员的分数。", en: "Get the scores of multiple members in a sorted set.", complexity: "O(N)", returnCn: "分数数组；不存在返回 nil", returnEn: "Array of scores; nil for non-existent members." },
+      { name: "ZLEXCOUNT", syntax: "ZLEXCOUNT key min max", cn: "返回有序集合中指定字典区间内的成员数量。", en: "Count members within a lexicographical range.", complexity: "O(log(N))", returnCn: "数量", returnEn: "Number of members in range." },
+      { name: "ZREMRANGEBYLEX", syntax: "ZREMRANGEBYLEX key min max", cn: "移除有序集合中指定字典区间内的所有成员。", en: "Remove all members in a sorted set within a lexicographical range.", complexity: "O(log(N)+M)", returnCn: "移除的成员数量", returnEn: "Number of members removed." },
+      { name: "ZREMRANGEBYRANK", syntax: "ZREMRANGEBYRANK key start stop", cn: "移除有序集合中指定排名区间内的所有成员。", en: "Remove all members in a sorted set within rank range.", complexity: "O(log(N)+M)", returnCn: "移除的成员数量", returnEn: "Number of members removed." },
+      { name: "ZREMRANGEBYSCORE", syntax: "ZREMRANGEBYSCORE key min max", cn: "移除有序集合中指定分数区间内的所有成员。", en: "Remove all members in a sorted set within score range.", complexity: "O(log(N)+M)", returnCn: "移除的成员数量", returnEn: "Number of members removed." },
+      { name: "ZINTERCARD", syntax: "ZINTERCARD numkeys key [key ...] [LIMIT limit]", cn: "返回多个有序集合交集的基数。", en: "Return the cardinality of the intersection of sorted sets.", complexity: "O(N*K)", returnCn: "交集基数", returnEn: "Cardinality of the intersection." }
+    ]
+  },
+  {
+    name: "Bitmap",
+    commands: [
+      { name: "SETBIT", syntax: "SETBIT key offset value", cn: "对字符串值指定偏移量上的位进行设置。", en: "Sets or clears the bit at offset in the string value.", complexity: "O(1)", returnCn: "该偏移量上原来的位值", returnEn: "The original bit value stored at offset." },
+      { name: "GETBIT", syntax: "GETBIT key offset", cn: "返回字符串值指定偏移量上的位值。", en: "Returns the bit value at offset in the string value.", complexity: "O(1)", returnCn: "0 或 1", returnEn: "0 or 1." },
+      { name: "BITCOUNT", syntax: "BITCOUNT key [start end [BYTE|BIT]]", cn: "统计字符串中被设置为 1 的位的数量。", en: "Count set bits in a string.", complexity: "O(N)", returnCn: "被设置为 1 的位的数量", returnEn: "Number of bits set to 1." },
+      { name: "BITOP", syntax: "BITOP operation destkey key [key ...]", cn: "在多个键之间执行按位运算（AND/OR/XOR/NOT）并存储结果。", en: "Perform bitwise operations between strings.", complexity: "O(N)", returnCn: "结果字符串的长度", returnEn: "Size of the string stored in destkey." },
+      { name: "BITPOS", syntax: "BITPOS key bit [start [end [BYTE|BIT]]]", cn: "查找字符串中第一个被设置为指定值的位。", en: "Find first bit set or clear in a string.", complexity: "O(N)", returnCn: "位的位置", returnEn: "Position of the first bit." },
+      { name: "BITFIELD", syntax: "BITFIELD key [GET type offset] [SET type offset value] [INCRBY type offset increment] [OVERFLOW WRAP|SAT|FAIL]", cn: "对字符串执行任意位域操作。", en: "Perform arbitrary bitfield integer operations on strings.", complexity: "O(1)", returnCn: "操作结果数组", returnEn: "Array of results for each operation." },
+      { name: "BITFIELD_RO", syntax: "BITFIELD_RO key [GET type offset] [GET type offset ...]", cn: "对字符串执行只读位域操作。", en: "Perform read-only arbitrary bitfield operations.", complexity: "O(1)", returnCn: "操作结果数组", returnEn: "Array of results." }
+    ]
+  },
+  {
+    name: "HyperLogLog",
+    commands: [
+      { name: "PFADD", syntax: "PFADD key element [element ...]", cn: "将元素添加到 HyperLogLog 结构中。", en: "Add elements to a HyperLogLog structure.", complexity: "O(1) per element", returnCn: "1（内部寄存器改变）/ 0（未改变）", returnEn: "1 if approximated cardinality changed, 0 otherwise." },
+      { name: "PFCOUNT", syntax: "PFCOUNT key [key ...]", cn: "返回 HyperLogLog 的近似基数。", en: "Return the approximated cardinality of HyperLogLog(s).", complexity: "O(1)", returnCn: "近似基数", returnEn: "Approximated cardinality." },
+      { name: "PFMERGE", syntax: "PFMERGE destkey sourcekey [sourcekey ...]", cn: "将多个 HyperLogLog 合并为一个。", en: "Merge multiple HyperLogLog values into one.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" }
+    ]
+  },
+  {
+    name: "Geo",
+    commands: [
+      { name: "GEOADD", syntax: "GEOADD key [NX|XX] [CH] longitude latitude member [longitude latitude member ...]", cn: "将地理位置信息（经度、纬度、名称）添加到指定的键中。", en: "Add geospatial items to a sorted set.", complexity: "O(log(N)) per element", returnCn: "新增成员数量；CH 时返回变更总数", returnEn: "Number of new elements added, or changed with CH." },
+      { name: "GEODIST", syntax: "GEODIST key member1 member2 [M|KM|FT|MI]", cn: "返回两个给定位置之间的距离。", en: "Return the distance between two members in a geospatial index.", complexity: "O(1)", returnCn: "距离字符串；单位不存在返回 nil", returnEn: "Distance as string; nil if one or both members missing." },
+      { name: "GEOHASH", syntax: "GEOHASH key member [member ...]", cn: "返回给定位置元素的 Geohash 表示。", en: "Return valid Geohash strings representing the position of members.", complexity: "O(1) per member", returnCn: "Geohash 字符串数组", returnEn: "Array of Geohash strings." },
+      { name: "GEOPOS", syntax: "GEOPOS key member [member ...]", cn: "返回给定位置元素的经纬度坐标。", en: "Return the positions (longitude,latitude) of members.", complexity: "O(1) per member", returnCn: "[longitude, latitude] 数组", returnEn: "Array of [longitude, latitude] arrays." },
+      { name: "GEOSEARCH", syntax: "GEOSEARCH key [FROMMEMBER m] [FROMLONLAT lon lat] [BYRADIUS r unit] [BYBOX w h unit] [ASC|DESC] [COUNT count [ANY]] [WITHCOORD] [WITHDIST] [WITHHASH]", cn: "使用经纬度或成员查询指定半径或矩形范围内的地理位置。", en: "Query geospatial index for members within area.", complexity: "O(N+log(M))", returnCn: "成员数组；带选项时返回结构化结果", returnEn: "Array of members; structured results with options." },
+      { name: "GEOSEARCHSTORE", syntax: "GEOSEARCHSTORE destination source [FROMMEMBER m] [FROMLONLAT lon lat] [BYRADIUS r unit] [BYBOX w h unit] [ASC|DESC] [COUNT count [ANY]] [STOREDIST]", cn: "将 GEOSEARCH 的结果存储到目标键中。", en: "Query geospatial index and store result.", complexity: "O(N+log(M))", returnCn: "存储的成员数量", returnEn: "Number of elements stored." }
+    ]
+  },
+  {
+    name: "Stream",
+    commands: [
+      { name: "XADD", syntax: "XADD key [NOMKSTREAM] [MAXLEN|MINID [=|~] threshold [LIMIT count]] *|ID field value [field value ...]", cn: "向 Stream 追加一条消息。", en: "Append a new entry to a stream.", complexity: "O(1)", returnCn: "生成的消息 ID", returnEn: "The ID of the added entry." },
+      { name: "XLEN", syntax: "XLEN key", cn: "返回 Stream 中的消息数量。", en: "Return the number of entries in a stream.", complexity: "O(1)", returnCn: "消息数量；键不存在返回 0", returnEn: "Number of entries; 0 if key does not exist." },
+      { name: "XRANGE", syntax: "XRANGE key start end [COUNT count]", cn: "返回 Stream 中指定 ID 范围内的消息。", en: "Return a range of entries in a stream.", complexity: "O(N)", returnCn: "消息数组", returnEn: "Array of entries." },
+      { name: "XREVRANGE", syntax: "XREVRANGE key end start [COUNT count]", cn: "反向返回 Stream 中指定 ID 范围内的消息。", en: "Return a range of entries in a stream in reverse order.", complexity: "O(N)", returnCn: "消息数组", returnEn: "Array of entries." },
+      { name: "XREAD", syntax: "XREAD [COUNT count] [BLOCK milliseconds] STREAMS key [key ...] ID [ID ...]", cn: "从指定 Stream 读取消息。", en: "Read data from one or multiple streams.", complexity: "O(N)", returnCn: "[[key, entries]] 数组；超时时返回 nil", returnEn: "[[key, entries]] array; nil on timeout." },
+      { name: "XTRIM", syntax: "XTRIM key MAXLEN|MINID [=|~] threshold [LIMIT count]", cn: "修剪 Stream 到指定长度或 ID。", en: "Trims the stream to a given threshold.", complexity: "O(N)", returnCn: "被修剪的消息数量", returnEn: "Number of entries deleted." },
+      { name: "XDEL", syntax: "XDEL key ID [ID ...]", cn: "删除 Stream 中的指定消息。", en: "Deletes entries from a stream.", complexity: "O(1) per ID", returnCn: "成功删除的消息数量", returnEn: "Number of entries deleted." },
+      { name: "XINFO STREAM", syntax: "XINFO STREAM key [FULL [COUNT count]]", cn: "返回 Stream 的详细信息和统计。", en: "Return information about a stream.", complexity: "O(1)", returnCn: "结构化信息数组", returnEn: "Structured array of stream info." },
+      { name: "XINFO GROUPS", syntax: "XINFO GROUPS key", cn: "返回 Stream 的消费者组信息。", en: "Return consumer groups information of a stream.", complexity: "O(1)", returnCn: "消费者组信息数组", returnEn: "Array of consumer group info." },
+      { name: "XINFO CONSUMERS", syntax: "XINFO CONSUMERS key group", cn: "返回消费者组中消费者的信息。", en: "Return consumers information of a consumer group.", complexity: "O(1)", returnCn: "消费者信息数组", returnEn: "Array of consumer info." },
+      { name: "XGROUP CREATE", syntax: "XGROUP CREATE key group ID|$ [MKSTREAM] [ENTRIESREAD entries-read]", cn: "为 Stream 创建消费者组。", en: "Create a consumer group.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "XGROUP DESTROY", syntax: "XGROUP DESTROY key group", cn: "删除消费者组。", en: "Destroy a consumer group.", complexity: "O(N)", returnCn: "1（成功）/ 0（组不存在）", returnEn: "1 on success, 0 if group does not exist." },
+      { name: "XGROUP SETID", syntax: "XGROUP SETID key group ID|$ [ENTRIESREAD entries-read]", cn: "设置消费者组最后传递的 ID。", en: "Set the consumer group last delivered ID.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "XGROUP DELCONSUMER", syntax: "XGROUP DELCONSUMER key group consumer", cn: "从消费者组中删除消费者。", en: "Delete a consumer from a consumer group.", complexity: "O(1)", returnCn: "消费者待处理消息数量", returnEn: "Number of pending messages for the consumer." },
+      { name: "XGROUP CREATECONSUMER", syntax: "XGROUP CREATECONSUMER key group consumer", cn: "在消费者组中创建消费者。", en: "Create a consumer in a consumer group.", complexity: "O(1)", returnCn: "1（创建成功）/ 0（已存在）", returnEn: "1 if created, 0 if consumer already exists." },
+      { name: "XREADGROUP", syntax: "XREADGROUP GROUP group consumer [COUNT count] [BLOCK milliseconds] [NOACK] STREAMS key [key ...] ID|> [ID|> ...]", cn: "以消费者组身份从 Stream 读取消息。", en: "Read messages from streams using a consumer group.", complexity: "O(N)", returnCn: "[[key, entries]] 数组；超时时返回 nil", returnEn: "[[key, entries]] array; nil on timeout." },
+      { name: "XACK", syntax: "XACK key group ID [ID ...]", cn: "确认消费者组已处理指定消息。", en: "Acknowledge messages processed by a consumer group.", complexity: "O(1) per ID", returnCn: "成功确认的消息数量", returnEn: "Number of messages acknowledged." },
+      { name: "XCLAIM", syntax: "XCLAIM key group consumer min-idle-time ID [ID ...] [IDLE ms] [TIME ms-unix-time] [RETRYCOUNT count] [FORCE] [JUSTID]", cn: "变更消息的所属消费者（认领待处理消息）。", en: "Changes ownership of pending messages.", complexity: "O(1) per ID", returnCn: "消息数组或 ID 数组", returnEn: "Array of messages or IDs." },
+      { name: "XAUTOCLAIM", syntax: "XAUTOCLAIM key group consumer min-idle-time start [COUNT count] [JUSTID]", cn: "自动认领待处理时间超过阈值的消息。", en: "Automatically claim messages idle for longer than min-idle-time.", complexity: "O(1) per claimed message", returnCn: "[next-start, messages, deleted-ids]", returnEn: "[next-start, messages, deleted-ids]." },
+      { name: "XPENDING", syntax: "XPENDING key group [[IDLE min-idle-time] start end count [consumer]]", cn: "返回消费者组的待处理消息信息。", en: "Return information about pending messages.", complexity: "O(N)", returnCn: "待处理消息摘要或详细数组", returnEn: "Summary or detailed array of pending messages." }
+    ]
+  },
+  {
+    name: "Key Management",
+    commands: [
+      { name: "DEL", syntax: "DEL key [key ...]", cn: "删除指定的键。", en: "Delete a key.", complexity: "O(N)", returnCn: "成功删除的键数量", returnEn: "Number of keys removed." },
+      { name: "EXISTS", syntax: "EXISTS key [key ...]", cn: "检查给定键是否存在。", en: "Determine if a key exists.", complexity: "O(1)", returnCn: "存在的键数量", returnEn: "Number of existing keys." },
+      { name: "EXPIRE", syntax: "EXPIRE key seconds [NX|XX|GT|LT]", cn: "设置键的过期时间（秒）。", en: "Set a key's time to live in seconds.", complexity: "O(1)", returnCn: "1（设置成功）/ 0（键不存在或条件不满足）", returnEn: "1 if timeout was set, 0 otherwise." },
+      { name: "TTL", syntax: "TTL key", cn: "返回键的剩余生存时间（秒）。", en: "Get the time to live for a key in seconds.", complexity: "O(1)", returnCn: "剩余秒数；键不存在返回 -2；无过期返回 -1", returnEn: "TTL in seconds; -2 if key does not exist; -1 if no TTL." },
+      { name: "PEXPIRE", syntax: "PEXPIRE key milliseconds [NX|XX|GT|LT]", cn: "设置键的过期时间（毫秒）。", en: "Set a key's time to live in milliseconds.", complexity: "O(1)", returnCn: "1（设置成功）/ 0（键不存在或条件不满足）", returnEn: "1 if timeout was set, 0 otherwise." },
+      { name: "PTTL", syntax: "PTTL key", cn: "返回键的剩余生存时间（毫秒）。", en: "Get the time to live for a key in milliseconds.", complexity: "O(1)", returnCn: "剩余毫秒数；键不存在返回 -2；无过期返回 -1", returnEn: "TTL in ms; -2 if key does not exist; -1 if no TTL." },
+      { name: "PERSIST", syntax: "PERSIST key", cn: "移除键的过期时间，使其永久存在。", en: "Remove the expiration from a key.", complexity: "O(1)", returnCn: "1（超时已移除）/ 0（键不存在或无超时）", returnEn: "1 if timeout removed, 0 otherwise." },
+      { name: "TYPE", syntax: "TYPE key", cn: "返回键所存储的值的类型。", en: "Determine the type stored at key.", complexity: "O(1)", returnCn: "类型字符串（string/list/set/zset/hash/stream/none）", returnEn: "Type string: string, list, set, zset, hash, stream, none." },
+      { name: "RENAME", syntax: "RENAME key newkey", cn: "重命名键，如果 newkey 存在则覆盖。", en: "Rename a key.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "RENAMENX", syntax: "RENAMENX key newkey", cn: "仅在 newkey 不存在时重命名键。", en: "Rename a key, only if the new key does not exist.", complexity: "O(1)", returnCn: "1（成功）/ 0（newkey 已存在）", returnEn: "1 if key was renamed, 0 if newkey exists." },
+      { name: "KEYS", syntax: "KEYS pattern", cn: "查找所有匹配给定模式的键。", en: "Find all keys matching the given pattern.", complexity: "O(N)", returnCn: "匹配的键数组", returnEn: "Array of keys matching pattern." },
+      { name: "SCAN", syntax: "SCAN cursor [MATCH pattern] [COUNT count] [TYPE type]", cn: "增量迭代数据库中的键。", en: "Incrementally iterate the keys space.", complexity: "O(1) per call; O(N) complete", returnCn: "下一个游标和键数组", returnEn: "Next cursor and array of keys." },
+      { name: "DBSIZE", syntax: "DBSIZE", cn: "返回当前数据库的键数量。", en: "Return the number of keys in the database.", complexity: "O(1)", returnCn: "键数量", returnEn: "Number of keys." },
+      { name: "FLUSHALL", syntax: "FLUSHALL [ASYNC|SYNC]", cn: "删除所有数据库中的所有键。", en: "Remove all keys from all databases.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "FLUSHDB", syntax: "FLUSHDB [ASYNC|SYNC]", cn: "删除当前数据库中的所有键。", en: "Remove all keys from the current database.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "RANDOMKEY", syntax: "RANDOMKEY", cn: "从当前数据库中随机返回一个键。", en: "Return a random key from the database.", complexity: "O(1)", returnCn: "随机键；数据库为空返回 nil", returnEn: "Random key; nil if database is empty." },
+      { name: "UNLINK", syntax: "UNLINK key [key ...]", cn: "异步删除指定的键（非阻塞）。", en: "Delete a key asynchronously in a non-blocking way.", complexity: "O(1) per key", returnCn: "成功删除的键数量", returnEn: "Number of keys unlinked." },
+      { name: "COPY", syntax: "COPY source destination [DB destination-db] [REPLACE]", cn: "将键从源数据库复制到目标数据库。", en: "Copy a key to another key.", complexity: "O(N)", returnCn: "1（成功）/ 0（失败）", returnEn: "1 if copied, 0 if not." },
+      { name: "DUMP", syntax: "DUMP key", cn: "序列化给定键的值，返回可被 RESTORE 使用的序列化值。", en: "Serialize the value stored at key.", complexity: "O(1) to access, O(N*M) to serialize", returnCn: "序列化值；键不存在返回 nil", returnEn: "Serialized value; nil if key does not exist." },
+      { name: "RESTORE", syntax: "RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency]", cn: "用 DUMP 产生的序列化值创建键，并设置 TTL。", en: "Create a key using the provided serialized value.", complexity: "O(1) to access, O(N*M) to deserialize", returnCn: "OK", returnEn: "OK" },
+      { name: "MOVE", syntax: "MOVE key db", cn: "将键移动到另一个数据库。", en: "Move a key to another database.", complexity: "O(1)", returnCn: "1（成功）/ 0（键不存在或已在目标库）", returnEn: "1 if moved, 0 otherwise." },
+      { name: "OBJECT ENCODING", syntax: "OBJECT ENCODING key", cn: "返回键的内部编码方式。", en: "Return the internal encoding of a key.", complexity: "O(1)", returnCn: "编码字符串", returnEn: "Encoding string." },
+      { name: "OBJECT REFCOUNT", syntax: "OBJECT REFCOUNT key", cn: "返回键的引用计数。", en: "Return the reference count of a key.", complexity: "O(1)", returnCn: "引用计数", returnEn: "Reference count." },
+      { name: "OBJECT IDLETIME", syntax: "OBJECT IDLETIME key", cn: "返回键的空闲时间（秒）。", en: "Return the idle time of a key in seconds.", complexity: "O(1)", returnCn: "空闲秒数", returnEn: "Idle time in seconds." },
+      { name: "OBJECT FREQ", syntax: "OBJECT FREQ key", cn: "返回键的访问频率计数（LFU）。", en: "Return the access frequency count of a key.", complexity: "O(1)", returnCn: "频率计数", returnEn: "Frequency count." },
+      { name: "OBJECT HELP", syntax: "OBJECT HELP", cn: "返回 OBJECT 子命令的帮助信息。", en: "Return help for OBJECT subcommands.", complexity: "O(1)", returnCn: "帮助文本数组", returnEn: "Array of help text." },
+      { name: "EXPIREAT", syntax: "EXPIREAT key timestamp [NX|XX|GT|LT]", cn: "设置键在指定 UNIX 时间戳（秒）过期。", en: "Set expiration for a key using UNIX timestamp (seconds).", complexity: "O(1)", returnCn: "1（设置成功）/ 0（键不存在或条件不满足）", returnEn: "1 if timeout set, 0 otherwise." },
+      { name: "PEXPIREAT", syntax: "PEXPIREAT key ms-timestamp [NX|XX|GT|LT]", cn: "设置键在指定 UNIX 时间戳（毫秒）过期。", en: "Set expiration for a key using UNIX timestamp (milliseconds).", complexity: "O(1)", returnCn: "1（设置成功）/ 0（键不存在或条件不满足）", returnEn: "1 if timeout set, 0 otherwise." },
+      { name: "EXPIRETIME", syntax: "EXPIRETIME key", cn: "返回键的绝对过期时间戳（秒）。", en: "Return absolute Unix timestamp (seconds) at which key will expire.", complexity: "O(1)", returnCn: "过期时间戳；键不存在返回 -2；无过期返回 -1", returnEn: "Expiration timestamp; -2 if no key, -1 if no TTL." },
+      { name: "PEXPIRETIME", syntax: "PEXPIRETIME key", cn: "返回键的绝对过期时间戳（毫秒）。", en: "Return absolute Unix timestamp (milliseconds) at which key will expire.", complexity: "O(1)", returnCn: "过期毫秒时间戳；键不存在返回 -2；无过期返回 -1", returnEn: "Expiration ms timestamp; -2 if no key, -1 if no TTL." },
+      { name: "TOUCH", syntax: "TOUCH key [key ...]", cn: "更新键的最后访问时间。", en: "Update last access time of key(s).", complexity: "O(1) per key", returnCn: "更新的键数量", returnEn: "Number of keys touched." },
+      { name: "WAIT", syntax: "WAIT numreplicas timeout", cn: "阻塞直到指定数量的从节点确认写入。", en: "Wait for the synchronous replication of all write commands sent.", complexity: "O(1)", returnCn: "确认的从节点数量", returnEn: "Number of replicas that acknowledged." },
+      { name: "WAITAOF", syntax: "WAITAOF numlocal numreplicas timeout", cn: "阻塞直到 AOF 被同步到磁盘且/或从节点确认。", en: "Wait for local AOF fsync and/or replicas to ack.", complexity: "O(1)", returnCn: "[local_aof, replicas] 确认数组", returnEn: "[local_aof, replicas] ack array." }
+    ]
+  },
+  {
+    name: "Transaction",
+    commands: [
+      { name: "MULTI", syntax: "MULTI", cn: "标记一个事务块的开始。", en: "Mark the start of a transaction block.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "EXEC", syntax: "EXEC", cn: "执行所有事务块内的命令。", en: "Execute all commands issued after MULTI.", complexity: "O(N)", returnCn: "命令结果数组；事务被监视中断返回 nil", returnEn: "Array of results; nil if WATCH condition failed." },
+      { name: "DISCARD", syntax: "DISCARD", cn: "取消事务，放弃执行事务块内的所有命令。", en: "Discard all commands issued after MULTI.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "WATCH", syntax: "WATCH key [key ...]", cn: "监视一个或多个键，如果在事务执行前被修改则事务失败。", en: "Watch the given keys to determine execution of the MULTI/EXEC block.", complexity: "O(1) per key", returnCn: "OK", returnEn: "OK" },
+      { name: "UNWATCH", syntax: "UNWATCH", cn: "取消 WATCH 对所有键的监视。", en: "Forget about all watched keys.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" }
+    ]
+  },
+  {
+    name: "Scripting",
+    commands: [
+      { name: "EVAL", syntax: "EVAL script numkeys key [key ...] arg [arg ...]", cn: "执行 Lua 脚本。", en: "Execute a Lua script.", complexity: "Depends on script", returnCn: "脚本返回值", returnEn: "Result of script execution." },
+      { name: "EVALSHA", syntax: "EVALSHA sha1 numkeys key [key ...] arg [arg ...]", cn: "使用 SHA1 校验和执行缓存的 Lua 脚本。", en: "Execute a cached Lua script by SHA1 digest.", complexity: "Depends on script", returnCn: "脚本返回值", returnEn: "Result of script execution." },
+      { name: "SCRIPT LOAD", syntax: "SCRIPT LOAD script", cn: "将脚本加载到脚本缓存中，但不执行。", en: "Load a script into the scripts cache without executing.", complexity: "O(N)", returnCn: "脚本的 SHA1 校验和", returnEn: "SHA1 digest of the script." },
+      { name: "SCRIPT EXISTS", syntax: "SCRIPT EXISTS sha1 [sha1 ...]", cn: "检查脚本是否存在于脚本缓存中。", en: "Check existence of scripts in the script cache.", complexity: "O(N)", returnCn: "0/1 数组", returnEn: "Array of 0/1 values." },
+      { name: "SCRIPT FLUSH", syntax: "SCRIPT FLUSH [ASYNC|SYNC]", cn: "清空脚本缓存。", en: "Remove all scripts from the script cache.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "SCRIPT DEBUG", syntax: "SCRIPT DEBUG YES|SYNC|NO", cn: "设置 Lua 脚本的调试模式。", en: "Set the debug mode for executed scripts.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "SCRIPT HELP", syntax: "SCRIPT HELP", cn: "返回 SCRIPT 命令的帮助信息。", en: "Return help for SCRIPT subcommands.", complexity: "O(1)", returnCn: "帮助文本数组", returnEn: "Array of help text." },
+      { name: "FUNCTION LOAD", syntax: "FUNCTION LOAD [REPLACE] function-code", cn: "加载函数库到 Redis 函数引擎。", en: "Load a library to Redis functions engine.", complexity: "O(1)", returnCn: "库名称", returnEn: "Library name." },
+      { name: "FUNCTION DELETE", syntax: "FUNCTION DELETE library-name", cn: "从 Redis 中删除已加载的函数库。", en: "Delete a library from Redis.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "FUNCTION LIST", syntax: "FUNCTION LIST [LIBRARYNAME library-name] [WITHCODE]", cn: "返回已加载函数库的详细信息。", en: "Return information about all libraries.", complexity: "O(N)", returnCn: "函数库信息数组", returnEn: "Array of library info." },
+      { name: "FUNCTION DUMP", syntax: "FUNCTION DUMP", cn: "序列化所有已加载的函数库。", en: "Serialize all libraries into a payload.", complexity: "O(N)", returnCn: "序列化二进制数据", returnEn: "Serialized binary payload." },
+      { name: "FUNCTION RESTORE", syntax: "FUNCTION RESTORE payload [FLUSH|APPEND|REPLACE]", cn: "从序列化数据恢复函数库。", en: "Restore libraries from a payload.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "FUNCTION FLUSH", syntax: "FUNCTION FLUSH [ASYNC|SYNC]", cn: "删除所有已加载的函数库。", en: "Delete all libraries.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "FUNCTION STATS", syntax: "FUNCTION STATS", cn: "返回函数执行的统计信息。", en: "Return statistics about function execution.", complexity: "O(1)", returnCn: "统计信息", returnEn: "Statistics info." }
+    ]
+  },
+  {
+    name: "Pub/Sub",
+    commands: [
+      { name: "SUBSCRIBE", syntax: "SUBSCRIBE channel [channel ...]", cn: "订阅给定的一个或多个频道。", en: "Listen for messages published to the given channels.", complexity: "O(N)", returnCn: "订阅确认消息", returnEn: "Subscription confirmation messages." },
+      { name: "UNSUBSCRIBE", syntax: "UNSUBSCRIBE [channel [channel ...]]", cn: "退订给定的一个或多个频道。", en: "Stop listening for messages posted to the given channels.", complexity: "O(N)", returnCn: "退订确认消息", returnEn: "Unsubscription confirmation messages." },
+      { name: "PUBLISH", syntax: "PUBLISH channel message", cn: "将消息发布到指定频道。", en: "Post a message to a channel.", complexity: "O(N+M)", returnCn: "接收到消息的客户端数量", returnEn: "Number of clients that received the message." },
+      { name: "PSUBSCRIBE", syntax: "PSUBSCRIBE pattern [pattern ...]", cn: "订阅与给定模式匹配的所有频道。", en: "Listen for messages published to channels matching the patterns.", complexity: "O(N)", returnCn: "订阅确认消息", returnEn: "Subscription confirmation messages." },
+      { name: "PUNSUBSCRIBE", syntax: "PUNSUBSCRIBE [pattern [pattern ...]]", cn: "退订与给定模式匹配的所有频道。", en: "Stop listening for messages posted to channels matching patterns.", complexity: "O(N+M)", returnCn: "退订确认消息", returnEn: "Unsubscription confirmation messages." },
+      { name: "PUBSUB CHANNELS", syntax: "PUBSUB CHANNELS [pattern]", cn: "返回当前活跃（至少一个订阅者）的频道。", en: "List active channels.", complexity: "O(N)", returnCn: "频道数组", returnEn: "Array of active channels." },
+      { name: "PUBSUB NUMSUB", syntax: "PUBSUB NUMSUB [channel [channel ...]]", cn: "返回给定频道的订阅者数量。", en: "Return number of subscribers for channels.", complexity: "O(N)", returnCn: "[channel, count] 数组", returnEn: "Array of [channel, count] pairs." },
+      { name: "PUBSUB NUMPAT", syntax: "PUBSUB NUMPAT", cn: "返回当前被订阅的模式数量。", en: "Return number of subscriptions to patterns.", complexity: "O(1)", returnCn: "模式订阅数量", returnEn: "Number of pattern subscriptions." },
+      { name: "SSUBSCRIBE", syntax: "SSUBSCRIBE channel [channel ...]", cn: "订阅分片（shard）频道。", en: "Subscribe to shard channels.", complexity: "O(N)", returnCn: "订阅确认消息", returnEn: "Subscription confirmation messages." },
+      { name: "SUNSUBSCRIBE", syntax: "SUNSUBSCRIBE [channel [channel ...]]", cn: "退订分片频道。", en: "Unsubscribe from shard channels.", complexity: "O(N)", returnCn: "退订确认消息", returnEn: "Unsubscription confirmation messages." },
+      { name: "SPUBLISH", syntax: "SPUBLISH channel message", cn: "向分片频道发布消息。", en: "Publish a message to a shard channel.", complexity: "O(N)", returnCn: "接收到消息的客户端数量", returnEn: "Number of clients that received the message." },
+      { name: "PUBSUB SHARDCHANNELS", syntax: "PUBSUB SHARDCHANNELS [pattern]", cn: "返回活跃的分片频道。", en: "List active shard channels.", complexity: "O(N)", returnCn: "分片频道数组", returnEn: "Array of active shard channels." },
+      { name: "PUBSUB SHARDNUMSUB", syntax: "PUBSUB SHARDNUMSUB [channel [channel ...]]", cn: "返回分片频道的订阅者数量。", en: "Return number of subscribers for shard channels.", complexity: "O(N)", returnCn: "[channel, count] 数组", returnEn: "Array of [channel, count] pairs." }
+    ]
+  },
+  {
+    name: "ACL",
+    commands: [
+      { name: "ACL SETUSER", syntax: "ACL SETUSER username [rule [rule ...]]", cn: "创建或修改 ACL 用户。", en: "Modify or create the rules of an ACL user.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "ACL GETUSER", syntax: "ACL GETUSER username", cn: "返回指定 ACL 用户的规则详情。", en: "Return the rules for a specific ACL user.", complexity: "O(N)", returnCn: "用户属性数组", returnEn: "Array of user attributes." },
+      { name: "ACL DELUSER", syntax: "ACL DELUSER username [username ...]", cn: "删除指定的 ACL 用户。", en: "Delete ACL users.", complexity: "O(1) per user", returnCn: "删除的用户数量", returnEn: "Number of users deleted." },
+      { name: "ACL LIST", syntax: "ACL LIST", cn: "返回当前配置的所有 ACL 用户规则。", en: "Return the current ACL rules.", complexity: "O(N)", returnCn: "ACL 规则字符串数组", returnEn: "Array of ACL rule strings." },
+      { name: "ACL WHOAMI", syntax: "ACL WHOAMI", cn: "返回当前连接的用户名。", en: "Return the username of the current connection.", complexity: "O(1)", returnCn: "用户名", returnEn: "Username string." },
+      { name: "ACL CAT", syntax: "ACL CAT [categoryname]", cn: "返回 ACL 命令类别列表，或类别中的命令列表。", en: "List ACL categories or commands in a category.", complexity: "O(1)", returnCn: "类别或命令数组", returnEn: "Array of categories or commands." },
+      { name: "ACL LOG", syntax: "ACL LOG [count|RESET]", cn: "返回 ACL 日志条目或重置日志。", en: "List latest ACL log entries or reset log.", complexity: "O(N)", returnCn: "日志条目数组或 OK", returnEn: "Array of log entries or OK." },
+      { name: "ACL SAVE", syntax: "ACL SAVE", cn: "将当前 ACL 配置保存到 ACL 文件。", en: "Save the current ACL rules to the configured ACL file.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "ACL LOAD", syntax: "ACL LOAD", cn: "从 ACL 文件重新加载 ACL 规则。", en: "Reload the ACL rules from the configured ACL file.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "ACL DRYRUN", syntax: "ACL DRYRUN username command [arg [arg ...]]", cn: "模拟执行命令并检查 ACL 权限。", en: "Simulate command execution and check ACL permissions.", complexity: "O(1)", returnCn: "OK 或权限错误", returnEn: "OK or permission error." },
+      { name: "AUTH", syntax: "AUTH [username] password", cn: "验证当前连接的密码（和用户名）。", en: "Authenticate to the server.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" }
+    ]
+  },
+  {
+    name: "Client",
+    commands: [
+      { name: "CLIENT ID", syntax: "CLIENT ID", cn: "返回当前连接的 ID。", en: "Return the ID of the current connection.", complexity: "O(1)", returnCn: "连接 ID", returnEn: "Connection ID." },
+      { name: "CLIENT GETNAME", syntax: "CLIENT GETNAME", cn: "返回当前连接的名称。", en: "Get the current connection name.", complexity: "O(1)", returnCn: "连接名称；未设置返回 nil", returnEn: "Connection name; nil if not set." },
+      { name: "CLIENT SETNAME", syntax: "CLIENT SETNAME connection-name", cn: "设置当前连接的名称。", en: "Set the current connection name.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLIENT LIST", syntax: "CLIENT LIST [TYPE normal|master|replica|pubsub] [ID id [id ...]]", cn: "返回所有客户端连接信息和统计。", en: "Get the list of client connections.", complexity: "O(N)", returnCn: "客户端信息字符串数组", returnEn: "Array of client info strings." },
+      { name: "CLIENT INFO", syntax: "CLIENT INFO", cn: "返回当前客户端的连接信息和统计。", en: "Get information about the current client connection.", complexity: "O(1)", returnCn: "客户端信息字符串", returnEn: "Client info string." },
+      { name: "CLIENT KILL", syntax: "CLIENT KILL [ip:port] [ID client-id] [TYPE normal|master|replica|pubsub] [USER username] [ADDR ip:port] [SKIPME yes/no] [LADDR ip:port]", cn: "关闭指定的客户端连接。", en: "Kill the connection of a client.", complexity: "O(N)", returnCn: "关闭的连接数量", returnEn: "Number of clients killed." },
+      { name: "CLIENT PAUSE", syntax: "CLIENT PAUSE timeout [WRITE|ALL]", cn: "暂停处理客户端命令一段时间。", en: "Stop processing commands from clients for a specified time.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLIENT UNPAUSE", syntax: "CLIENT UNPAUSE", cn: "恢复处理客户端命令。", en: "Resume processing commands from clients.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLIENT REPLY", syntax: "CLIENT REPLY ON|OFF|SKIP", cn: "控制是否向客户端发送命令回复。", en: "Instruct the server whether to reply to commands.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLIENT NO-EVICT", syntax: "CLIENT NO-EVICT ON|OFF", cn: "设置当前连接是否受 maxmemory 驱逐影响。", en: "Set client eviction mode for current connection.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLIENT NO-TOUCH", syntax: "CLIENT NO-TOUCH ON|OFF", cn: "设置当前连接的命令是否不更新 LRU/LFU。", en: "Control whether commands affect LRU/LFU.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLIENT TRACKING", syntax: "CLIENT TRACKING ON|OFF [REDIRECT client-id] [PREFIX prefix [PREFIX prefix ...]] [BCAST] [OPTIN] [OPTOUT] [NOLOOP]", cn: "启用或禁用服务器端客户端缓存的键追踪。", en: "Enable or disable server-assisted client-side caching tracking.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLIENT CACHING", syntax: "CLIENT CACHING YES|NO", cn: "在 OPTIN/OPTOUT 模式下控制下一次查询的缓存行为。", en: "Control caching behavior for next command in opt-in/out mode.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLIENT GETREDIR", syntax: "CLIENT GETREDIR", cn: "返回客户端追踪重定向的目标 ID。", en: "Get the ID of the connection to which notifications are redirected.", complexity: "O(1)", returnCn: "重定向 ID", returnEn: "Redirection target ID." },
+      { name: "CLIENT TRACKINGINFO", syntax: "CLIENT TRACKINGINFO", cn: "返回当前连接的追踪信息。", en: "Return information about server-assisted client-side caching.", complexity: "O(1)", returnCn: "追踪信息数组", returnEn: "Array of tracking info." },
+      { name: "HELLO", syntax: "HELLO [protover [AUTH username password] [SETNAME clientname]]", cn: "切换 Redis 协议版本并进行握手。", en: "Switch Redis protocol and perform handshake.", complexity: "O(1)", returnCn: "服务器信息数组", returnEn: "Array of server info." },
+      { name: "QUIT", syntax: "QUIT", cn: "关闭当前连接。", en: "Close the current connection.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "RESET", syntax: "RESET", cn: "重置当前连接状态。", en: "Reset the current connection state.", complexity: "O(1)", returnCn: "RESET", returnEn: "RESET" },
+      { name: "SELECT", syntax: "SELECT index", cn: "切换到指定索引的数据库。", en: "Select the Redis logical database.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "PING", syntax: "PING [message]", cn: "测试连接是否存活，可附带消息返回。", en: "Ping the server.", complexity: "O(1)", returnCn: "PONG 或 message", returnEn: "PONG or message." },
+      { name: "ECHO", syntax: "ECHO message", cn: "返回给定的字符串。", en: "Echo the given string.", complexity: "O(1)", returnCn: "message", returnEn: "The message." }
+    ]
+  },
+  {
+    name: "Server/Admin",
+    commands: [
+      { name: "INFO", syntax: "INFO [section]", cn: "返回 Redis 服务器的各种信息和统计。", en: "Get information and statistics about the server.", complexity: "O(1)", returnCn: "信息字符串", returnEn: "Information string." },
+      { name: "CONFIG GET", syntax: "CONFIG GET parameter [parameter ...]", cn: "返回指定配置参数的值。", en: "Get the values of configuration parameters.", complexity: "O(N)", returnCn: "[parameter, value] 数组", returnEn: "Array of [parameter, value] pairs." },
+      { name: "CONFIG SET", syntax: "CONFIG SET parameter value", cn: "设置指定配置参数的值。", en: "Set configuration parameters to the given values.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CONFIG REWRITE", syntax: "CONFIG REWRITE", cn: "将当前配置重写回配置文件。", en: "Rewrite the configuration file.", complexity: "O(1)", returnCn: "OK 或错误", returnEn: "OK or error." },
+      { name: "CONFIG RESETSTAT", syntax: "CONFIG RESETSTAT", cn: "重置 INFO 中的统计信息。", en: "Reset the stats returned by INFO.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "DBSIZE", syntax: "DBSIZE", cn: "返回当前数据库的键数量。", en: "Return the number of keys in the database.", complexity: "O(1)", returnCn: "键数量", returnEn: "Number of keys." },
+      { name: "DEBUG OBJECT", syntax: "DEBUG OBJECT key", cn: "返回键的内部调试信息。", en: "Get debugging information about a key.", complexity: "O(1)", returnCn: "调试信息字符串", returnEn: "Debugging information string." },
+      { name: "DEBUG SET-ACTIVE-EXPIRE", syntax: "DEBUG SET-ACTIVE-EXPIRE yes|no", cn: "启用或禁用主动过期删除。", en: "Enable or disable active expiration.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "DEBUG SLEEP", syntax: "DEBUG SLEEP seconds", cn: "让服务器休眠指定的秒数。", en: "Sleep for the specified number of seconds.", complexity: "O(seconds)", returnCn: "OK", returnEn: "OK" },
+      { name: "BGSAVE", syntax: "BGSAVE [SCHEDULE]", cn: "在后台异步保存当前数据库到磁盘。", en: "Asynchronously save the dataset to disk.", complexity: "O(1)", returnCn: "后台保存启动确认", returnEn: "Background saving started confirmation." },
+      { name: "BGREWRITEAOF", syntax: "BGREWRITEAOF", cn: "异步重写 AOF 文件。", en: "Asynchronously rewrite the append-only file.", complexity: "O(1)", returnCn: "AOF 重写启动确认", returnEn: "AOF rewrite started confirmation." },
+      { name: "LASTSAVE", syntax: "LASTSAVE", cn: "返回最后一次成功保存到磁盘的 UNIX 时间戳。", en: "Get the UNIX time stamp of the last successful save.", complexity: "O(1)", returnCn: "UNIX 时间戳", returnEn: "UNIX timestamp." },
+      { name: "TIME", syntax: "TIME", cn: "返回当前服务器时间。", en: "Return the current server time.", complexity: "O(1)", returnCn: "[seconds, microseconds]", returnEn: "[seconds, microseconds] array." },
+      { name: "SLOWLOG GET", syntax: "SLOWLOG GET [count]", cn: "返回慢查询日志中的条目。", en: "Get the slow log entries.", complexity: "O(N)", returnCn: "慢查询条目数组", returnEn: "Array of slow log entries." },
+      { name: "SLOWLOG LEN", syntax: "SLOWLOG LEN", cn: "返回慢查询日志的当前长度。", en: "Get the length of the slow log.", complexity: "O(1)", returnCn: "日志长度", returnEn: "Length of slow log." },
+      { name: "SLOWLOG RESET", syntax: "SLOWLOG RESET", cn: "清空慢查询日志。", en: "Reset the slow log.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "LATENCY LATEST", syntax: "LATENCY LATEST", cn: "返回最新的延迟事件样本。", en: "Return the latest latency samples for all events.", complexity: "O(1)", returnCn: "延迟事件数组", returnEn: "Array of latency events." },
+      { name: "LATENCY HISTORY", syntax: "LATENCY HISTORY event", cn: "返回指定延迟事件的时间序列。", en: "Return timestamp-latency samples for an event.", complexity: "O(1)", returnCn: "[timestamp, latency] 数组", returnEn: "Array of [timestamp, latency] pairs." },
+      { name: "LATENCY RESET", syntax: "LATENCY RESET [event [event ...]]", cn: "重置一个或多个延迟事件的时间序列数据。", en: "Reset latency data for one or more events.", complexity: "O(1)", returnCn: "重置的事件数量", returnEn: "Number of events reset." },
+      { name: "MEMORY USAGE", syntax: "MEMORY USAGE key [SAMPLES count]", cn: "返回键及其值占用的内存字节数。", en: "Return the memory usage in bytes of a key.", complexity: "O(N)", returnCn: "内存使用量（字节）", returnEn: "Memory usage in bytes." },
+      { name: "MEMORY DOCTOR", syntax: "MEMORY DOCTOR", cn: "返回内存使用问题的诊断报告。", en: "Output memory problems report.", complexity: "O(1)", returnCn: "诊断字符串", returnEn: "Diagnostic string." },
+      { name: "COMMAND", syntax: "COMMAND", cn: "返回 Redis 命令的详细数组。", en: "Get array of Redis command details.", complexity: "O(N)", returnCn: "命令详情数组", returnEn: "Array of command details." },
+      { name: "COMMAND COUNT", syntax: "COMMAND COUNT", cn: "返回 Redis 命令的总数。", en: "Return total number of commands.", complexity: "O(1)", returnCn: "命令总数", returnEn: "Total number of commands." },
+      { name: "COMMAND LIST", syntax: "COMMAND LIST [FILTERBY MODULE module|ACLCAT category|PATTERN pattern]", cn: "返回命令名称列表。", en: "Return an array of command names.", complexity: "O(N)", returnCn: "命令名称数组", returnEn: "Array of command names." },
+      { name: "COMMAND DOCS", syntax: "COMMAND DOCS [command [command ...]]", cn: "返回命令的文档信息。", en: "Return documentation about commands.", complexity: "O(N)", returnCn: "命令文档数组", returnEn: "Array of command docs." },
+      { name: "COMMAND GETKEYS", syntax: "COMMAND GETKEYS command arg [arg ...]", cn: "从完整命令参数中提取键的位置。", en: "Extract keys from a full Redis command.", complexity: "O(N)", returnCn: "键数组", returnEn: "Array of keys." },
+      { name: "MONITOR", syntax: "MONITOR", cn: "实时打印服务器接收到的所有命令。", en: "Listen for all requests received by the server in real time.", complexity: "O(1)", returnCn: "OK（然后开始流式输出）", returnEn: "OK (then streams commands)." }
+    ]
+  },
+  {
+    name: "Replication",
+    commands: [
+      { name: "REPLICAOF", syntax: "REPLICAOF host port", cn: "将当前服务器配置为指定主节点的从节点；NO ONE 则取消复制。", en: "Configure the server as a replica of another, or NO ONE to remove.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "SLAVEOF", syntax: "SLAVEOF host port", cn: "REPLICAOF 的旧称，功能相同。", en: "Legacy alias for REPLICAOF.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "ROLE", syntax: "ROLE", cn: "返回当前实例在复制中的角色信息。", en: "Return the role of the instance in the context of replication.", complexity: "O(1)", returnCn: "角色信息数组", returnEn: "Array of role info." },
+      { name: "PSYNC", syntax: "PSYNC replicationid offset", cn: "内部复制命令，用于部分重同步。", en: "Internal replication command for partial resync.", complexity: "O(1)", returnCn: "FULLRESYNC 或 CONTINUE", returnEn: "FULLRESYNC or CONTINUE response." },
+      { name: "REPLCONF", syntax: "REPLCONF option value [option value ...]", cn: "内部复制配置命令。", en: "Internal replication configuration command.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "WAIT", syntax: "WAIT numreplicas timeout", cn: "阻塞直到指定数量的从节点确认写入。", en: "Wait for synchronous replication of writes.", complexity: "O(1)", returnCn: "确认的从节点数量", returnEn: "Number of replicas that acknowledged." },
+      { name: "SYNC", syntax: "SYNC", cn: "内部复制命令，请求完整 RDB 同步。", en: "Internal replication command for full sync.", complexity: "O(1)", returnCn: "RDB 转储数据", returnEn: "RDB dump data." },
+      { name: "FAILOVER", syntax: "FAILOVER [TO host port [FORCE] [ABORT]] [TIMEOUT milliseconds]", cn: "将当前主节点故障转移到指定从节点。", en: "Start a coordinated failover from the current master.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" }
+    ]
+  },
+  {
+    name: "Sentinel",
+    commands: [
+      { name: "SENTINEL MASTERS", syntax: "SENTINEL MASTERS", cn: "返回被监视的所有主节点的信息和状态。", en: "Return information about all known masters.", complexity: "O(N)", returnCn: "主节点信息数组", returnEn: "Array of master info." },
+      { name: "SENTINEL MASTER", syntax: "SENTINEL MASTER master-name", cn: "返回指定主节点的信息和状态。", en: "Return information about a specific master.", complexity: "O(1)", returnCn: "主节点信息数组", returnEn: "Array of master info." },
+      { name: "SENTINEL REPLICAS", syntax: "SENTINEL REPLICAS master-name", cn: "返回指定主节点的所有从节点信息。", en: "Return information about replicas for a master.", complexity: "O(N)", returnCn: "从节点信息数组", returnEn: "Array of replica info." },
+      { name: "SENTINEL SENTINELS", syntax: "SENTINEL SENTINELS master-name", cn: "返回监视指定主节点的其他 Sentinel 信息。", en: "Return information about other Sentinels monitoring a master.", complexity: "O(N)", returnCn: "Sentinel 信息数组", returnEn: "Array of Sentinel info." },
+      { name: "SENTINEL GET-MASTER-ADDR-BY-NAME", syntax: "SENTINEL GET-MASTER-ADDR-BY-NAME master-name", cn: "返回指定主节点的 IP 和端口。", en: "Return the IP and port of a master.", complexity: "O(1)", returnCn: "[ip, port] 数组", returnEn: "[ip, port] array." },
+      { name: "SENTINEL MONITOR", syntax: "SENTINEL MONITOR name ip port quorum", cn: "开始监视新的主节点。", en: "Start monitoring a new master.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "SENTINEL REMOVE", syntax: "SENTINEL REMOVE name", cn: "停止监视指定的主节点。", en: "Stop monitoring a master.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "SENTINEL SET", syntax: "SENTINEL SET name option value", cn: "修改指定主节点的 Sentinel 配置参数。", en: "Set configuration parameters for a master.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "SENTINEL FAILOVER", syntax: "SENTINEL FAILOVER master-name", cn: "强制对指定主节点执行故障转移。", en: "Force a failover for a master.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "SENTINEL RESET", syntax: "SENTINEL RESET pattern", cn: "重置匹配模式的主节点状态。", en: "Reset masters matching a pattern.", complexity: "O(N)", returnCn: "重置的主节点数量", returnEn: "Number of masters reset." },
+      { name: "SENTINEL CKQUORUM", syntax: "SENTINEL CKQUORUM master-name", cn: "检查当前 Sentinel 配置是否能达到仲裁数量。", en: "Check if current Sentinel config can reach quorum.", complexity: "O(1)", returnCn: "OK 或错误", returnEn: "OK or error." },
+      { name: "SENTINEL MYID", syntax: "SENTINEL MYID", cn: "返回当前 Sentinel 实例的 ID。", en: "Return the ID of the Sentinel instance.", complexity: "O(1)", returnCn: "Sentinel ID", returnEn: "Sentinel ID string." },
+      { name: "SENTINEL IS-MASTER-DOWN-BY-ADDR", syntax: "SENTINEL IS-MASTER-DOWN-BY-ADDR ip port current-epoch runid", cn: "检查指定地址的主节点是否主观下线。", en: "Check if master is down from local Sentinel point of view.", complexity: "O(1)", returnCn: "[down_state, leader, epoch]", returnEn: "[down_state, leader, epoch] array." }
+    ]
+  },
+  {
+    name: "Cluster",
+    commands: [
+      { name: "CLUSTER INFO", syntax: "CLUSTER INFO", cn: "返回集群节点的信息和统计。", en: "Return information about the cluster state.", complexity: "O(1)", returnCn: "键值对信息数组", returnEn: "Array of key-value info pairs." },
+      { name: "CLUSTER NODES", syntax: "CLUSTER NODES", cn: "返回集群中所有节点的配置信息。", en: "Get Cluster config for the node.", complexity: "O(N)", returnCn: "节点配置字符串", returnEn: "String of node configs." },
+      { name: "CLUSTER MYID", syntax: "CLUSTER MYID", cn: "返回当前节点的集群 ID。", en: "Return the ID of the current node.", complexity: "O(1)", returnCn: "节点 ID", returnEn: "Node ID string." },
+      { name: "CLUSTER SLOTS", syntax: "CLUSTER SLOTS", cn: "返回哈希槽到节点的映射信息。", en: "Return hash slot mapping to nodes.", complexity: "O(N)", returnCn: "槽映射数组", returnEn: "Array of slot ranges and node info." },
+      { name: "CLUSTER SHARDS", syntax: "CLUSTER SHARDS", cn: "返回集群分片的详细信息。", en: "Return detailed shard information.", complexity: "O(N)", returnCn: "分片详情数组", returnEn: "Array of shard details." },
+      { name: "CLUSTER MEET", syntax: "CLUSTER MEET ip port", cn: "将新节点加入集群。", en: "Force a node to handshake with another node.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLUSTER ADDSLOTS", syntax: "CLUSTER ADDSLOTS slot [slot ...]", cn: "将指定哈希槽分配给当前节点。", en: "Assign hash slots to current node.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLUSTER DELSLOTS", syntax: "CLUSTER DELSLOTS slot [slot ...]", cn: "从当前节点移除指定哈希槽的分配。", en: "Remove hash slots assignment from current node.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLUSTER SETSLOT", syntax: "CLUSTER SETSLOT slot IMPORTING node|MIGRATING node|NODE node|STABLE", cn: "改变哈希槽的状态。", en: "Change the state of a hash slot.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLUSTER REPLICATE", syntax: "CLUSTER REPLICATE node-id", cn: "将当前节点配置为指定主节点的从节点。", en: "Configure current node as replica of a master.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLUSTER FAILOVER", syntax: "CLUSTER FAILOVER [FORCE|TAKEOVER]", cn: "手动执行故障转移，将当前从节点提升为主节点。", en: "Forces a replica to perform manual failover.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLUSTER RESET", syntax: "CLUSTER RESET [HARD|SOFT]", cn: "重置集群节点状态。", en: "Reset a cluster node.", complexity: "O(N)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLUSTER KEYSLOT", syntax: "CLUSTER KEYSLOT key", cn: "返回指定键的哈希槽编号。", en: "Return the hash slot for a key.", complexity: "O(N)", returnCn: "槽编号", returnEn: "Hash slot number." },
+      { name: "CLUSTER COUNTKEYSINSLOT", syntax: "CLUSTER COUNTKEYSINSLOT slot", cn: "返回指定哈希槽中键的数量。", en: "Return the number of keys in a hash slot.", complexity: "O(1)", returnCn: "键数量", returnEn: "Number of keys." },
+      { name: "CLUSTER GETKEYSINSLOT", syntax: "CLUSTER GETKEYSINSLOT slot count", cn: "返回指定哈希槽中的键名。", en: "Return key names in a hash slot.", complexity: "O(N)", returnCn: "键数组", returnEn: "Array of keys." },
+      { name: "CLUSTER LINKS", syntax: "CLUSTER LINKS", cn: "返回当前节点与其他节点的连接信息。", en: "Return TCP links to other nodes.", complexity: "O(N)", returnCn: "连接信息数组", returnEn: "Array of link info." },
+      { name: "CLUSTER COUNTFAILUREREPORTS", syntax: "CLUSTER COUNTFAILUREREPORTS node-id", cn: "返回节点的故障报告数量。", en: "Return the number of failure reports for a node.", complexity: "O(N)", returnCn: "故障报告数量", returnEn: "Number of failure reports." },
+      { name: "CLUSTER FLUSHSLOTS", syntax: "CLUSTER FLUSHSLOTS", cn: "删除当前节点分配的所有哈希槽信息。", en: "Delete all slot assignments from current node.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLUSTER SAVECONFIG", syntax: "CLUSTER SAVECONFIG", cn: "将集群配置保存到 nodes.conf 文件。", en: "Force node to save cluster state to disk.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLUSTER SET-CONFIG-EPOCH", syntax: "CLUSTER SET-CONFIG-EPOCH config-epoch", cn: "设置当前节点的配置纪元。", en: "Set the configuration epoch for a node.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "CLUSTER MYSHARDID", syntax: "CLUSTER MYSHARDID", cn: "返回当前节点所属分片的 ID。", en: "Return the shard ID of the current node.", complexity: "O(1)", returnCn: "分片 ID", returnEn: "Shard ID string." },
+      { name: "READONLY", syntax: "READONLY", cn: "启用集群从节点的读请求。", en: "Enable read queries for a connection to a replica.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "READWRITE", syntax: "READWRITE", cn: "禁用集群从节点的读请求（默认）。", en: "Disable read queries for a connection to a replica.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "MIGRATE", syntax: "MIGRATE host port key| destination-db timeout [COPY] [REPLACE] [AUTH password] [AUTH2 username password] [KEYS key [key ...]]", cn: "将键原子性地迁移到另一个 Redis 实例。", en: "Atomically transfer a key to another Redis instance.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" },
+      { name: "ASKING", syntax: "ASKING", cn: "在执行后续命令前发送，允许在导入槽中执行一次命令。", en: "Allow next command on an importing slot to be executed.", complexity: "O(1)", returnCn: "OK", returnEn: "OK" }
+    ]
+  },
+  {
+    name: "Module",
+    commands: [
+      { name: "MODULE LIST", syntax: "MODULE LIST", cn: "返回所有已加载模块的列表。", en: "Return all loaded modules.", complexity: "O(N)", returnCn: "模块信息数组", returnEn: "Array of module info." },
+      { name: "MODULE LOAD", syntax: "MODULE LOAD path [arg [arg ...]]", cn: "从指定路径加载模块。", en: "Load a module from a path.", complexity: "O(1)", returnCn: "OK 或错误", returnEn: "OK or error." },
+      { name: "MODULE UNLOAD", syntax: "MODULE UNLOAD name", cn: "卸载指定名称的模块。", en: "Unload a module by name.", complexity: "O(1)", returnCn: "OK 或错误", returnEn: "OK or error." }
+    ]
+  }
+];
+
+// Total command count
+const totalCommands = categories.reduce((sum, c) => sum + c.commands.length, 0);
+
+// DOM refs
+const navMenu = document.getElementById('navMenu');
+const content = document.getElementById('content');
+const searchInput = document.getElementById('searchInput');
+const searchStats = document.getElementById('searchStats');
+const backToTop = document.getElementById('backToTop');
+
+// Render nav
+function renderNav() {
+  navMenu.innerHTML = categories.map(cat => {
+    const count = cat.commands.length;
+    return `<li class="nav-item"><a href="#cat-${cat.name.replace(/\s+/g, '-')}" data-target="cat-${cat.name.replace(/\s+/g, '-')}">${cat.name}<span class="nav-count">${count}</span></a></li>`;
+  }).join('');
+}
+
+// Render content
+function renderContent(filterText = '') {
+  const lowerFilter = filterText.toLowerCase().trim();
+  let visibleCount = 0;
+  
+  content.innerHTML = categories.map(cat => {
+    const filteredCommands = lowerFilter ? cat.commands.filter(cmd => {
+      return cmd.name.toLowerCase().includes(lowerFilter) ||
+             cmd.cn.toLowerCase().includes(lowerFilter) ||
+             cmd.en.toLowerCase().includes(lowerFilter) ||
+             cat.name.toLowerCase().includes(lowerFilter);
+    }) : cat.commands;
+    
+    if (lowerFilter && filteredCommands.length === 0) return '';
+    visibleCount += filteredCommands.length;
+    
+    const gridHtml = filteredCommands.map(cmd => `
+      <div class="command-card collapsed" data-name="${cmd.name.toLowerCase()}">
+        <div class="card-header" onclick="toggleCard(this)">
+          <span class="command-name">${escapeHtml(cmd.name)}</span>
+          <span class="card-toggle">▼</span>
+        </div>
+        <div class="card-body">
+          <div class="syntax-box">${escapeHtml(cmd.syntax)}</div>
+          <div class="desc-cn">${escapeHtml(cmd.cn)}</div>
+          <div class="desc-en">${escapeHtml(cmd.en)}</div>
+          <div class="meta-row">
+            <div class="meta-item"><span class="meta-label">复杂度:</span><span class="meta-value">${escapeHtml(cmd.complexity)}</span></div>
+          </div>
+          <div class="return-box">
+            <div class="return-cn">返回值: ${escapeHtml(cmd.returnCn)}</div>
+            <div class="return-en">Return: ${escapeHtml(cmd.returnEn)}</div>
+          </div>
+        </div>
+      </div>
+    `).join('');
+    
+    return `
+      <section class="category" id="cat-${cat.name.replace(/\s+/g, '-')}">
+        <div class="category-header">
+          <h3>${escapeHtml(cat.name)}</h3>
+          <span class="category-count">${filteredCommands.length} commands</span>
+        </div>
+        <div class="command-grid">
+          ${gridHtml}
+        </div>
+      </section>
+    `;
+  }).join('');
+  
+  if (lowerFilter) {
+    searchStats.textContent = `Showing ${visibleCount} of ${totalCommands} commands matching "${filterText}"`;
+  } else {
+    searchStats.textContent = `Total ${totalCommands} commands across ${categories.length} categories`;
+  }
+  
+  if (visibleCount === 0) {
+    content.innerHTML = `<div class="no-results"><h3>No results found</h3><p>Try a different search term</p></div>`;
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function toggleCard(header) {
+  const card = header.closest('.command-card');
+  card.classList.toggle('collapsed');
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.querySelector('.overlay').classList.toggle('show');
+}
+
+// Search
+searchInput.addEventListener('input', (e) => {
+  renderContent(e.target.value);
+});
+
+// Scroll spy for nav highlighting
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      document.querySelectorAll('.nav-item a').forEach(link => link.classList.remove('active'));
+      const id = entry.target.id;
+      const activeLink = document.querySelector(`.nav-item a[data-target="${id}"]`);
+      if (activeLink) activeLink.classList.add('active');
+    }
+  });
+}, { rootMargin: '-20% 0px -60% 0px' });
+
+function observeSections() {
+  document.querySelectorAll('.category').forEach(section => observer.observe(section));
+}
+
+// Back to top
+window.addEventListener('scroll', () => {
+  if (window.scrollY > 400) {
+    backToTop.classList.add('visible');
+  } else {
+    backToTop.classList.remove('visible');
+  }
+});
+
+// Smooth scroll for nav links
+navMenu.addEventListener('click', (e) => {
+  const link = e.target.closest('a');
+  if (link) {
+    e.preventDefault();
+    const targetId = link.getAttribute('href');
+    const target = document.querySelector(targetId);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (window.innerWidth <= 900) toggleSidebar();
+    }
+  }
+});
+
+// Expand all / collapse all keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    searchInput.value = '';
+    renderContent('');
+    searchInput.blur();
+  }
+});
+
+// Init
+renderNav();
+renderContent();
+observeSections();
+</script>
+</body>
+</html>
