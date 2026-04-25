@@ -33,7 +33,7 @@ impl StorageEngine {
         })?;
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     return Ok(None);
                 }
                 let size = 64 + key.len() + Self::estimate_value_size(v);
@@ -73,7 +73,7 @@ impl StorageEngine {
     /// 估算单个 StorageValue 的内存大小
     fn estimate_value_size(value: &StorageValue) -> usize {
         match value {
-            StorageValue::String(b) | StorageValue::ExpiringString(b, _) => b.len(),
+            StorageValue::String(b) => b.len(),
             StorageValue::List(list) => {
                 list.iter().map(|b| b.len()).sum::<usize>() + list.len() * std::mem::size_of::<Bytes>()
             }

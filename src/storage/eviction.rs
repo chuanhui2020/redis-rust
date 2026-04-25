@@ -3,7 +3,7 @@
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 use crate::error::{AppError, Result};
-use crate::storage::{EvictionPolicy, StorageEngine, StorageValue};
+use crate::storage::{EvictionPolicy, StorageEngine};
 
 impl StorageEngine {
     /// 如果需要则淘汰 key，直到内存使用低于 maxmemory
@@ -76,11 +76,11 @@ impl StorageEngine {
                             continue;
                         }
                         if volatile_only {
-                            if let Some(StorageValue::ExpiringString(_, _)) = map.get(key)
-                                && *time < lru_time {
-                                    lru_time = *time;
-                                    lru_key = Some((db_idx, key.clone()));
-                                }
+                            let expires = db.expires.get_shard(key).read().unwrap();
+                            if expires.contains_key(key) && *time < lru_time {
+                                lru_time = *time;
+                                lru_key = Some((db_idx, key.clone()));
+                            }
                         } else if *time < lru_time {
                             lru_time = *time;
                             lru_key = Some((db_idx, key.clone()));
@@ -109,9 +109,12 @@ impl StorageEngine {
             for shard in db.inner.all_shards() {
                 if let Ok(map) = shard.read() {
                     let keys: Vec<String> = if volatile_only {
-                        map.iter()
-                            .filter(|(_, v)| matches!(v, StorageValue::ExpiringString(_, _)))
-                            .map(|(k, _)| k.clone())
+                        map.keys()
+                            .filter(|k| {
+                                let expires = db.expires.get_shard(k).read().unwrap();
+                                expires.contains_key(*k)
+                            })
+                            .cloned()
                             .collect()
                     } else {
                         map.keys().cloned().collect()
@@ -143,11 +146,11 @@ impl StorageEngine {
                             continue;
                         }
                         if volatile_only {
-                            if let Some(StorageValue::ExpiringString(_, _)) = map.get(key)
-                                && *count < min_count {
-                                    min_count = *count;
-                                    lfu_key = Some((db_idx, key.clone()));
-                                }
+                            let expires = db.expires.get_shard(key).read().unwrap();
+                            if expires.contains_key(key) && *count < min_count {
+                                min_count = *count;
+                                lfu_key = Some((db_idx, key.clone()));
+                            }
                         } else if *count < min_count {
                             min_count = *count;
                             lfu_key = Some((db_idx, key.clone()));
@@ -174,15 +177,13 @@ impl StorageEngine {
 
         let dbs = &self.dbs;
         for (db_idx, db) in dbs.iter().enumerate() {
-            for shard in db.inner.all_shards() {
-                if let Ok(map) = shard.read() {
-                    for (key, value) in map.iter() {
-                        if let StorageValue::ExpiringString(_, expire_at) = value {
-                            let ttl = expire_at.saturating_sub(now);
-                            if ttl < min_ttl {
-                                min_ttl = ttl;
-                                ttl_key = Some((db_idx, key.clone()));
-                            }
+            for shard in db.expires.all_shards() {
+                if let Ok(expires) = shard.read() {
+                    for (key, expire_at) in expires.iter() {
+                        let ttl = expire_at.saturating_sub(now);
+                        if ttl < min_ttl {
+                            min_ttl = ttl;
+                            ttl_key = Some((db_idx, key.clone()));
                         }
                     }
                 }
@@ -207,6 +208,8 @@ impl StorageEngine {
         map.remove(key);
         let mut versions = db.versions.get_shard(key).write().unwrap();
         versions.remove(key);
+        let mut expires = db.expires.get_shard(key).write().unwrap();
+        expires.remove(key);
         let mut times = db.access_times.write().unwrap();
         times.remove(key);
         let mut counts = db.access_counts.write().unwrap();

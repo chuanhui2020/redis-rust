@@ -140,7 +140,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(None)
                 } else {
@@ -178,7 +178,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(members.iter().map(|_| None).collect())
                 } else {
@@ -214,7 +214,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(members.iter().map(|_| None).collect())
                 } else {
@@ -265,7 +265,7 @@ impl StorageEngine {
 
         let zset = match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     return Ok(vec![]);
                 }

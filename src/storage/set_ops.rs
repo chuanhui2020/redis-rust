@@ -14,7 +14,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     let mut set = HashSet::new();
                     let mut count = 0i64;
@@ -64,7 +64,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(0)
                 } else {
@@ -97,7 +97,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(vec![])
                 } else {
@@ -125,7 +125,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(false)
                 } else {
@@ -151,7 +151,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(0)
                 } else {
@@ -179,7 +179,7 @@ impl StorageEngine {
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             match map.get(key) {
                 Some(v) => {
-                    if Self::is_expired(v) {
+                    if Self::is_key_expired(&db, key) {
                         map.remove(key);
                         return Ok(vec![]);
                     }
@@ -217,7 +217,7 @@ impl StorageEngine {
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             match map.get(key) {
                 Some(v) => {
-                    if Self::is_expired(v) {
+                    if Self::is_key_expired(&db, key) {
                         map.remove(key);
                         continue;
                     }
@@ -254,7 +254,7 @@ impl StorageEngine {
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             match map.get(key) {
                 Some(v) => {
-                    if Self::is_expired(v) {
+                    if Self::is_key_expired(&db, key) {
                         map.remove(key);
                         if i == 0 {
                             return Ok(vec![]);
@@ -300,7 +300,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     return Ok(vec![]);
                 }
@@ -360,7 +360,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     return Ok(vec![]);
                 }
@@ -406,7 +406,7 @@ impl StorageEngine {
         // 检查 source
         let removed = match src_map.get_mut(source) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, source) {
                     src_map.remove(source);
                     return Ok(false);
                 }
@@ -436,7 +436,7 @@ impl StorageEngine {
         // 添加到 destination
         match dst_map.get_mut(destination) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, destination) {
                     dst_map.remove(destination);
                     let mut s = HashSet::new();
                     s.insert(member);
@@ -559,7 +559,7 @@ impl StorageEngine {
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             let current: HashSet<Bytes> = if let Some(v) = map.get(key) {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     HashSet::new()
                 } else if let StorageValue::Set(s) = v {
                     s.clone()
@@ -596,7 +596,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(vec![0; members.len()])
                 } else {
@@ -624,7 +624,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     return Ok((0, vec![]));
                 }

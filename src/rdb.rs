@@ -120,13 +120,10 @@ pub fn save_to_writer_with_repl(
                 AppError::Storage(format!("RDB 保存时锁中毒: {}", e))
             })?;
             for (key, value) in map.iter() {
-                let (ttl, is_expired) = match value {
-                    StorageValue::ExpiringString(_, expire_at) => {
-                        let expired = now >= *expire_at;
-                        (Some(*expire_at), expired)
-                    }
-                    _ => (None, false),
-                };
+                let expires = db.expires.get_shard(key).read().unwrap();
+                let ttl = expires.get(key).copied();
+                drop(expires);
+                let is_expired = ttl.map_or(false, |expire_at| now >= expire_at);
                 if !is_expired {
                     valid_entries.push((key.clone(), value.clone(), ttl));
                 }
@@ -200,7 +197,7 @@ fn write_key_value(
 ) -> Result<()> {
     // 类型标记
     let type_byte = match value {
-        StorageValue::String(_) | StorageValue::ExpiringString(_, _) => TYPE_STRING,
+        StorageValue::String(_) => TYPE_STRING,
         StorageValue::List(_) => TYPE_LIST,
         StorageValue::Hash(_) => TYPE_HASH,
         StorageValue::Set(_) => TYPE_SET,
@@ -236,7 +233,7 @@ fn write_key_value(
 
     // value 数据
     match value {
-        StorageValue::String(bytes) | StorageValue::ExpiringString(bytes, _) => {
+        StorageValue::String(bytes) => {
             let len = bytes.len() as u32;
             let len_bytes = len.to_be_bytes();
             writer.write_all(&len_bytes)?;
@@ -519,11 +516,7 @@ fn read_key_value(
             crc.update(&len.to_be_bytes());
             let bytes = read_bytes(reader, len as usize)?;
             crc.update(&bytes);
-            if let Some(expire_at) = ttl {
-                StorageValue::ExpiringString(Bytes::from(bytes), expire_at)
-            } else {
-                StorageValue::String(Bytes::from(bytes))
-            }
+            StorageValue::String(Bytes::from(bytes))
         }
         TYPE_LIST => {
             let count = read_u32(reader)?;
@@ -604,7 +597,11 @@ fn read_key_value(
     let mut map = db.inner.get_shard(&key).write().map_err(|e| {
         AppError::Storage(format!("RDB 加载时锁中毒: {}", e))
     })?;
-    map.insert(key, value);
+    map.insert(key.clone(), value);
+    if let Some(expire_at) = ttl {
+        let mut expires = db.expires.get_shard(&key).write().unwrap();
+        expires.insert(key, expire_at);
+    }
     Ok(())
 }
 
@@ -620,7 +617,7 @@ mod tests {
         // db 0: String
         storage.set("str_key".to_string(), Bytes::from("hello")).unwrap();
 
-        // db 0: ExpiringString
+        // db 0: String with TTL
         storage.set_with_ttl("ttl_key".to_string(), Bytes::from("ttl_value"), 100_000).unwrap();
 
         // db 0: List

@@ -22,7 +22,7 @@ impl StorageEngine {
             let map = db.inner.get_shard(key).read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key) {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     continue;
                 }
                 if let StorageValue::ZSet(z) = v {
@@ -82,7 +82,7 @@ impl StorageEngine {
             let map = db.inner.get_shard(key).read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_expired(v)
+                && !Self::is_key_expired(&db, key)
                     && let StorageValue::ZSet(z) = v {
                         for (member, score) in &z.member_to_score {
                             current_members.insert(member.clone(), *score * weight);
@@ -138,7 +138,7 @@ impl StorageEngine {
             let map = db.inner.get_shard(key).read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             let current: HashMap<String, f64> = if let Some(v) = map.get(key) {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     HashMap::new()
                 } else if let StorageValue::ZSet(z) = v {
                     z.member_to_score.clone()
@@ -188,7 +188,7 @@ impl StorageEngine {
             let map = db.inner.get_shard(key).read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             let current: HashMap<String, f64> = if let Some(v) = map.get(key) {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     HashMap::new()
                 } else if let StorageValue::ZSet(z) = v {
                     z.member_to_score.clone()
@@ -241,7 +241,7 @@ impl StorageEngine {
             let map = db.inner.get_shard(key).read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_expired(v)
+                && !Self::is_key_expired(&db, key)
                     && let StorageValue::ZSet(z) = v {
                         for (member, score) in &z.member_to_score {
                             current_members.insert(member.clone(), *score * weight);
@@ -296,7 +296,7 @@ impl StorageEngine {
             let map = db.inner.get_shard(key).read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key) {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     continue;
                 }
                 if let StorageValue::ZSet(z) = v {
@@ -344,7 +344,7 @@ impl StorageEngine {
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             match map.get(src) {
                 Some(v) => {
-                    if Self::is_expired(v) {
+                    if Self::is_key_expired(&db, src) {
                         vec![]
                     } else {
                         Self::check_zset_type(v)?;
@@ -441,7 +441,7 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get_mut(key) {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     continue;
                 }
                 Self::check_zset_type(v)?;
@@ -626,7 +626,7 @@ impl StorageEngine {
             let map = db.inner.get_shard(key).read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_expired(v)
+                && !Self::is_key_expired(&db, key)
                     && let StorageValue::ZSet(z) = v {
                         for (member, score) in &z.member_to_score {
                             current_members.insert(member.clone(), *score);

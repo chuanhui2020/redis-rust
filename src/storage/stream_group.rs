@@ -20,7 +20,7 @@ impl StorageEngine {
 
         let stream = match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     if !mkstream {
                         return Err(AppError::Storage("XGROUP CREATE 键不存在".to_string()));
@@ -85,7 +85,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(false)
                 } else {
@@ -118,7 +118,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     return Err(AppError::Storage("XGROUP SETID 键不存在".to_string()));
                 }
@@ -155,7 +155,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(0)
                 } else {
@@ -192,7 +192,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(false)
                 } else {
@@ -247,7 +247,7 @@ impl StorageEngine {
 
             let stream = match map.get_mut(key) {
                 Some(v) => {
-                    if Self::is_expired(v) {
+                    if Self::is_key_expired(&db, key) {
                         continue;
                     }
                     match v {
@@ -337,7 +337,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(0)
                 } else {
@@ -390,7 +390,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(vec![])
                 } else {
@@ -462,7 +462,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok((start, vec![]))
                 } else {
@@ -542,7 +542,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     return Ok((0, None, None, vec![], vec![]));
                 }
                 match v {
@@ -596,7 +596,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     Ok(None)
                 } else {
                     match v {
@@ -630,7 +630,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     Ok(vec![])
                 } else {
                     match v {
@@ -666,7 +666,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     Ok(vec![])
                 } else {
                     match v {

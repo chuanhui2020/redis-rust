@@ -76,8 +76,6 @@ pub enum EvictionPolicy {
 pub enum StorageValue {
     /// 普通字符串值
     String(Bytes),
-    /// 带过期时间的值（Unix 时间戳，毫秒）
-    ExpiringString(Bytes, u64),
     /// 列表值
     List(VecDeque<Bytes>),
     /// 哈希值
@@ -162,6 +160,39 @@ impl ShardedVersions {
     }
 }
 
+/// 分片过期时间表，与 ShardedMap 使用相同的分片策略
+#[derive(Debug)]
+pub struct ShardedExpires {
+    shards: Vec<RwLock<HashMap<String, u64>>>,
+}
+
+impl Default for ShardedExpires {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ShardedExpires {
+    pub fn new() -> Self {
+        let mut shards = Vec::with_capacity(NUM_SHARDS);
+        for _ in 0..NUM_SHARDS {
+            shards.push(RwLock::new(HashMap::new()));
+        }
+        Self { shards }
+    }
+
+    pub fn get_shard(&self, key: &str) -> &RwLock<HashMap<String, u64>> {
+        let mut hasher = DefaultHasher::new();
+        key.hash(&mut hasher);
+        let hash = hasher.finish() as usize;
+        &self.shards[hash % NUM_SHARDS]
+    }
+
+    pub fn all_shards(&self) -> &[RwLock<HashMap<String, u64>>] {
+        &self.shards
+    }
+}
+
 /// 单个数据库实例的数据
 #[derive(Debug, Clone)]
 pub struct Db {
@@ -177,6 +208,8 @@ pub struct Db {
     pub blocking_waiters: Arc<RwLock<HashMap<String, Vec<Arc<tokio::sync::Notify>>>>>,
     /// Hash 字段级过期时间（key → field → expire_at_ms）
     pub hash_field_expirations: Arc<RwLock<HashMap<String, HashMap<String, u64>>>>,
+    /// key-level expiration time (Unix timestamp in milliseconds)
+    pub expires: Arc<ShardedExpires>,
 }
 
 impl Db {
@@ -188,6 +221,7 @@ impl Db {
             access_counts: Arc::new(RwLock::new(HashMap::new())),
             blocking_waiters: Arc::new(RwLock::new(HashMap::new())),
             hash_field_expirations: Arc::new(RwLock::new(HashMap::new())),
+            expires: Arc::new(ShardedExpires::new()),
         }
     }
 }
@@ -368,13 +402,20 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
         let value = match map.get(key) {
-            Some(v) if Self::is_expired(v) => return Ok(None),
-            Some(v) => v,
+            Some(v) => {
+                if Self::is_key_expired(&db, key) {
+                    drop(map);
+                    let mut map = db.inner.get_shard(key).write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                    self.check_and_remove_expired(&db, &mut map, key);
+                    return Ok(None);
+                }
+                v
+            }
             None => return Ok(None),
         };
 
         let encoding = match value {
-            StorageValue::String(b) | StorageValue::ExpiringString(b, _) => {
+            StorageValue::String(b) => {
                 if std::str::from_utf8(b).ok().and_then(|s| s.parse::<i64>().ok()).is_some() {
                     "int".to_string()
                 } else if b.len() <= 44 {
@@ -437,8 +478,16 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
         match map.get(key) {
-            Some(v) if Self::is_expired(v) => Ok(None),
-            Some(_) => Ok(Some(1)),
+            Some(_) => {
+                if Self::is_key_expired(&db, key) {
+                    drop(map);
+                    let mut map = db.inner.get_shard(key).write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                    self.check_and_remove_expired(&db, &mut map, key);
+                    Ok(None)
+                } else {
+                    Ok(Some(1))
+                }
+            }
             None => Ok(None),
         }
     }
@@ -452,8 +501,11 @@ impl StorageEngine {
             .read()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        if let Some(v) = map.get(key) {
-            if Self::is_expired(v) {
+        if map.get(key).is_some() {
+            if Self::is_key_expired(&db, key) {
+                drop(map);
+                let mut map = db.inner.get_shard(key).write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                self.check_and_remove_expired(&db, &mut map, key);
                 return Ok(None);
             }
         } else {
@@ -484,8 +536,11 @@ impl StorageEngine {
             .read()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        if let Some(v) = map.get(key) {
-            if Self::is_expired(v) {
+        if map.get(key).is_some() {
+            if Self::is_key_expired(&db, key) {
+                drop(map);
+                let mut map = db.inner.get_shard(key).write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                self.check_and_remove_expired(&db, &mut map, key);
                 return Ok(None);
             }
         } else {
@@ -527,8 +582,8 @@ impl StorageEngine {
         let mut all_keys: Vec<String> = Vec::new();
         for shard in db.inner.all_shards() {
             let map = shard.read().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            for (k, v) in map.iter() {
-                if !Self::is_expired(v) {
+            for (k, _v) in map.iter() {
+                if !Self::is_key_expired(&db, k) {
                     all_keys.push(k.clone());
                 }
             }
@@ -550,10 +605,9 @@ impl StorageEngine {
         for key in keys {
             let map = db.inner.get_shard(key).read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            if let Some(value) = map.get(key)
-                && !Self::is_expired(value) {
-                    count += 1;
-                }
+            if map.get(key).is_some() && !Self::is_key_expired(&db, key) {
+                count += 1;
+            }
         }
         let mut times = db
             .access_times
@@ -586,25 +640,15 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
         match map.get(key) {
-            Some(value) => {
-                if Self::is_expired(value) {
+            Some(_) => {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
+                    let mut expires = db.expires.get_shard(key).write().unwrap();
+                    expires.remove(key);
                     Ok(false)
                 } else {
-                    let new_value = match value {
-                        StorageValue::String(v) => {
-                            StorageValue::ExpiringString(v.clone(), expire_at_ms)
-                        }
-                        StorageValue::ExpiringString(v, _) => {
-                            StorageValue::ExpiringString(v.clone(), expire_at_ms)
-                        }
-                        StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::Set(_) | StorageValue::ZSet(_) | StorageValue::HyperLogLog(_) | StorageValue::Stream(_) => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
-                        }
-                    };
-                    map.insert(key.to_string(), new_value);
+                    let mut expires = db.expires.get_shard(key).write().unwrap();
+                    expires.insert(key.to_string(), expire_at_ms);
                     Ok(true)
                 }
             }
@@ -625,17 +669,17 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
         match map.get(key) {
-            Some(value) => {
-                if Self::is_expired(value) {
+            Some(_) => {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
+                    let mut expires = db.expires.get_shard(key).write().unwrap();
+                    expires.remove(key);
                     Ok(-2)
                 } else {
-                    match value {
-                        StorageValue::String(_) => Ok(-1),
-                        StorageValue::ExpiringString(_, expire_at) => {
-                            Ok((*expire_at / 1000) as i64)
-                        }
-                        _ => Ok(-1),
+                    let expires = db.expires.get_shard(key).read().unwrap();
+                    match expires.get(key) {
+                        Some(&expire_at) => Ok((expire_at / 1000) as i64),
+                        None => Ok(-1),
                     }
                 }
             }
@@ -653,17 +697,17 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
         match map.get(key) {
-            Some(value) => {
-                if Self::is_expired(value) {
+            Some(_) => {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
+                    let mut expires = db.expires.get_shard(key).write().unwrap();
+                    expires.remove(key);
                     Ok(-2)
                 } else {
-                    match value {
-                        StorageValue::String(_) => Ok(-1),
-                        StorageValue::ExpiringString(_, expire_at) => {
-                            Ok(*expire_at as i64)
-                        }
-                        _ => Ok(-1),
+                    let expires = db.expires.get_shard(key).read().unwrap();
+                    match expires.get(key) {
+                        Some(&expire_at) => Ok(expire_at as i64),
+                        None => Ok(-1),
                     }
                 }
             }
@@ -683,8 +727,10 @@ impl StorageEngine {
 
         // 检查源 key 是否存在
         let value = match map.get(key) {
-            Some(v) if Self::is_expired(v) => {
+            Some(_) if Self::is_key_expired(&db, key) => {
                 map.remove(key);
+                let mut expires = db.expires.get_shard(key).write().unwrap();
+                expires.remove(key);
                 return Err(AppError::Storage("键不存在或已过期".to_string()));
             }
             Some(v) => v.clone(),
@@ -703,6 +749,14 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         map.remove(key);
         new_map.insert(newkey.to_string(), value);
+
+        // 迁移过期时间
+        let mut expires = db.expires.get_shard(key).write().unwrap();
+        if let Some(expire_at) = expires.remove(key) {
+            let mut new_expires = db.expires.get_shard(newkey).write().unwrap();
+            new_expires.insert(newkey.to_string(), expire_at);
+        }
+
         self.bump_version(key);
         self.bump_version(newkey);
         Ok(true)
@@ -729,6 +783,11 @@ impl StorageEngine {
             let mut v1 = db1.versions.all_shards()[i].write().unwrap();
             let mut v2 = db2.versions.all_shards()[i].write().unwrap();
             std::mem::swap(&mut *v1, &mut *v2);
+        }
+        for i in 0..NUM_SHARDS {
+            let mut e1 = db1.expires.all_shards()[i].write().unwrap();
+            let mut e2 = db2.expires.all_shards()[i].write().unwrap();
+            std::mem::swap(&mut *e1, &mut *e2);
         }
         {
             let mut t1 = db1.access_times.write().unwrap();
@@ -770,6 +829,10 @@ impl StorageEngine {
         for shard in db.versions.all_shards() {
             let mut v = shard.write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             v.clear();
+        }
+        for shard in db.expires.all_shards() {
+            let mut e = shard.write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            e.clear();
         }
         let mut times = db
             .access_times
@@ -917,30 +980,21 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))
     }
 
-    /// 检查并清理过期的 key
-    pub(crate) fn check_and_remove_expired(
-        map: &mut HashMap<String, StorageValue>,
-        key: &str,
-    ) {
-        if let Some(v) = map.get(key)
-            && Self::is_expired(v) {
-                map.remove(key);
-            }
+    /// 检查指定 key 是否已过期
+    fn is_key_expired(db: &Db, key: &str) -> bool {
+        let expires = db.expires.get_shard(key).read().unwrap();
+        expires.get(key).map_or(false, |&expire_at| Self::now_millis() >= expire_at)
     }
 
-    /// 写操作后的标准后处理（版本更新 + 访问记录）
-    /// 检查给定的 StorageValue 是否已过期，如果过期则返回 true
-    fn is_expired(value: &StorageValue) -> bool {
-        match value {
-            StorageValue::String(_)
-            | StorageValue::List(_)
-            | StorageValue::Hash(_)
-            | StorageValue::Set(_)
-            | StorageValue::ZSet(_)
-            | StorageValue::HyperLogLog(_)
-            | StorageValue::Stream(_) => false,
-            StorageValue::ExpiringString(_, expire_at) => {
-                Self::now_millis() >= *expire_at
+    /// 检查并清理过期的 key
+    pub(crate) fn check_and_remove_expired(&self, db: &Db, map: &mut HashMap<String, StorageValue>, key: &str) {
+        if Self::is_key_expired(db, key) {
+            map.remove(key);
+            let mut expires = db.expires.get_shard(key).write().unwrap();
+            expires.remove(key);
+            if let Some(ref notifier) = self.keyspace_notifier {
+                let db_idx = self.current_db.load(Ordering::Relaxed);
+                notifier.notify_expired(db_idx, key);
             }
         }
     }

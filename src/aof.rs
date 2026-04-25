@@ -216,6 +216,11 @@ impl AofRewriter {
                             let cmd = Command::RPush(key.clone(), items);
                             Self::write_cmd(&parser, &mut writer, &cmd)?;
                         }
+                        let ttl_ms = storage.pttl(&key)?;
+                        if ttl_ms > 0 {
+                            let expire_cmd = Command::PExpire(key.clone(), ttl_ms as u64);
+                            Self::write_cmd(&parser, &mut writer, &expire_cmd)?;
+                        }
                     }
                     "hash" => {
                         let fields = storage.hgetall(&key)?;
@@ -226,12 +231,22 @@ impl AofRewriter {
                             let cmd = Command::HMSet(key.clone(), pairs);
                             Self::write_cmd(&parser, &mut writer, &cmd)?;
                         }
+                        let ttl_ms = storage.pttl(&key)?;
+                        if ttl_ms > 0 {
+                            let expire_cmd = Command::PExpire(key.clone(), ttl_ms as u64);
+                            Self::write_cmd(&parser, &mut writer, &expire_cmd)?;
+                        }
                     }
                     "set" => {
                         let members = storage.smembers(&key)?;
                         if !members.is_empty() {
                             let cmd = Command::SAdd(key.clone(), members);
                             Self::write_cmd(&parser, &mut writer, &cmd)?;
+                        }
+                        let ttl_ms = storage.pttl(&key)?;
+                        if ttl_ms > 0 {
+                            let expire_cmd = Command::PExpire(key.clone(), ttl_ms as u64);
+                            Self::write_cmd(&parser, &mut writer, &expire_cmd)?;
                         }
                     }
                     "zset" => {
@@ -243,6 +258,11 @@ impl AofRewriter {
                                 .collect();
                             let cmd = Command::ZAdd(key.clone(), pairs);
                             Self::write_cmd(&parser, &mut writer, &cmd)?;
+                        }
+                        let ttl_ms = storage.pttl(&key)?;
+                        if ttl_ms > 0 {
+                            let expire_cmd = Command::PExpire(key.clone(), ttl_ms as u64);
+                            Self::write_cmd(&parser, &mut writer, &expire_cmd)?;
                         }
                     }
                     _ => {}

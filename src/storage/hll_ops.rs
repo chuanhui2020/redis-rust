@@ -141,7 +141,7 @@ impl StorageEngine {
         let mut updated = false;
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     let mut hll = HyperLogLog::new();
                     for element in elements {
@@ -197,7 +197,7 @@ impl StorageEngine {
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_expired(v) {
+                && !Self::is_key_expired(&db, key) {
                     match v {
                         StorageValue::HyperLogLog(hll) => {
                             merged.merge(&[hll]);
@@ -235,7 +235,7 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_expired(v) {
+                && !Self::is_key_expired(&db, key) {
                     match v {
                         StorageValue::HyperLogLog(hll) => {
                             merged.merge(&[hll]);

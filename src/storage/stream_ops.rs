@@ -272,7 +272,7 @@ impl StorageEngine {
 
         let stream = match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     if nomkstream {
                         return Ok(None);
@@ -397,7 +397,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(0)
                 } else {
@@ -439,7 +439,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(vec![])
                 } else {
@@ -492,7 +492,7 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(vec![])
                 } else {
@@ -547,7 +547,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(0)
                 } else {
@@ -621,7 +621,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(0)
                 } else {
@@ -689,7 +689,7 @@ impl StorageEngine {
             };
 
             if let Some(v) = map.get(key) {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     continue;
                 }
                 if let StorageValue::Stream(s) = v {
@@ -738,7 +738,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_expired(v) {
+                if Self::is_key_expired(&db, key) {
                     map.remove(key);
                     Ok(false)
                 } else {

@@ -20,10 +20,11 @@ impl StorageEngine {
     /// 与 Redis 7 行为一致。
     pub fn lpush(&self, key: &str, values: Vec<Bytes>) -> Result<usize> {
         self.evict_if_needed()?;
+        let db = self.db();
         let len = {
             let mut map = self.write_shard(key)?;
 
-            Self::check_and_remove_expired(&mut map, key);
+            self.check_and_remove_expired(&db, &mut map, key);
             match map.get_mut(key) {
                 Some(v) => {
                                         Self::check_list_type(v)?;
@@ -68,10 +69,11 @@ impl StorageEngine {
     /// 与 Redis 7 行为一致。
     pub fn rpush(&self, key: &str, values: Vec<Bytes>) -> Result<usize> {
         self.evict_if_needed()?;
+        let db = self.db();
         let len = {
             let mut map = self.write_shard(key)?;
 
-            Self::check_and_remove_expired(&mut map, key);
+            self.check_and_remove_expired(&db, &mut map, key);
             match map.get_mut(key) {
                 Some(v) => {
                                         Self::check_list_type(v)?;
@@ -123,7 +125,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        Self::check_and_remove_expired(&mut map, key);
+        self.check_and_remove_expired(&db, &mut map, key);
         match map.get_mut(key) {
             Some(v) => {
                                 Self::check_list_type(v)?;
@@ -164,7 +166,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        Self::check_and_remove_expired(&mut map, key);
+        self.check_and_remove_expired(&db, &mut map, key);
         match map.get_mut(key) {
             Some(v) => {
                                 Self::check_list_type(v)?;
@@ -203,7 +205,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        Self::check_and_remove_expired(&mut map, key);
+        self.check_and_remove_expired(&db, &mut map, key);
         match map.get(key) {
             Some(v) => {
                                 Self::check_list_type(v)?;
@@ -243,7 +245,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        Self::check_and_remove_expired(&mut map, key);
+        self.check_and_remove_expired(&db, &mut map, key);
         let list = match map.get(key) {
             Some(v) => {
                 Self::check_list_type(v)?;
@@ -310,7 +312,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        Self::check_and_remove_expired(&mut map, key);
+        self.check_and_remove_expired(&db, &mut map, key);
         let list = match map.get(key) {
             Some(v) => {
                 Self::check_list_type(v)?;
@@ -363,7 +365,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        Self::check_and_remove_expired(&mut map, key);
+        self.check_and_remove_expired(&db, &mut map, key);
         match map.get_mut(key) {
             Some(v) => {
                             Self::check_list_type(v)?;
@@ -420,7 +422,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        Self::check_and_remove_expired(&mut map, key);
+        self.check_and_remove_expired(&db, &mut map, key);
         match map.get_mut(key) {
             Some(v) => {
                             Self::check_list_type(v)?;
@@ -480,7 +482,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        Self::check_and_remove_expired(&mut map, key);
+        self.check_and_remove_expired(&db, &mut map, key);
         match map.get_mut(key) {
             Some(v) => {
                             Self::check_list_type(v)?;
@@ -571,7 +573,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        Self::check_and_remove_expired(&mut map, key);
+        self.check_and_remove_expired(&db, &mut map, key);
         match map.get_mut(key) {
             Some(v) => {
                             Self::check_list_type(v)?;
@@ -640,7 +642,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        Self::check_and_remove_expired(&mut map, key);
+        self.check_and_remove_expired(&db, &mut map, key);
         match map.get(key) {
             Some(v) => {
                             Self::check_list_type(v)?;
@@ -882,10 +884,11 @@ impl StorageEngine {
     /// 与 Redis 7 行为一致。
     pub fn lmove(&self, source: &str, destination: &str, left_from: bool, left_to: bool) -> Result<Option<Bytes>> {
         self.evict_if_needed()?;
+        let db = self.db();
         let mut src_map = self.write_shard(source)?;
 
         // 从 source 弹出
-        Self::check_and_remove_expired(&mut src_map, source);
+        self.check_and_remove_expired(&db, &mut src_map, source);
         let popped = match src_map.get_mut(source) {
             Some(v) => {
                                 Self::check_list_type(v)?;
@@ -908,7 +911,7 @@ impl StorageEngine {
         let mut dst_map = self.write_shard(destination)?;
 
         // 推入 destination
-        Self::check_and_remove_expired(&mut dst_map, destination);
+        self.check_and_remove_expired(&db, &mut dst_map, destination);
         match dst_map.get_mut(destination) {
             Some(v) => {
                                 Self::check_list_type(v)?;
@@ -977,10 +980,11 @@ impl StorageEngine {
     /// 与 Redis 7 行为一致。
     pub fn lmpop(&self, keys: &[String], left: bool, count: usize) -> Result<Option<(String, Vec<Bytes>)>> {
         self.evict_if_needed()?;
+        let db = self.db();
 
         for key in keys {
             let mut map = self.write_shard(key)?;
-            Self::check_and_remove_expired(&mut map, key);
+            self.check_and_remove_expired(&db, &mut map, key);
             let popped = match map.get_mut(key) {
                 Some(v) => {
                                     Self::check_list_type(v)?;
