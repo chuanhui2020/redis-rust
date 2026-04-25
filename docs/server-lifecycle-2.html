@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>启动流程 | Server Lifecycle Part 2 | redis-rust</title>
+<style>
+:root{--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--border-color:#30363d;--text-primary:#e6edf3;--text-secondary:#8b949e;--accent-blue:#58a6ff;--accent-purple:#a371f7;--accent-cyan:#39c5cf;--accent-green:#3fb950;--accent-orange:#d29922;--accent-red:#f85149;--glow-blue:rgba(88,166,255,.15);--glow-purple:rgba(163,113,247,.15)}
+*{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:var(--bg-primary);color:var(--text-primary);line-height:1.6;overflow-x:hidden}
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:var(--bg-primary)}::-webkit-scrollbar-thumb{background:var(--border-color);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:var(--accent-blue)}
+.container{display:flex;min-height:100vh}
+.sidebar{width:260px;background:var(--bg-secondary);border-right:1px solid var(--border-color);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:100;transition:transform .3s ease}
+.sidebar-header{padding:24px 20px;border-bottom:1px solid var(--border-color)}
+.sidebar-header h1{font-size:1.3rem;background:linear-gradient(90deg,var(--accent-blue),var(--accent-purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.sidebar-header p{font-size:.75rem;color:var(--text-secondary);margin-top:4px}
+.nav-menu{list-style:none;padding:12px 0}
+.nav-item a{display:block;padding:10px 24px;color:var(--text-secondary);text-decoration:none;font-size:.9rem;border-left:3px solid transparent;transition:all .2s ease;cursor:pointer}
+.nav-item a:hover,.nav-item a.active{color:var(--text-primary);background:var(--bg-tertiary);border-left-color:var(--accent-blue)}
+.nav-item a.active{background:linear-gradient(90deg,rgba(88,166,255,.1),transparent)}
+.nn{color:var(--accent-cyan);margin-right:6px;font-size:.8rem}
+.nav-divider{height:1px;background:var(--border-color);margin:8px 20px}
+.nav-label{padding:8px 24px 4px;font-size:.7rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;list-style:none}
+.nav-item.sub a{padding:7px 24px 7px 36px;font-size:.82rem}
+.nav-item.current>a{color:var(--accent-cyan);border-left-color:var(--accent-cyan)}
+.mobile-toggle{display:none;position:fixed;top:16px;left:16px;z-index:200;background:var(--bg-secondary);border:1px solid var(--border-color);color:var(--text-primary);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:1.2rem}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99}
+.main{margin-left:260px;flex:1;padding:40px 48px;max-width:1100px}
+.page-header{margin-bottom:32px}
+.page-header h2{font-size:2rem;margin-bottom:8px;background:linear-gradient(90deg,var(--accent-blue),var(--accent-purple),var(--accent-cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.page-header p{color:var(--text-secondary);font-size:1rem}
+.part-nav{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.part-nav a{font-size:.8rem;padding:4px 12px;border-radius:16px;text-decoration:none;border:1px solid var(--border-color);color:var(--text-secondary);transition:all .2s}
+.part-nav a:hover{border-color:var(--accent-blue);color:var(--accent-blue)}
+.part-nav a.current{background:var(--accent-blue);color:var(--bg-primary);border-color:var(--accent-blue);font-weight:600}
+.section{margin-bottom:48px;scroll-margin-top:24px}
+.sc{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;padding:28px 32px;margin-bottom:24px;transition:border-color .3s,box-shadow .3s}
+.sc:hover{border-color:rgba(88,166,255,.3);box-shadow:0 0 20px rgba(88,166,255,.05)}
+.st{font-size:1.4rem;color:var(--accent-cyan);margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border-color)}
+.st .n{color:var(--accent-purple);margin-right:8px}
+.s2{font-size:1.15rem;color:var(--accent-blue);margin:24px 0 12px 0}
+.s2 .n{color:var(--accent-purple);margin-right:6px}
+.s3{font-size:1.02rem;color:var(--accent-green);margin:20px 0 10px 0}
+p{margin-bottom:12px;font-size:.95rem}
+.note{background:rgba(88,166,255,.06);border-left:3px solid var(--accent-blue);padding:12px 16px;margin:12px 0;border-radius:0 8px 8px 0;font-size:.9rem;color:var(--text-secondary)}
+.note strong{color:var(--accent-blue)}
+.warn{background:rgba(248,81,73,.06);border-left:3px solid var(--accent-red);padding:12px 16px;margin:12px 0;border-radius:0 8px 8px 0;font-size:.9rem}
+.warn strong{color:var(--accent-red)}
+pre{background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;padding:16px 18px;font-family:"SF Mono",Monaco,"Cascadia Code",Consolas,monospace;font-size:.82rem;color:var(--accent-orange);margin:12px 0;overflow-x:auto;line-height:1.6;white-space:pre;word-break:normal}
+code{font-family:"SF Mono",Monaco,"Cascadia Code",Consolas,monospace;font-size:.85em;color:var(--accent-orange);background:rgba(210,153,34,.1);padding:2px 6px;border-radius:4px}
+pre code{background:none;padding:0;font-size:inherit}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.88rem}
+th{background:var(--bg-tertiary);color:var(--accent-cyan);text-align:left;padding:10px 14px;border-bottom:2px solid var(--accent-blue);font-weight:600}
+td{padding:10px 14px;border-bottom:1px solid var(--border-color)}
+tr:nth-child(even) td{background:rgba(22,27,34,.5)}tr:hover td{background:var(--bg-tertiary)}
+td code{font-size:.82rem}
+ul,ol{margin:8px 0 12px 24px;font-size:.93rem}li{margin-bottom:4px}li strong{color:var(--accent-orange)}
+.fc{display:flex;flex-direction:column;align-items:center;gap:0;margin:24px 0;padding:24px 0}
+.fb{background:var(--bg-tertiary);border:1px solid var(--border-color);border-radius:8px;padding:10px 22px;text-align:center;font-size:.88rem;color:var(--text-primary);min-width:220px;transition:border-color .2s}
+.fb:hover{border-color:var(--accent-blue)}
+.fa{width:2px;height:24px;background:var(--accent-blue);position:relative;margin:0 auto}
+.fa::after{content:"";position:absolute;bottom:0;left:50%;transform:translateX(-50%);border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--accent-blue)}
+.fd{background:var(--bg-tertiary);border:2px solid var(--accent-purple);border-radius:8px;padding:10px 22px;text-align:center;font-size:.88rem;color:var(--accent-purple);min-width:180px}
+.fbr{display:flex;gap:40px;align-items:flex-start;justify-content:center}
+.fba{display:flex;flex-direction:column;align-items:center;gap:0}
+.fl{font-size:.75rem;color:var(--accent-green);margin-bottom:4px;font-weight:600}
+.fma{width:2px;height:24px;background:var(--accent-green);position:relative;margin:0 auto}
+.fma::after{content:"";position:absolute;bottom:0;left:50%;transform:translateX(-50%);border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--accent-green)}
+.btt{position:fixed;bottom:24px;right:24px;background:var(--bg-secondary);border:1px solid var(--border-color);color:var(--accent-blue);width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .3s,transform .3s;z-index:50;font-size:1.2rem}
+.btt.visible{opacity:1}.btt:hover{transform:translateY(-2px);border-color:var(--accent-blue);box-shadow:0 0 16px var(--glow-blue)}
+@media(max-width:900px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.mobile-toggle{display:block}.overlay.show{display:block}.main{margin-left:0;padding:60px 20px 40px}.sc{padding:20px 18px}.page-header h2{font-size:1.5rem}.fbr{flex-direction:column;gap:16px;align-items:center}}
+@media(max-width:600px){.main{padding:60px 14px 30px}}
+</style>
+</head>
+<body>
+<button class="mobile-toggle" onclick="toggleSidebar()">&#9776;</button>
+<div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+<div class="container">
+<aside class="sidebar" id="sidebar">
+<div class="sidebar-header"><h1>Server Lifecycle</h1><p>redis-rust 服务器生命周期</p></div>
+<ul class="nav-menu">
+<li class="nav-label">Part 1</li>
+<li class="nav-item"><a href="server-lifecycle-1.html"><span class="nn">1.</span>概述</a></li>
+<li class="nav-item"><a href="server-lifecycle-1.html#s2"><span class="nn">2.</span>命令行参数</a></li>
+<div class="nav-divider"></div>
+<li class="nav-label">Part 2 &mdash; 当前页</li>
+<li class="nav-item current"><a href="#s3"><span class="nn">3.</span>启动流程</a></li>
+<li class="nav-item sub"><a href="#s3-1"><span class="nn">3.1</span>日志系统初始化</a></li>
+<li class="nav-item sub"><a href="#s3-2"><span class="nn">3.2</span>存储引擎创建</a></li>
+<li class="nav-item sub"><a href="#s3-3"><span class="nn">3.3</span>持久化数据恢复</a></li>
+<li class="nav-item sub"><a href="#s3-4"><span class="nn">3.4</span>AOF 写入器初始化</a></li>
+<li class="nav-item sub"><a href="#s3-5"><span class="nn">3.5</span>后台过期键清理</a></li>
+<li class="nav-item sub"><a href="#s3-6"><span class="nn">3.6</span>核心组件初始化</a></li>
+<li class="nav-item sub"><a href="#s3-7"><span class="nn">3.7</span>Cluster 模式启动</a></li>
+<li class="nav-item sub"><a href="#s3-8"><span class="nn">3.8</span>Sentinel 模式启动</a></li>
+<li class="nav-item sub"><a href="#s3-9"><span class="nn">3.9</span>Server 创建与 TCP 监听</a></li>
+<div class="nav-divider"></div>
+<li class="nav-label">Part 3</li>
+<li class="nav-item"><a href="server-lifecycle-3.html"><span class="nn">4.</span>连接处理流程</a></li>
+<li class="nav-item"><a href="server-lifecycle-3.html#s5"><span class="nn">5.</span>关闭流程</a></li>
+<div class="nav-divider"></div>
+<li class="nav-label">Part 4</li>
+<li class="nav-item"><a href="server-lifecycle-4.html"><span class="nn">6.</span>持久化文件说明</a></li>
+<li class="nav-item"><a href="server-lifecycle-4.html#s7"><span class="nn">7.</span>后台任务一览</a></li>
+<li class="nav-item"><a href="server-lifecycle-4.html#s8"><span class="nn">8.</span>代码引用汇总</a></li>
+</ul>
+</aside>
+<main class="main">
+<div class="page-header">
+<h2>3. 启动流程</h2>
+<p>服务器的启动流程按严格顺序执行，以下按时间线逐步说明每个阶段</p>
+<div class="part-nav">
+<a href="server-lifecycle-1.html">Part 1: 概述 / 参数</a>
+<a class="current">Part 2: 启动流程</a>
+<a href="server-lifecycle-3.html">Part 3: 连接 / 关闭</a>
+<a href="server-lifecycle-4.html">Part 4: 持久化 / 任务 / 引用</a>
+</div>
+</div>
+<!-- 启动流程总览 flowchart -->
+<div class="section" id="s3">
+<div class="sc">
+<h3 class="st"><span class="n">3.</span>启动流程总览</h3>
+<div class="fc">
+<div class="fb">日志系统初始化</div>
+<div class="fa"></div>
+<div class="fb">存储引擎创建</div>
+<div class="fa"></div>
+<div class="fb">RDB 加载</div>
+<div class="fa"></div>
+<div class="fb">AOF 重放</div>
+<div class="fa"></div>
+<div class="fb">AOF 写入器初始化</div>
+<div class="fa"></div>
+<div class="fb">后台过期键清理任务</div>
+<div class="fa"></div>
+<div class="fb">核心组件初始化</div>
+<div class="fa"></div>
+<div class="fd">Cluster 模式?</div>
+<div class="fa"></div>
+<div class="fbr">
+<div class="fba">
+<div class="fl">是</div>
+<div class="fma"></div>
+<div class="fb">Cluster 状态初始化</div>
+</div>
+<div class="fba">
+<div class="fl">否</div>
+<div class="fma"></div>
+<div class="fd">Sentinel 模式?</div>
+<div class="fma"></div>
+<div class="fbr">
+<div class="fba">
+<div class="fl">是</div>
+<div class="fma"></div>
+<div class="fb">Sentinel 管理器初始化</div>
+</div>
+<div class="fba">
+<div class="fl">否</div>
+<div class="fma"></div>
+<div class="fb" style="border-color:var(--accent-green);color:var(--accent-green)">TCP 监听启动</div>
+</div>
+</div>
+</div>
+</div>
+<div class="fa"></div>
+<div class="fb" style="border-color:var(--accent-green);color:var(--accent-green)">主循环接受连接</div>
+</div>
+</div>
+</div>
+
+<!-- S3-1: 日志系统初始化 -->
+<div class="section" id="s3-1">
+<div class="sc">
+<h3 class="st"><span class="n">3.1</span>日志系统初始化</h3>
+<p><strong>代码位置</strong>：<code>src/main.rs</code> 第 35 行</p>
+<pre><code>env_logger::init();</code></pre>
+<p>启动流程的第一步是初始化 <code>env_logger</code>。日志级别通过 <code>RUST_LOG</code> 环境变量控制，例如：</p>
+<pre><code>RUST_LOG=info cargo run
+RUST_LOG=debug cargo run -- --port 6380</code></pre>
+<p>支持的日志级别遵循 <code>log</code> crate 的标准：<code>error</code>、<code>warn</code>、<code>info</code>、<code>debug</code>、<code>trace</code>。</p>
+</div>
+</div>
+
+<!-- S3-2: 存储引擎创建 -->
+<div class="section" id="s3-2">
+<div class="sc">
+<h3 class="st"><span class="n">3.2</span>存储引擎创建</h3>
+<p><strong>代码位置</strong>：<code>src/main.rs</code> 第 70 行</p>
+<pre><code>let storage = StorageEngine::new();</code></pre>
+<p><code>StorageEngine::new()</code> 在 <code>src/storage/mod.rs</code> 第 262-273 行实现，创建包含以下内容的存储引擎：</p>
+<ul>
+<li><strong>16 个独立数据库</strong>：对标 Redis 默认的 16 个 DB（索引 0-15）。</li>
+<li><strong>分片哈希表（ShardedMap）</strong>：每个数据库内部使用 <strong>64 个分片</strong>的 <code>RwLock&lt;HashMap&lt;String, StorageValue&gt;&gt;</code>。</li>
+<li><strong>版本号表（ShardedVersions）</strong>：同样 64 分片，用于 <code>WATCH</code>/<code>MULTI</code>/<code>EXEC</code> 事务的乐观锁。</li>
+<li><strong>访问时间/计数</strong>：用于 LRU/LFU 内存淘汰策略。</li>
+<li><strong>阻塞等待者表</strong>：用于 <code>BLPOP</code>/<code>BRPOP</code> 等阻塞操作。</li>
+<li><strong>Hash 字段级过期表</strong>：支持 <code>HEXPIRE</code>/<code>HPEXPIRE</code> 的字段级过期。</li>
+</ul>
+<h4 class="s2"><span class="n"></span>分片策略的优势</h4>
+<p>分片策略的核心在于将全局锁拆分为 64 个独立的读写锁：</p>
+<pre><code>const NUM_SHARDS: usize = 64;
+
+pub struct ShardedMap {
+    shards: Vec&lt;RwLock&lt;HashMap&lt;String, StorageValue&gt;&gt;&gt;,
+}
+
+impl ShardedMap {
+    pub fn get_shard(&amp;self, key: &amp;str) -&gt; &amp;RwLock&lt;HashMap&lt;String, StorageValue&gt;&gt; {
+        let mut hasher = DefaultHasher::new();
+        key.hash(&amp;mut hasher);
+        let hash = hasher.finish() as usize;
+        &amp;self.shards[hash % NUM_SHARDS]
+    }
+}</code></pre>
+<p><strong>优势</strong>：</p>
+<ol>
+<li><strong>并发度提升</strong>：不同 key 如果映射到不同分片，读写操作可以真正并行。</li>
+<li><strong>减少锁竞争</strong>：相比全局的单个 <code>RwLock&lt;HashMap&gt;</code>，64 分片将竞争概率降低到约 1/64。</li>
+<li><strong>读多写少场景友好</strong>：<code>RwLock</code> 允许多个读操作并发，适合 Redis 典型的读多写少工作负载。</li>
+</ol>
+</div>
+</div>
+
+<!-- S3-3: 持久化数据恢复 -->
+<div class="section" id="s3-3">
+<div class="sc">
+<h3 class="st"><span class="n">3.3</span>持久化数据恢复（RDB + AOF）</h3>
+<p>这是启动流程中最关键的部分，直接决定了服务器启动后的数据状态。</p>
+
+<h4 class="s2"><span class="n">3.3.1</span>RDB 加载</h4>
+<p><strong>代码位置</strong>：<code>src/main.rs</code> 第 73-83 行</p>
+<pre><code>let rdb_repl_info = match redis_rust::rdb::load(&amp;storage, RDB_PATH) {
+    Ok((replid, offset)) =&gt; {
+        info!("RDB 快照加载成功");
+        (replid, offset)
+    }
+    Err(e) =&gt; {
+        log::debug!("RDB 加载跳过: {}", e);
+        (None, None)
+    }
+};</code></pre>
+<p>RDB 加载逻辑在 <code>src/rdb.rs</code> 中实现。文件格式如下：</p>
+<table>
+<thead><tr><th>字段</th><th>长度</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>魔数</td><td>10 字节</td><td><code>REDIS-RUST</code>（ASCII）</td></tr>
+<tr><td>版本号</td><td>4 字节（u32 BE）</td><td>当前为 <code>1</code></td></tr>
+<tr><td>数据库段</td><td>变长</td><td>每个 DB 的 key-value 数据</td></tr>
+<tr><td>AUX 段</td><td>变长</td><td>复制信息（<code>repl-id</code>、<code>repl-offset</code>）</td></tr>
+<tr><td>EOF 标记</td><td>1 字节</td><td><code>0xFF</code></td></tr>
+<tr><td>CRC32</td><td>4 字节（u32 BE）</td><td>整文件校验</td></tr>
+</tbody>
+</table>
+<p><strong>关键行为</strong>：</p>
+<ul>
+<li>加载过程会<strong>过滤已过期</strong>的 key（根据 <code>ExpiringString</code> 中的 <code>expire_at</code> 字段与当前系统时间对比）。</li>
+<li>返回 <code>(Option&lt;String&gt;, Option&lt;i64&gt;)</code> 元组，即 <code>(replid, offset)</code>，用于后续恢复复制状态。</li>
+<li>如果 <code>dump.rdb</code> 文件不存在，<strong>仅记录 debug 日志，不报错</strong>&mdash;&mdash;这是首次启动的正常情况。</li>
+</ul>
+
+<h4 class="s2"><span class="n">3.3.2</span>AOF 重放</h4>
+<p><strong>代码位置</strong>：<code>src/main.rs</code> 第 86-89 行</p>
+<pre><code>if !no_aof
+    &amp;&amp; let Err(e) = AofReplayer::replay(AOF_PATH, storage.clone()) {
+        log::error!("AOF 重放失败: {}", e);
+    }</code></pre>
+<p>AOF 重放逻辑在 <code>src/aof.rs</code> 第 88-120 行实现。</p>
+
+<h4 class="s3">混合格式支持</h4>
+<p>AOF 文件可能以特殊头部 <code>REDIS-RUST-AOF-PREAMBLE\n</code> 开头，表示这是一个<strong>混合格式</strong>文件（RDB 前导 + AOF 命令）：</p>
+<pre><code>if content.starts_with(AOF_RDB_PREAMBLE) {
+    log::info!("检测到混合格式 AOF 文件，先加载 RDB 快照");
+    let rdb_start = AOF_RDB_PREAMBLE.len();
+    let mut cursor = std::io::Cursor::new(&amp;content[rdb_start..]);
+    let _ = crate::rdb::load_from_reader(&amp;storage, &amp;mut cursor, false)?;
+
+    let rdb_consumed = cursor.position() as usize;
+    let aof_data = &amp;content[rdb_start + rdb_consumed..];
+    Self::replay_raw_aof(aof_data, storage)?;
+    return Ok(());
+}</code></pre>
+
+<h4 class="s3">纯 AOF 格式</h4>
+<p>如果文件不以混合格式头部开头，则直接将整个文件作为 RESP 编码的命令序列进行重放：</p>
+<pre><code>fn replay_raw_aof(data: &amp;[u8], storage: StorageEngine) -&gt; Result&lt;()&gt; {
+    let parser = RespParser::new();
+    let cmd_parser = CommandParser::new();
+    let executor = CommandExecutor::new(storage); // 重放时不使用 AOF writer
+
+    let mut buf = BytesMut::from(data);
+    let mut count = 0usize;
+    let mut errors = 0usize;
+
+    while !buf.is_empty() {
+        match parser.parse(&amp;mut buf) {
+            Ok(Some(resp)) =&gt; {
+                match cmd_parser.parse(resp) {
+                    Ok(cmd) =&gt; {
+                        match executor.execute(cmd) {
+                            Ok(_) =&gt; count += 1,
+                            Err(e) =&gt; { log::warn!("AOF 重放命令执行失败: {}", e); errors += 1; }
+                        }
+                    }
+                    Err(e) =&gt; { log::warn!("AOF 重放命令解析失败: {}", e); errors += 1; }
+                }
+            }
+            Ok(None) =&gt; { break; } // 文件末尾数据不完整
+            Err(e) =&gt; { log::error!("AOF 重放 RESP 解析失败: {}", e); break; }
+        }
+    }
+
+    log::info!("AOF 重放完成，成功: {} 条，失败: {} 条", count, errors);
+    Ok(())
+}</code></pre>
+<div class="note"><strong>注意：</strong>重放时使用的是 <code>CommandExecutor::new(storage)</code>（无 AOF），这是为了避免循环写入 AOF 文件。</div>
+
+<h4 class="s2"><span class="n">3.3.3</span>恢复顺序的设计</h4>
+<p>启动时<strong>先加载 RDB，再重放 AOF</strong>，这个顺序至关重要：</p>
+<ol>
+<li><strong>RDB 是基线快照</strong>：提供了某个时间点的完整数据状态。</li>
+<li><strong>AOF 是增量命令</strong>：记录了 RDB 生成之后的所有写操作。</li>
+<li><strong>数据完整性</strong>：AOF 中的命令会覆盖 RDB 中相同 key 的值，确保最终状态是最新的。</li>
+</ol>
+<p>这与 Redis 原生行为一致：<code>AOF</code> 的优先级高于 <code>RDB</code>。</p>
+</div>
+</div>
+
+<!-- S3-4: AOF 写入器初始化 -->
+<div class="section" id="s3-4">
+<div class="sc">
+<h3 class="st"><span class="n">3.4</span>AOF 写入器初始化</h3>
+<p><strong>代码位置</strong>：<code>src/main.rs</code> 第 92-96 行</p>
+<pre><code>let aof = if no_aof {
+    None
+} else {
+    Some(Arc::new(Mutex::new(AofWriter::new(AOF_PATH)?)))
+};</code></pre>
+<p><code>AofWriter</code> 在 <code>src/aof.rs</code> 第 19-73 行定义：</p>
+<pre><code>pub struct AofWriter {
+    writer: BufWriter&lt;File&gt;,
+    path: String,
+}
+
+impl AofWriter {
+    pub fn new(path: &amp;str) -&gt; Result&lt;Self&gt; {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(AppError::Io)?;
+        Ok(Self {
+            writer: BufWriter::new(file),
+            path: path.to_string(),
+        })
+    }
+
+    pub fn append(&amp;mut self, cmd: &amp;Command) -&gt; Result&lt;()&gt; {
+        let resp = cmd.to_resp_value();
+        let parser = RespParser::new();
+        let encoded = parser.encode(&amp;resp);
+        self.writer.write_all(&amp;encoded).map_err(AppError::Io)?;
+        Ok(())
+    }
+
+    pub fn flush(&amp;mut self) -&gt; Result&lt;()&gt; {
+        self.writer.flush().map_err(AppError::Io)
+    }
+
+    pub fn reopen(&amp;mut self) -&gt; Result&lt;()&gt; {
+        // AOF 重写后切换新文件
+        let file = OpenOptions::new().create(true).append(true).open(&amp;self.path)?;
+        self.writer = BufWriter::new(file);
+        Ok(())
+    }
+}</code></pre>
+<p><strong>关键设计</strong>：</p>
+<ul>
+<li>使用 <code>BufWriter&lt;File&gt;</code> 进行缓冲写入，减少系统调用次数。</li>
+<li>包装在 <code>Arc&lt;Mutex&lt;&gt;&gt;</code> 中，因为多个连接可能并发执行写命令，都需要追加到同一 AOF 文件。</li>
+<li><code>reopen()</code> 方法用于 <code>BGREWRITEAOF</code> 完成后切换到新的 AOF 文件。</li>
+</ul>
+</div>
+</div>
+
+<!-- S3-5: 后台过期键清理任务 -->
+<div class="section" id="s3-5">
+<div class="sc">
+<h3 class="st"><span class="n">3.5</span>后台过期键清理任务</h3>
+<p><strong>代码位置</strong>：<code>src/main.rs</code> 第 99 行；<code>src/storage/key_ops.rs</code> 第 302-316 行</p>
+<pre><code>let _cleanup_handle = storage.start_cleanup_task(CLEANUP_INTERVAL_MS);</code></pre>
+<p><code>start_cleanup_task</code> 的实现：</p>
+<pre><code>pub fn start_cleanup_task(&amp;self, interval_ms: u64) -&gt; tokio::task::JoinHandle&lt;()&gt; {
+    let storage = self.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_millis(interval_ms),
+        );
+        loop {
+            interval.tick().await;
+            if let Err(e) = storage.cleanup_expired_keys() {
+                log::error!("后台清理过期键失败: {}", e);
+            }
+        }
+    })
+}</code></pre>
+<p>清理逻辑 <code>cleanup_expired_keys</code>：</p>
+<pre><code>fn cleanup_expired_keys(&amp;self) -&gt; Result&lt;()&gt; {
+    if !self.active_expire_enabled.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    let db = self.db();
+    for shard in db.inner.all_shards() {
+        let mut map = shard.write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        let expired_keys: Vec&lt;String&gt; = map
+            .iter()
+            .filter(|(_, v)| Self::is_expired(v))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for key in expired_keys {
+            map.remove(&amp;key);
+        }
+    }
+    Ok(())
+}</code></pre>
+<p><strong>设计要点</strong>：</p>
+<ul>
+<li>执行间隔：<strong>1000 毫秒</strong>（即每秒一次）。</li>
+<li>在 <code>tokio::spawn</code> 中运行的<strong>无限循环</strong>，错误仅记录日志，不中断任务。</li>
+<li>可以通过 <code>DEBUG SET-ACTIVE-EXPIRE 0</code> 命令禁用主动过期清理（用于调试）。</li>
+<li>属于<strong>主动过期</strong>策略，与<strong>惰性过期</strong>（访问 key 时才检查是否过期）互补。</li>
+</ul>
+</div>
+</div>
+
+<!-- S3-6: 核心组件初始化 -->
+<div class="section" id="s3-6">
+<div class="sc">
+<h3 class="st"><span class="n">3.6</span>核心组件初始化（PubSub + ACL + Replication）</h3>
+<p>在存储引擎和持久化恢复完成后，按顺序初始化以下核心组件：</p>
+
+<h4 class="s2"><span class="n"></span>PubSubManager（发布/订阅系统）</h4>
+<p><strong>代码位置</strong>：<code>src/main.rs</code> 第 103 行；<code>src/pubsub.rs</code></p>
+<pre><code>let pubsub = PubSubManager::new();</code></pre>
+<p>基于 <code>tokio::sync::broadcast</code> 频道实现，支持：</p>
+<ul>
+<li>精确频道订阅（<code>SUBSCRIBE</code>/<code>UNSUBSCRIBE</code>）</li>
+<li>模式订阅（<code>PSUBSCRIBE</code>/<code>PUNSUBSCRIBE</code>）</li>
+<li>分片频道订阅（<code>SSUBSCRIBE</code>/<code>SUNSUBSCRIBE</code>）</li>
+</ul>
+
+<h4 class="s2"><span class="n"></span>AclManager（访问控制列表）</h4>
+<p><strong>代码位置</strong>：<code>src/main.rs</code> 第 106 行；<code>src/acl.rs</code></p>
+<pre><code>let acl = AclManager::new();</code></pre>
+<p>默认创建 <code>default</code> 用户，该用户：</p>
+<ul>
+<li><code>enabled = true</code></li>
+<li><code>nopass = true</code>（无需密码）</li>
+<li><code>commands = AllCommands</code></li>
+<li><code>keys = AllKeys</code></li>
+<li><code>channels = AllChannels</code></li>
+</ul>
+<p>即<strong>默认情况下没有任何访问限制</strong>。可通过 <code>ACL SETUSER</code> 命令配置细粒度权限。</p>
+
+<h4 class="s2"><span class="n"></span>ReplicationManager（主从复制）</h4>
+<p><strong>代码位置</strong>：<code>src/main.rs</code> 第 109-115 行；<code>src/replication.rs</code></p>
+<pre><code>let replication = Arc::new(ReplicationManager::new());
+
+if let (Some(replid), Some(offset)) = rdb_repl_info {
+    replication.set_replid_and_offset(replid, offset);
+    info!("从 RDB 恢复复制信息: replid={}, offset={}", ...);
+}</code></pre>
+<ul>
+<li>初始角色为 <strong>Master</strong>，自动生成 40 字符的随机十六进制 <code>replid</code>。</li>
+<li>如果 RDB 文件中包含复制信息（AUX 段），调用 <code>set_replid_and_offset()</code> 恢复之前的状态，避免不必要的全量同步。</li>
+<li>广播通道容量为 10,000 条消息，积压缓冲区（backlog）默认 1MB。</li>
+</ul>
+</div>
+</div>
+
+<!-- S3-7: Cluster 模式启动 -->
+<div class="section" id="s3-7">
+<div class="sc">
+<h3 class="st"><span class="n">3.7</span>Cluster 模式启动</h3>
+<p><strong>仅在 <code>--cluster-enabled yes</code> 时执行</strong>，代码位置：<code>src/main.rs</code> 第 118-201 行。</p>
+<pre><code>let cluster = if cluster_enabled {
+    let c = Arc::new(redis_rust::cluster::ClusterState::new("127.0.0.1".to_string(), port));
+    // 尝试加载已有拓扑
+    if let Err(e) = c.load_nodes_conf("nodes.conf") {
+        log::debug!("nodes.conf 加载失败或不存在: {}", e);
+    } else {
+        log::info!("从 nodes.conf 恢复集群拓扑");
+    }
+    // 启动时立即保存一次，确保文件存在
+    if let Err(e) = c.save_nodes_conf("nodes.conf") {
+        log::warn!("初始 nodes.conf 保存失败: {}", e);
+    }
+    Some(c)
+} else {
+    None
+};</code></pre>
+
+<h4 class="s2"><span class="n"></span>Cluster 启动后启动的后台任务</h4>
+<table>
+<thead><tr><th>任务</th><th>代码位置</th><th>功能</th><th>频率</th></tr></thead>
+<tbody>
+<tr><td><strong>Cluster Bus 监听器</strong></td><td><code>src/main.rs</code> 第 163-174 行</td><td>监听端口 = 服务端口 + 10000，处理节点间 PING/PONG/UPDATE 消息</td><td>持续运行</td></tr>
+<tr><td><strong>Gossip 任务</strong></td><td><code>src/main.rs</code> 第 177-180 行</td><td>向所有已知节点发送 PING，交换拓扑信息</td><td>每秒一次</td></tr>
+<tr><td><strong>故障检测器</strong></td><td><code>src/main.rs</code> 第 183-186 行</td><td>监控节点健康，标记 PFAIL/FAIL，自动故障转移</td><td>每秒一次</td></tr>
+<tr><td><strong>拓扑持久化</strong></td><td><code>src/main.rs</code> 第 189-201 行</td><td>每 10 秒将集群拓扑保存到 <code>nodes.conf</code></td><td>每 10 秒</td></tr>
+</tbody>
+</table>
+
+<h4 class="s2"><span class="n"></span>Cluster Bus 消息格式</h4>
+<p>文本协议示例：</p>
+<pre><code>PONG &lt;node_id&gt; &lt;ip&gt; &lt;port&gt; &lt;epoch&gt; &lt;flags&gt; &lt;master_id&gt; [slot_ranges...]
+UPDATE &lt;node_id&gt; &lt;ip&gt; &lt;port&gt; &lt;epoch&gt; &lt;flags&gt; &lt;master_id&gt; [slot_ranges...]</code></pre>
+<p>也支持基于魔数的二进制协议（<code>src/cluster/protocol.rs</code>）。</p>
+</div>
+</div>
+
+<!-- S3-8: Sentinel 模式启动 -->
+<div class="section" id="s3-8">
+<div class="sc">
+<h3 class="st"><span class="n">3.8</span>Sentinel 模式启动</h3>
+<p><strong>仅在 <code>--sentinel</code> 时执行</strong>，代码位置：<code>src/main.rs</code> 第 136-160 行。</p>
+<pre><code>let sentinel = if sentinel_mode {
+    let s = Arc::new(SentinelManager::new());
+    if let Err(e) = s.load_config() {
+        log::warn!("Sentinel 配置加载失败: {}", e);
+    }
+    Some(s)
+} else {
+    None
+};</code></pre>
+
+<h4 class="s2"><span class="n"></span>Sentinel 启动后启动的后台任务</h4>
+<table>
+<thead><tr><th>任务</th><th>代码位置</th><th>功能</th><th>频率</th></tr></thead>
+<tbody>
+<tr><td><strong>监控任务</strong></td><td><code>src/main.rs</code> 第 148-150 行</td><td>PING 所有被监控的 master，每 10 秒执行 <code>INFO replication</code> 发现 replica</td><td>每秒 / 每 10 秒</td></tr>
+<tr><td><strong>发现任务</strong></td><td><code>src/main.rs</code> 第 153-155 行</td><td>通过 <code>__sentinel__:hello</code> 频道发布/订阅发现其他 Sentinel</td><td>每 2 秒发布一次</td></tr>
+<tr><td><strong>ODOWN 检查器</strong></td><td><code>src/main.rs</code> 第 158-160 行</td><td>检查 SDOWN master 是否达到 ODOWN，触发 leader 选举和故障转移</td><td>每秒一次</td></tr>
+</tbody>
+</table>
+
+<h4 class="s2"><span class="n"></span>Sentinel 配置</h4>
+<ul>
+<li>配置文件路径默认为 <code>sentinel.conf</code>。</li>
+<li>通过 <code>SENTINEL MONITOR &lt;name&gt; &lt;ip&gt; &lt;port&gt; &lt;quorum&gt;</code> 命令添加监控目标。</li>
+<li>配置变更时自动保存到配置文件。</li>
+</ul>
+</div>
+</div>
+
+<!-- S3-9: Server 创建与 TCP 监听 -->
+<div class="section" id="s3-9">
+<div class="sc">
+<h3 class="st"><span class="n">3.9</span>Server 创建与 TCP 监听</h3>
+<p><strong>代码位置</strong>：<code>src/main.rs</code> 第 203-214 行</p>
+<pre><code>let mut server = Server::new(&amp;addr, storage, aof, pubsub, None)
+    .with_rdb_path(RDB_PATH)
+    .with_acl(acl)
+    .with_replication(replication);
+if let Some(ref c) = cluster {
+    server = server.with_cluster(c.clone());
+}
+if let Some(s) = sentinel {
+    server = server.with_sentinel(s);
+}
+server.run().await?;</code></pre>
+<p><code>Server</code> 使用 <strong>Builder 模式</strong>配置可选组件。<code>Server::new()</code> 在 <code>src/server/mod.rs</code> 第 154-184 行：</p>
+<pre><code>pub fn new(
+    addr: &amp;str,
+    mut storage: StorageEngine,
+    aof: Option&lt;Arc&lt;Mutex&lt;AofWriter&gt;&gt;&gt;,
+    pubsub: PubSubManager,
+    password: Option&lt;String&gt;,
+) -&gt; Self {
+    let keyspace_notifier = Arc::new(KeyspaceNotifier::new(pubsub.clone()));
+    storage.set_keyspace_notifier(keyspace_notifier.clone());
+    Self {
+        addr: addr.to_string(),
+        storage,
+        aof,
+        pubsub,
+        password,
+        clients: Arc::new(RwLock::new(HashMap::new())),
+        next_client_id: Arc::new(AtomicU64::new(1)),
+        script_engine: ScriptEngine::new(),
+        rdb_path: None,
+        slowlog: SlowLog::new(),
+        acl: None,
+        replication: None,
+        sentinel: None,
+        cluster: None,
+        client_pause: Arc::new(RwLock::new(None)),
+        client_kill_flags: Arc::new(Mutex::new(HashSet::new())),
+        monitor_tx: tokio::sync::broadcast::channel(1024).0,
+        latency: crate::latency::LatencyTracker::new(),
+        keyspace_notifier,
+    }
+}</code></pre>
+
+<h4 class="s2"><span class="n"></span>主循环</h4>
+<p><code>server.run()</code> 在 <code>src/server/mod.rs</code> 第 217-275 行：</p>
+<pre><code>pub async fn run(self) -&gt; Result&lt;()&gt; {
+    let listener = TcpListener::bind(&amp;self.addr).await?;
+    self.run_with_listener(listener).await
+}
+
+async fn run_with_listener(self, listener: TcpListener) -&gt; Result&lt;()&gt; {
+    log::info!("服务器已启动，等待客户端连接...");
+
+    if let Some(ref repl) = self.replication
+        &amp;&amp; let Ok(addr) = listener.local_addr() {
+            repl.set_listening_port(addr.port());
+        }
+
+    loop {
+        let (stream, peer_addr) = listener.accept().await?;
+        log::info!("客户端已连接: {}", peer_addr);
+
+        // 克隆所有共享状态到连接任务
+        let storage = self.storage.clone();
+        let aof = self.aof.clone();
+        // ... 其他字段克隆 ...
+
+        tokio::spawn(async move {
+            if let Err(e) = connection::handle_connection(
+                stream, peer_addr.to_string(), storage, aof, pubsub,
+                password, clients, next_client_id, script_engine,
+                rdb_path, slowlog, acl, replication, sentinel, cluster,
+                client_pause, client_kill_flags, monitor_tx, latency,
+                keyspace_notifier,
+            ).await {
+                log::error!("处理连接 {} 时出错: {}", peer_addr, e);
+            }
+            log::info!("客户端已断开: {}", peer_addr);
+        });
+    }
+}</code></pre>
+<p><strong>关键设计</strong>：</p>
+<ul>
+<li>每个客户端连接在独立的 <code>tokio::spawn</code> 任务中处理，完全异步。</li>
+<li><code>Server</code> 结构体本身实现了 <code>Clone</code>，内部使用 <code>Arc</code> 共享状态，连接处理任务通过克隆获取自己的引用。</li>
+<li><code>TcpListener::accept()</code> 是异步的，不会阻塞主线程。</li>
+</ul>
+</div>
+</div>
+
+<!-- S3-9 DONE -->
+</main>
+</div>
+<div class="btt" id="btt" onclick="window.scrollTo({top:0})">&#9650;</div>
+<script>
+function toggleSidebar(){var s=document.getElementById('sidebar'),o=document.getElementById('overlay');s.classList.toggle('open');o.classList.toggle('show')}
+window.addEventListener('scroll',function(){var b=document.getElementById('btt');if(window.scrollY>300)b.classList.add('visible');else b.classList.remove('visible');
+var links=document.querySelectorAll('.nav-item a[href^="#"]');var sections=document.querySelectorAll('.section');var cur='';sections.forEach(function(s){if(window.scrollY>=s.offsetTop-100)cur=s.id});links.forEach(function(a){a.classList.remove('active');if(a.getAttribute('href')==='#'+cur)a.classList.add('active')})});
+</script>
+</body>
+</html>

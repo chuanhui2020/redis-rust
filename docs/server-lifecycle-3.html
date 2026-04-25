@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>连接处理与关闭流程 | redis-rust Server Lifecycle Part 3</title>
+<style>
+:root{--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--border-color:#30363d;--text-primary:#e6edf3;--text-secondary:#8b949e;--accent-blue:#58a6ff;--accent-purple:#a371f7;--accent-cyan:#39c5cf;--accent-green:#3fb950;--accent-orange:#d29922;--accent-red:#f85149;--glow-blue:rgba(88,166,255,.15);--glow-purple:rgba(163,113,247,.15)}
+*{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:var(--bg-primary);color:var(--text-primary);line-height:1.6;overflow-x:hidden}
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:var(--bg-primary)}::-webkit-scrollbar-thumb{background:var(--border-color);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:var(--accent-blue)}
+.container{display:flex;min-height:100vh}
+.sidebar{width:260px;background:var(--bg-secondary);border-right:1px solid var(--border-color);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:100;transition:transform .3s ease}
+.sidebar-header{padding:24px 20px;border-bottom:1px solid var(--border-color)}
+.sidebar-header h1{font-size:1.3rem;background:linear-gradient(90deg,var(--accent-blue),var(--accent-purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.sidebar-header p{font-size:.75rem;color:var(--text-secondary);margin-top:4px}
+.nav-menu{list-style:none;padding:12px 0}
+.nav-item a{display:block;padding:10px 24px;color:var(--text-secondary);text-decoration:none;font-size:.9rem;border-left:3px solid transparent;transition:all .2s ease;cursor:pointer}
+.nav-item a:hover,.nav-item a.active{color:var(--text-primary);background:var(--bg-tertiary);border-left-color:var(--accent-blue)}
+.nav-item a.active{background:linear-gradient(90deg,rgba(88,166,255,.1),transparent)}
+.nav-sub{list-style:none;padding:0}
+.nav-sub a{padding:7px 24px 7px 40px!important;font-size:.82rem!important}
+.nav-label{display:block;padding:16px 24px 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--accent-purple);font-weight:600}
+.nn{color:var(--accent-cyan);margin-right:6px;font-size:.8rem}
+.mobile-toggle{display:none;position:fixed;top:16px;left:16px;z-index:200;background:var(--bg-secondary);border:1px solid var(--border-color);color:var(--text-primary);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:1.2rem}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99}
+.main{margin-left:260px;flex:1;padding:40px 48px;max-width:1100px}
+.page-header{margin-bottom:32px}
+.page-header h2{font-size:2rem;margin-bottom:8px;background:linear-gradient(90deg,var(--accent-blue),var(--accent-purple),var(--accent-cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.page-header p{color:var(--text-secondary);font-size:1rem}
+.sc{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;padding:28px 32px;margin-bottom:24px;transition:border-color .3s,box-shadow .3s}
+.sc:hover{border-color:rgba(88,166,255,.3);box-shadow:0 0 20px rgba(88,166,255,.06)}
+.st{font-size:1.4rem;color:var(--accent-cyan);margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border-color)}
+.st .n{color:var(--accent-purple);margin-right:8px}
+.s2{font-size:1.15rem;color:var(--accent-blue);margin:24px 0 12px 0}
+.s2 .n{color:var(--accent-purple);margin-right:6px}
+.s3{font-size:1.02rem;color:var(--accent-green);margin:20px 0 10px 0}
+p{margin-bottom:12px;font-size:.95rem}
+.note{background:rgba(88,166,255,.06);border-left:3px solid var(--accent-blue);padding:12px 16px;margin:12px 0;border-radius:0 8px 8px 0;font-size:.9rem;color:var(--text-secondary)}
+.note strong{color:var(--accent-blue)}
+.warn{background:rgba(248,81,73,.06);border-left:3px solid var(--accent-red);padding:14px 18px;margin:16px 0;border-radius:0 8px 8px 0;font-size:.9rem}
+.warn strong{color:var(--accent-red)}
+.warn-box{background:rgba(248,81,73,.06);border:1px solid rgba(248,81,73,.3);border-radius:12px;padding:24px 28px;margin:20px 0}
+.warn-box h4{color:var(--accent-red);font-size:1.05rem;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.warn-box ol{margin:8px 0 0 20px;font-size:.9rem}
+.warn-box li{margin-bottom:10px;color:var(--text-primary)}
+.warn-box li strong{color:var(--accent-red)}
+pre{background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;padding:16px 18px;font-family:"SF Mono",Monaco,"Cascadia Code",Consolas,monospace;font-size:.82rem;color:var(--accent-orange);margin:12px 0;overflow-x:auto;line-height:1.6;white-space:pre;word-break:normal}
+code{font-family:"SF Mono",Monaco,"Cascadia Code",Consolas,monospace;font-size:.85em;color:var(--accent-orange);background:rgba(210,153,34,.1);padding:2px 6px;border-radius:4px}
+pre code{background:none;padding:0;font-size:inherit}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.88rem}
+th{background:var(--bg-tertiary);color:var(--accent-cyan);text-align:left;padding:10px 14px;border-bottom:2px solid var(--accent-blue);font-weight:600}
+td{padding:10px 14px;border-bottom:1px solid var(--border-color)}
+tr:nth-child(even) td{background:rgba(22,27,34,.5)}tr:hover td{background:var(--bg-tertiary)}
+td code{font-size:.82rem}
+ul,ol{margin:8px 0 12px 24px;font-size:.93rem}li{margin-bottom:4px}li strong{color:var(--accent-orange)}
+.section{margin-bottom:48px;scroll-margin-top:24px}
+.part-nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:32px}
+.part-nav a{padding:6px 14px;background:var(--bg-tertiary);border:1px solid var(--border-color);border-radius:8px;color:var(--text-secondary);text-decoration:none;font-size:.82rem;transition:all .2s}
+.part-nav a:hover{border-color:var(--accent-blue);color:var(--text-primary)}
+.part-nav a.current{background:rgba(88,166,255,.1);border-color:var(--accent-blue);color:var(--accent-blue)}
+.btt{position:fixed;bottom:24px;right:24px;background:var(--bg-secondary);border:1px solid var(--border-color);color:var(--accent-blue);width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .3s,transform .3s;z-index:50;font-size:1.2rem}
+.btt.visible{opacity:1}.btt:hover{transform:translateY(-2px);border-color:var(--accent-blue);box-shadow:0 0 16px var(--glow-blue)}
+@media(max-width:900px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:translateX(0)}.mobile-toggle{display:block}.overlay.show{display:block}.main{margin-left:0;padding:60px 20px 40px}.sc{padding:20px 18px}.page-header h2{font-size:1.5rem}}
+@media(max-width:600px){.main{padding:60px 14px 30px}}
+</style>
+</head>
+<body>
+<button class="mobile-toggle" onclick="toggleSidebar()">&#9776;</button>
+<div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+<div class="container">
+<aside class="sidebar" id="sidebar">
+<div class="sidebar-header"><h1>Server Lifecycle</h1><p>redis-rust 服务器生命周期</p></div>
+<ul class="nav-menu">
+<span class="nav-label">Part 1</span>
+<li class="nav-item"><a href="server-lifecycle-1.html"><span class="nn">1.</span>概述</a></li>
+<li class="nav-item"><a href="server-lifecycle-1.html"><span class="nn">2.</span>命令行参数</a></li>
+<span class="nav-label">Part 2</span>
+<li class="nav-item"><a href="server-lifecycle-2.html"><span class="nn">3.</span>启动流程</a></li>
+<span class="nav-label">Part 3 (当前)</span>
+<li class="nav-item"><a href="#s4" class="active"><span class="nn">4.</span>连接处理流程</a></li>
+<ul class="nav-sub">
+<li class="nav-item"><a href="#s4-1">4.1 handle_connection 函数</a></li>
+<li class="nav-item"><a href="#s4-2">4.2 连接初始化</a></li>
+<li class="nav-item"><a href="#s4-3">4.3 连接状态初始化</a></li>
+<li class="nav-item"><a href="#s4-4">4.4 CommandExecutor 创建</a></li>
+<li class="nav-item"><a href="#s4-5">4.5 主循环（Pipeline）</a></li>
+<li class="nav-item"><a href="#s4-6">4.6 特殊模式处理</a></li>
+</ul>
+<li class="nav-item"><a href="#s5"><span class="nn">5.</span>关闭流程</a></li>
+<ul class="nav-sub">
+<li class="nav-item"><a href="#s5-1">5.1 SHUTDOWN 命令</a></li>
+<li class="nav-item"><a href="#s5-2">5.2 进程终止</a></li>
+<li class="nav-item"><a href="#s5-3">5.3 数据持久化保障</a></li>
+<li class="nav-item"><a href="#s5-4">5.4 当前不足</a></li>
+</ul>
+<span class="nav-label">Part 4</span>
+<li class="nav-item"><a href="server-lifecycle-4.html"><span class="nn">6.</span>持久化文件说明</a></li>
+<li class="nav-item"><a href="server-lifecycle-4.html"><span class="nn">7.</span>后台任务一览</a></li>
+<li class="nav-item"><a href="server-lifecycle-4.html"><span class="nn">8.</span>代码引用汇总</a></li>
+</ul>
+</aside>
+<main class="main">
+<div class="page-header">
+<h2>连接处理与关闭流程</h2>
+<p>Part 3 — 客户端连接的完整生命周期：从建立到断开，以及服务器关闭机制</p>
+</div>
+
+<div class="part-nav">
+<a href="server-lifecycle-1.html">Part 1: 概述 / 参数</a>
+<a href="server-lifecycle-2.html">Part 2: 启动流程</a>
+<a class="current" href="server-lifecycle-3.html">Part 3: 连接处理 / 关闭</a>
+<a href="server-lifecycle-4.html">Part 4: 持久化 / 后台任务 / 代码引用</a>
+</div>
+
+<!-- ==================== Section 4 ==================== -->
+<div class="section" id="s4">
+<div class="sc" id="s4-1">
+<h3 class="st"><span class="n">4.1</span>handle_connection 函数</h3>
+<p><strong>代码位置</strong>：<code>src/server/connection.rs</code> 第 502-523 行</p>
+<pre><code>pub(crate) async fn handle_connection(
+    stream: TcpStream,
+    peer_addr: String,
+    mut storage: StorageEngine,
+    aof: Option&lt;Arc&lt;Mutex&lt;AofWriter&gt;&gt;&gt;,
+    pubsub: PubSubManager,
+    password: Option&lt;String&gt;,
+    clients: Arc&lt;RwLock&lt;HashMap&lt;u64, ClientInfo&gt;&gt;&gt;,
+    next_client_id: Arc&lt;AtomicU64&gt;,
+    script_engine: ScriptEngine,
+    rdb_path: Option&lt;String&gt;,
+    slowlog: SlowLog,
+    acl: Option&lt;crate::acl::AclManager&gt;,
+    replication: Option&lt;Arc&lt;crate::replication::ReplicationManager&gt;&gt;,
+    sentinel: Option&lt;Arc&lt;crate::sentinel::SentinelManager&gt;&gt;,
+    cluster: Option&lt;Arc&lt;crate::cluster::ClusterState&gt;&gt;,
+    client_pause: Arc&lt;RwLock&lt;Option&lt;(Instant, String)&gt;&gt;&gt;,
+    client_kill_flags: Arc&lt;Mutex&lt;HashSet&lt;u64&gt;&gt;&gt;,
+    monitor_tx: tokio::sync::broadcast::Sender&lt;String&gt;,
+    latency: crate::latency::LatencyTracker,
+    keyspace_notifier: Arc&lt;KeyspaceNotifier&gt;,
+) -&gt; Result&lt;()&gt; {</code></pre>
+<p>这是连接处理的核心函数，参数非常多，因为需要访问几乎所有服务器子系统。</p>
+</div>
+
+<div class="sc" id="s4-2">
+<h3 class="st"><span class="n">4.2</span>连接初始化</h3>
+<p><strong>代码位置</strong>：<code>src/server/connection.rs</code> 第 524-539 行</p>
+<pre><code>// 分配客户端 ID
+let client_id = next_client_id.fetch_add(1, Ordering::SeqCst);
+
+// 注册客户端
+{
+    let mut clients_guard = clients.write().unwrap();
+    clients_guard.insert(client_id, ClientInfo {
+        id: client_id,
+        addr: peer_addr.clone(),
+        name: None,
+        db: 0,
+        flags: HashSet::new(),
+        blocked: false,
+        blocked_reason: None,
+    });
+}
+let _client_guard = ClientGuard { client_id, clients: clients.clone() };</code></pre>
+
+<h4 class="s2"><span class="n">&#9654;</span>ClientGuard（RAII 自动清理）</h4>
+<p><code>ClientGuard</code> 实现了 <code>Drop</code> trait，确保连接断开时<strong>自动从客户端注册表中移除</strong>：</p>
+<pre><code>struct ClientGuard {
+    client_id: u64,
+    clients: Arc&lt;RwLock&lt;HashMap&lt;u64, ClientInfo&gt;&gt;&gt;,
+}
+
+impl Drop for ClientGuard {
+    fn drop(&amp;mut self) {
+        let _ = self.clients.write().unwrap().remove(&amp;self.client_id);
+    }
+}</code></pre>
+</div>
+
+<div class="sc" id="s4-3">
+<h3 class="st"><span class="n">4.3</span>连接状态初始化</h3>
+<p><strong>代码位置</strong>：<code>src/server/connection.rs</code> 第 543-563 行</p>
+<pre><code>let mut authenticated = password.is_none() &amp;&amp; acl.is_none();
+let mut client_name: Option&lt;String&gt; = None;
+let mut _current_db_index: usize = 0;
+let mut current_user = "default".to_string();
+let mut reply_mode = ReplyMode::On;
+let mut client_flags: HashSet&lt;String&gt; = HashSet::new();
+let blocked = false;
+let _blocked_reason: Option&lt;String&gt; = None;
+let mut replica_listening_port = 0u16;</code></pre>
+<ul>
+<li><strong>authenticated</strong>：如果未设置全局密码且未启用 ACL，则默认已认证。</li>
+<li><strong>reply_mode</strong>：支持 <code>On</code>（正常回复）、<code>Off</code>（不回复）、<code>Skip</code>（跳过下一条）。</li>
+<li><strong>客户端追踪状态</strong>（<code>tracking_enabled</code> 等）：用于 <code>CLIENT TRACKING</code> 实现的键追踪缓存失效通知。</li>
+</ul>
+</div>
+
+<div class="sc" id="s4-4">
+<h3 class="st"><span class="n">4.4</span>CommandExecutor 创建</h3>
+<p><strong>代码位置</strong>：<code>src/server/connection.rs</code> 第 565-588 行</p>
+<pre><code>let mut executor = match aof.clone() {
+    Some(aof_writer) =&gt; {
+        CommandExecutor::new_with_aof(storage.clone(), aof_writer)
+    }
+    None =&gt; CommandExecutor::new(storage.clone()),
+};
+executor.set_script_engine(script_engine);
+executor.set_slowlog(slowlog.clone());
+executor.set_latency(latency);
+if let Some(ref acl_mgr) = acl {
+    executor.set_acl(acl_mgr.clone());
+}
+if let Some(ref repl_mgr) = replication {
+    executor.set_replication(repl_mgr.clone());
+}
+executor.set_keyspace_notifier(keyspace_notifier.clone());
+storage.set_keyspace_notifier(keyspace_notifier);</code></pre>
+<p><code>CommandExecutor</code> 是命令执行的上下文，包含了存储引擎、AOF 写入器、脚本引擎、ACL、复制管理器等所有执行命令所需的依赖。</p>
+</div>
+
+<div class="sc" id="s4-5">
+<h3 class="st"><span class="n">4.5</span>主循环（Pipeline）</h3>
+<p><strong>代码位置</strong>：<code>src/server/connection.rs</code> 第 607 行开始</p>
+<pre><code>loop {
+    // 内层循环：处理缓冲区中所有可用命令（pipeline 支持）
+    loop {
+        let maybe_resp = match handler.parser.parse(&amp;mut buf) {
+            Ok(r) =&gt; r,
+            Err(e) =&gt; { /* 协议错误处理 */ }
+        };
+
+        match maybe_resp {
+            Some(resp_value) =&gt; {
+                match handler.cmd_parser.parse(resp_value) {
+                    Ok(cmd) =&gt; {
+                        // 认证检查
+                        // 事务模式处理
+                        // ACL 权限检查
+                        // CLIENT KILL 检查
+                        // 客户端暂停检查
+                        // Sentinel 模式命令过滤
+                        // CLUSTER/SENTINEL 命令处理
+                        // 普通命令执行
+                    }
+                    Err(e) =&gt; { /* 命令解析错误 */ }
+                }
+            }
+            None =&gt; break, // 缓冲区数据不足，等待更多数据
+        }
+    }
+
+    // 读取更多数据到缓冲区
+    let n = stream.read_buf(&amp;mut buf).await?;
+    if n == 0 {
+        // 连接关闭
+        return Ok(());
+    }
+}</code></pre>
+<div class="note"><strong>Pipeline 支持</strong>：内层循环会尝试从缓冲区中连续解析并执行多个完整的 RESP 消息，直到缓冲区中不再有完整消息为止。这是 Redis Pipeline 机制的基础。</div>
+</div>
+
+<div class="sc" id="s4-6">
+<h3 class="st"><span class="n">4.6</span>特殊模式处理</h3>
+
+<h4 class="s2"><span class="n">&#9654;</span>事务模式（MULTI/EXEC/DISCARD/WATCH）</h4>
+<p><strong>代码位置</strong>：<code>src/server/connection.rs</code> 第 651-666 行</p>
+<p>当 <code>in_transaction = true</code> 时，大部分命令被排队到 <code>tx_queue</code> 中，直到收到 <code>EXEC</code> 或 <code>DISCARD</code>。</p>
+
+<h4 class="s2"><span class="n">&#9654;</span>订阅模式</h4>
+<p><strong>代码位置</strong>：<code>src/server/connection.rs</code> 第 1261-1274 行</p>
+<p>当客户端进入订阅状态（<code>is_subscribed = true</code>）后，只允许执行 <code>(P|S)SUBSCRIBE</code>、<code>(P|S)UNSUBSCRIBE</code>、<code>PING</code>、<code>QUIT</code> 命令。</p>
+<p>订阅消息通过 <code>mpsc::unbounded_channel</code> 从 PubSub 系统转发到客户端主循环。</p>
+
+<h4 class="s2"><span class="n">&#9654;</span>复制连接</h4>
+<p>当副本连接到主节点时，会进入 <code>run_replica_forward_loop</code>（<code>src/server/connection.rs</code> 第 423-499 行），将主节点的写命令广播给副本，并处理副本的 <code>REPLCONF ACK</code> 心跳。</p>
+</div>
+</div>
+
+<!-- ==================== Section 5 ==================== -->
+<div class="section" id="s5">
+<div class="sc" id="s5-1">
+<h3 class="st"><span class="n">5.1</span>SHUTDOWN 命令（当前实现）</h3>
+<p><strong>代码位置</strong>：<code>src/server/connection.rs</code> 第 1331-1335 行</p>
+<pre><code>Command::Shutdown(_) =&gt; {
+    let resp = RespValue::SimpleString("OK".to_string());
+    let _ = write_resp(&amp;mut stream, &amp;handler, &amp;resp).await;
+    return Ok(());
+}</code></pre>
+<div class="warn"><strong>重要限制</strong>：当前 <code>SHUTDOWN</code> 命令的实现非常简化：</div>
+<ol>
+<li><strong>仅关闭发送命令的客户端连接</strong>：返回 <code>OK</code> 后该连接的 <code>handle_connection</code> 函数返回，TCP 连接关闭。</li>
+<li><strong>不会关闭整个服务器进程</strong>：<code>main()</code> 中的 <code>server.run().await</code> 继续运行，继续接受新连接。</li>
+<li><strong>不会自动执行数据持久化</strong>：不会触发 RDB 保存或 AOF flush。</li>
+<li><strong>不会通知其他客户端</strong>：其他已连接的客户端不会收到任何关闭通知。</li>
+<li><strong>不会停止后台任务</strong>：过期键清理、Cluster Gossip、Sentinel 监控等后台任务继续运行。</li>
+</ol>
+</div>
+
+<div class="sc" id="s5-2">
+<h3 class="st"><span class="n">5.2</span>进程终止（Ctrl+C / SIGTERM）</h3>
+<p><strong>当前状态</strong>：服务器<strong>没有实现任何信号处理机制</strong>。</p>
+<p>当用户按下 <code>Ctrl+C</code> 或进程收到 <code>SIGTERM</code> 时：</p>
+<ol>
+<li><strong>Tokio 运行时被强制终止</strong>：<code>main()</code> 中的 <code>server.run().await</code> 可能异常退出。</li>
+<li><strong>后台任务立即停止</strong>：所有 <code>tokio::spawn</code> 的后台任务（过期清理、Gossip、监控等）被强制终止，没有优雅关闭的机会。</li>
+<li><strong>AOF 缓冲区中未 flush 的数据可能丢失</strong>：<code>BufWriter</code> 中的数据可能尚未写入操作系统页缓存或刷盘。</li>
+<li><strong>RDB 不会自动保存</strong>：与 Redis 原生行为不同，进程终止时不会触发最后一次 RDB 快照保存。</li>
+<li><strong>Cluster 拓扑可能不一致</strong>：如果 <code>nodes.conf</code> 的最后一次自动保存（每 10 秒）与终止时刻之间有拓扑变更，这些变更会丢失。</li>
+</ol>
+</div>
+
+<div class="sc" id="s5-3">
+<h3 class="st"><span class="n">5.3</span>数据持久化保障（手动）</h3>
+<p>在关闭前，管理员可以通过以下命令手动保障数据持久化：</p>
+<table>
+<thead><tr><th>命令</th><th>类型</th><th>行为</th><th>阻塞性</th></tr></thead>
+<tbody>
+<tr><td><code>SAVE</code></td><td>同步 RDB</td><td>立即将当前数据保存到 <code>dump.rdb</code>，包含复制信息</td><td><strong>阻塞</strong>，直到完成</td></tr>
+<tr><td><code>BGSAVE</code></td><td>异步 RDB</td><td>在后台 <code>tokio::spawn</code> 中执行 RDB 保存</td><td>非阻塞，立即返回</td></tr>
+<tr><td><code>BGREWRITEAOF</code></td><td>AOF 重写</td><td>将当前数据状态重写为新的 AOF 文件（可选混合格式）</td><td>非阻塞</td></tr>
+</tbody>
+</table>
+
+<h4 class="s2"><span class="n">&#9654;</span>AOF 数据安全性</h4>
+<ul>
+<li>AOF 在每次写命令后通过 <code>AofWriter::append()</code> 追加到 <code>BufWriter</code>。</li>
+<li><code>BufWriter</code> 的数据何时实际落盘取决于操作系统缓冲策略和 <code>flush()</code> 调用时机。</li>
+<li>当前实现<strong>没有配置 <code>appendfsync</code> 策略</strong>（如 <code>always</code>/<code>everysec</code>/<code>no</code>），完全依赖 <code>BufWriter</code> 的行为。</li>
+</ul>
+
+<h4 class="s2"><span class="n">&#9654;</span>Cluster 拓扑</h4>
+<ul>
+<li><code>nodes.conf</code> 每 <strong>10 秒</strong>自动保存一次（<code>tokio::time::interval(Duration::from_secs(10))</code>）。</li>
+<li>在 <code>CLUSTER ADDSLOTS</code>、<code>CLUSTER FLUSHSLOTS</code>、<code>CLUSTER FAILOVER</code> 等变更拓扑的命令执行后也会触发保存。</li>
+</ul>
+
+<h4 class="s2"><span class="n">&#9654;</span>Sentinel 配置</h4>
+<ul>
+<li>在 <code>SENTINEL MONITOR</code>、<code>SENTINEL REMOVE</code>、<code>SENTINEL SET</code> 等命令执行后会自动保存到 <code>sentinel.conf</code>。</li>
+</ul>
+</div>
+
+<div class="sc" id="s5-4">
+<h3 class="st"><span class="n">5.4</span>当前关闭机制的不足</h3>
+<div class="warn-box">
+<h4>&#9888; 基于代码分析，当前关闭机制存在以下不足</h4>
+<ol>
+<li><strong>缺少信号处理</strong>：没有注册 <code>SIGTERM</code>/<code>SIGINT</code> 信号处理器，无法响应系统关闭请求。</li>
+<li><strong>缺少连接排空（Connection Draining）</strong>：关闭前没有等待现有连接完成正在处理的命令。</li>
+<li><strong>缺少关闭时自动持久化</strong>：没有实现关闭前自动执行 <code>SAVE</code> 或 <code>BGSAVE</code> 的逻辑。</li>
+<li><strong>缺少后台任务协调关闭</strong>：所有后台任务都是无限循环，没有提供终止信号机制。</li>
+<li><strong>缺少 Cluster/Sentinel 故障转移协调</strong>：如果节点是 Cluster master 或 Sentinel leader，关闭时没有优雅地将角色转移给其他节点。</li>
+<li><strong>缺少复制同步等待</strong>：主节点关闭前没有等待副本确认已接收所有数据。</li>
+</ol>
+</div>
+</div>
+</div>
+
+</main>
+
+<button class="btt" id="btt" onclick="window.scrollTo({top:0})">&#8593;</button>
+
+<script>
+function toggleSidebar(){
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('overlay').classList.toggle('show');
+}
+window.addEventListener('scroll',function(){
+  document.getElementById('btt').classList.toggle('visible',window.scrollY>300);
+});
+document.querySelectorAll('.sidebar a[href^="#"]').forEach(function(a){
+  a.addEventListener('click',function(){
+    if(window.innerWidth<=900){toggleSidebar();}
+  });
+});
+// highlight active nav on scroll
+var sections=document.querySelectorAll('[id^="s4-"],[id^="s5-"],[id="s4"],[id="s5"]');
+var navLinks=document.querySelectorAll('.nav-sub a, .nav-menu > .nav-item > a[href^="#"]');
+window.addEventListener('scroll',function(){
+  var cur='';
+  sections.forEach(function(s){if(window.scrollY>=s.offsetTop-80)cur=s.id;});
+  navLinks.forEach(function(a){
+    a.classList.remove('active');
+    if(a.getAttribute('href')==='#'+cur)a.classList.add('active');
+  });
+});
+</script>
+</div>
+</body>
+</html>
