@@ -9,6 +9,7 @@ use crate::pubsub::PubSubManager;
 use crate::storage::StorageEngine;
 use super::ReplyMode;
 use super::handler::{ConnectionHandler, write_resp, send_reply};
+use std::sync::atomic::Ordering;
 
 /// 在事务中处理命令（已执行 MULTI 后）
 ///
@@ -64,12 +65,18 @@ pub(crate) async fn handle_in_transaction(
                     Err(e) => {
                         let resp = RespValue::Error(format!("ERR {}", e));
                         let _ = write_resp(stream, handler, &resp).await;
+                        if !watched.is_empty() {
+                            tx_storage.watch_count.fetch_sub(1, Ordering::Relaxed);
+                        }
                         watched.clear();
                         tx_queue.clear();
                         return Ok(true);
                     }
                 }
             };
+            if !watched.is_empty() {
+                tx_storage.watch_count.fetch_sub(1, Ordering::Relaxed);
+            }
             watched.clear();
             if !check_passed {
                 tx_queue.clear();
@@ -108,6 +115,9 @@ pub(crate) async fn handle_in_transaction(
         Command::Discard => {
             *in_transaction = false;
             tx_queue.clear();
+            if !watched.is_empty() {
+                tx_storage.watch_count.fetch_sub(1, Ordering::Relaxed);
+            }
             watched.clear();
             let resp = RespValue::SimpleString("OK".to_string());
             if let Err(e) = write_resp(stream, handler, &resp).await {
@@ -200,6 +210,7 @@ pub(crate) async fn handle_transaction_init(
             Ok(true)
         }
         Command::Watch(keys) => {
+            let was_watching = !watched.is_empty();
             watched.clear();
             for key in keys {
                 match tx_storage.get_version(&key) {
@@ -210,6 +221,11 @@ pub(crate) async fn handle_transaction_init(
                         log::warn!("获取 key {} 版本号失败: {}", key, e);
                     }
                 }
+            }
+            if !watched.is_empty() && !was_watching {
+                tx_storage.watch_count.fetch_add(1, Ordering::Relaxed);
+            } else if watched.is_empty() && was_watching {
+                tx_storage.watch_count.fetch_sub(1, Ordering::Relaxed);
             }
             let resp = RespValue::SimpleString("OK".to_string());
             if let Err(e) = write_resp(stream, handler, &resp).await {
@@ -239,6 +255,9 @@ pub(crate) async fn handle_transaction_init(
             Ok(true)
         }
         Command::Unwatch => {
+            if !watched.is_empty() {
+                tx_storage.watch_count.fetch_sub(1, Ordering::Relaxed);
+            }
             watched.clear();
             let resp = RespValue::SimpleString("OK".to_string());
             if let Err(e) = write_resp(stream, handler, &resp).await {

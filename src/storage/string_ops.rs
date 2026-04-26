@@ -167,6 +167,29 @@ impl StorageEngine {
     /// - `Err(AppError::Storage)` - 类型错误或锁中毒
     ///
     /// # 行为说明
+    /// 普通 SET 快速路径（无 NX/XX/GET/KEEPTTL/EXPIRE 选项）
+    pub fn set_plain(&self, key: String, value: Bytes) -> Result<()> {
+        self.evict_if_needed()?;
+        let db = self.db();
+        let mut map = db
+            .inner
+            .get_shard(&key)
+            .write()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+        map.insert(key.clone(), StorageValue::String(value));
+        {
+            let mut expires = db.expires.get_shard(&key).write().unwrap();
+            expires.remove(&key);
+        }
+        self.bump_version(&key);
+        self.touch(&key);
+        drop(map);
+        self.evict_if_needed()?;
+        Ok(())
+    }
+
+    /// SET 命令的完整实现（对标 Redis SET 命令）
+    ///
     /// - `nx=true` 且 key 存在 → 不设置，返回 `(false, old_value)`
     /// - `xx=true` 且 key 不存在 → 不设置，返回 `(false, old_value)`
     /// - `get=true` → 无论是否设置成功，都返回旧值（如果 key 存在且未过期）
@@ -698,9 +721,11 @@ impl StorageEngine {
         };
 
         let new_val = current.saturating_add(delta);
+        let mut itoa_buf = itoa::Buffer::new();
+        let formatted = itoa_buf.format(new_val);
         map.insert(
             key.to_string(),
-            StorageValue::String(Bytes::from(new_val.to_string())),
+            StorageValue::String(Bytes::copy_from_slice(formatted.as_bytes())),
         );
         let mut expires = db.expires.get_shard(key).write().unwrap();
         expires.remove(key);

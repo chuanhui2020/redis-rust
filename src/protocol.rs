@@ -60,6 +60,11 @@ impl RespParser {
         Bytes::from(result)
     }
 
+    /// 编码 RESP 值到已有缓冲区（避免重复分配）
+    pub fn encode_append(&self, value: &RespValue, out: &mut Vec<u8>) {
+        self.encode_to_vec(value, out);
+    }
+
     // ---------- 解析内部方法 ----------
 
     /// 查找缓冲区中第一个 \r\n 的位置，返回其起始索引

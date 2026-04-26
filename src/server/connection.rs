@@ -343,7 +343,7 @@ async fn migrate_keys_to_target(
         .map_err(|e| format!("IOERR {}", e))?;
 
     let parser = RespParser::new();
-    let mut buf = BytesMut::with_capacity(4096);
+    let mut buf = BytesMut::with_capacity(65536);
     let mut migrated = Vec::new();
 
     for key in keys {
@@ -588,8 +588,8 @@ pub(crate) async fn handle_connection(
     };
 
     // 使用 BytesMut 作为读取缓冲区
-    let mut buf = BytesMut::with_capacity(4096);
-    let mut stream = BufWriter::new(stream);
+    let mut buf = BytesMut::with_capacity(65536);
+    let mut stream = BufWriter::with_capacity(65536, stream);
 
     // 订阅状态
     let (msg_tx, mut msg_rx) = mpsc::unbounded_channel::<ClientMessage>();
@@ -2174,6 +2174,9 @@ pub(crate) async fn handle_connection(
                                 caching_next = None;
                                 in_transaction = false;
                                 tx_queue.clear();
+                                if !watched.is_empty() {
+                                    tx_storage.watch_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                                }
                                 watched.clear();
                                 if let Ok(mut guard) = clients.write()
                                     && let Some(info) = guard.get_mut(&client_id) {
@@ -2523,6 +2526,9 @@ pub(crate) async fn handle_connection(
             let bytes_read = match stream.get_mut().read_buf(&mut buf).await {
                 Ok(0) => {
                     log::debug!("客户端发送 EOF，关闭连接");
+                    if !watched.is_empty() {
+                        tx_storage.watch_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                    }
                     return Ok(());
                 }
                 Ok(n) => n,

@@ -45,6 +45,12 @@ pub struct SetOptions {
     pub expire: Option<SetExpireOption>,
 }
 
+impl SetOptions {
+    pub fn is_plain(&self) -> bool {
+        !self.nx && !self.xx && !self.get && !self.keepttl && self.expire.is_none()
+    }
+}
+
 
 /// 内存淘汰策略
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -251,6 +257,8 @@ pub struct StorageEngine {
     last_save_time: Arc<AtomicU64>,
     /// Keyspace 通知器（可选）
     keyspace_notifier: Option<Arc<KeyspaceNotifier>>,
+    /// 当前活跃 WATCH 的连接数（用于 bump_version 快速跳过）
+    pub(crate) watch_count: Arc<AtomicUsize>,
 }
 
 impl Clone for StorageEngine {
@@ -264,6 +272,7 @@ impl Clone for StorageEngine {
             active_expire_enabled: self.active_expire_enabled.clone(),
             last_save_time: self.last_save_time.clone(),
             keyspace_notifier: self.keyspace_notifier.clone(),
+            watch_count: self.watch_count.clone(),
         }
     }
 }
@@ -303,6 +312,7 @@ impl StorageEngine {
             active_expire_enabled: Arc::new(AtomicBool::new(true)),
             last_save_time: Arc::new(AtomicU64::new(0)),
             keyspace_notifier: None,
+            watch_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -917,6 +927,9 @@ impl StorageEngine {
 
     /// 递增指定 key 的版本号
     fn bump_version(&self, key: &str) {
+        if self.watch_count.load(Ordering::Relaxed) == 0 {
+            return;
+        }
         let db = self.db();
         let mut versions = db.versions.get_shard(key).write().unwrap();
         let new_ver = self.version_counter.fetch_add(1, Ordering::SeqCst).saturating_add(1);

@@ -5,6 +5,32 @@ use crate::protocol::{RespParser, RespValue};
 use crate::command::{CommandParser, CommandExecutor};
 use super::ReplyMode;
 
+pub(crate) static RESP_OK: &[u8] = b"+OK\r\n";
+pub(crate) static RESP_PONG: &[u8] = b"+PONG\r\n";
+pub(crate) static RESP_ZERO: &[u8] = b":0\r\n";
+pub(crate) static RESP_ONE: &[u8] = b":1\r\n";
+pub(crate) static RESP_NULL: &[u8] = b"$-1\r\n";
+
+/// 直接写入预编码的静态 RESP 字节，跳过 RespValue 构造和编码
+pub(crate) async fn write_resp_bytes(
+    stream: &mut BufWriter<TcpStream>,
+    bytes: &[u8],
+) -> std::io::Result<()> {
+    stream.write_all(bytes).await
+}
+
+/// 复用缓冲区编码 RESP 值并写入（避免每次分配新 Vec/Bytes）
+pub(crate) async fn write_resp_buf(
+    stream: &mut BufWriter<TcpStream>,
+    handler: &ConnectionHandler,
+    resp: &RespValue,
+    encode_buf: &mut Vec<u8>,
+) -> std::io::Result<()> {
+    encode_buf.clear();
+    handler.parser.encode_append(resp, encode_buf);
+    stream.write_all(encode_buf).await
+}
+
 /// 客户端连接处理器，聚合协议解析、命令解析和命令执行三个核心组件
 ///
 /// # 架构说明
@@ -38,8 +64,9 @@ pub(crate) async fn write_resp(
     handler: &ConnectionHandler,
     resp: &RespValue,
 ) -> std::io::Result<()> {
-    let encoded = handler.parser.encode(resp);
-    stream.write_all(&encoded).await
+    let mut buf = Vec::with_capacity(64);
+    handler.parser.encode_append(resp, &mut buf);
+    stream.write_all(&buf).await
 }
 
 /// 根据回复模式发送响应

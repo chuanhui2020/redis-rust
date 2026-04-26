@@ -35,6 +35,10 @@ pub(crate) fn execute_get(executor: &CommandExecutor, key: String) -> Result<Res
 /// - `Ok(RespValue::...)` - 执行成功
 /// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_set(executor: &CommandExecutor, key: String, value: Bytes, options: crate::storage::SetOptions) -> Result<RespValue> {
+                if options.is_plain() {
+                    executor.storage.set_plain(key, value)?;
+                    return Ok(RespValue::SimpleString("OK".to_string()));
+                }
                 let (ok, old_value) = executor.storage.set_with_options(key, value, &options)?;
                 if options.get {
                     Ok(RespValue::BulkString(old_value))

@@ -692,6 +692,15 @@ impl StorageEngine {
     /// - `key` - 发生变化的列表键名
     pub(crate) fn notify_blocking_waiters(&self, key: &str) {
         let db = self.db();
+        {
+            let waiters_map = match db.blocking_waiters.read() {
+                Ok(m) => m,
+                Err(_) => return,
+            };
+            if waiters_map.is_empty() || !waiters_map.contains_key(key) {
+                return;
+            }
+        }
         let waiters = {
             let mut waiters_map = match db.blocking_waiters.write() {
                 Ok(m) => m,
