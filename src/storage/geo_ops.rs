@@ -357,7 +357,7 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             map.remove(destination);
-            self.bump_version(destination);
+self.bump_version(&mut map, destination);
             return Ok(0);
         }
 
@@ -375,7 +375,7 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         let result_count = zset.member_to_score.len();
         map.insert(destination.to_string(), Entry::new(StorageValue::ZSet(zset)));
-        self.bump_version(destination);
+self.bump_version(&mut map, destination);
         Ok(result_count)
     }
 }

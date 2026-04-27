@@ -175,7 +175,7 @@ impl StorageEngine {
             }
         }
 
-        self.bump_version(key);
+self.bump_version(&mut map, key);
         drop(map);
         self.evict_if_needed()?;
         Ok(if updated { 1 } else { 0 })
@@ -258,7 +258,7 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             dst_map.insert(destkey.to_string(), Entry::new(StorageValue::HyperLogLog(merged)));
-            self.bump_version(destkey);
+self.bump_version(&mut dst_map, destkey);
             drop(dst_map);
         }
 

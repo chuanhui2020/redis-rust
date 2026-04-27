@@ -59,7 +59,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         map.insert(destination.to_string(), Entry::new(StorageValue::ZSet(result)));
-        self.bump_version(destination);
+self.bump_version(&mut map, destination);
         Ok(result_len)
     }
     pub fn zinterstore(
@@ -78,7 +78,7 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             map.remove(destination);
-            self.bump_version(destination);
+self.bump_version(&mut map, destination);
             return Ok(0);
         }
 
@@ -140,7 +140,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         map.insert(destination.to_string(), Entry::new(StorageValue::ZSet(result)));
-        self.bump_version(destination);
+self.bump_version(&mut map, destination);
         Ok(result_len)
     }
     pub fn zdiff(&self, keys: &[String], with_scores: bool) -> Result<Vec<(String, f64)>> {
@@ -201,7 +201,7 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             map.remove(destination);
-            self.bump_version(destination);
+self.bump_version(&mut map, destination);
             return Ok(0);
         }
 
@@ -245,7 +245,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         map.insert(destination.to_string(), Entry::new(StorageValue::ZSet(result)));
-        self.bump_version(destination);
+self.bump_version(&mut map, destination);
         Ok(count)
     }
     pub fn zinter(
@@ -479,10 +479,10 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         if count > 0 {
             map.insert(dst.to_string(), Entry::new(StorageValue::ZSet(new_zset)));
-            self.bump_version(dst);
+self.bump_version(&mut map, dst);
         } else {
             map.remove(dst);
-            self.bump_version(dst);
+self.bump_version(&mut map, dst);
         }
         Ok(count)
     }
@@ -517,7 +517,7 @@ impl StorageEngine {
                             map.remove(key);
                         }
                         if !result.is_empty() {
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                             return Ok(Some((key.clone(), result)));
                         }
                     }

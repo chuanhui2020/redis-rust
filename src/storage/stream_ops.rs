@@ -385,7 +385,7 @@ impl StorageEngine {
             }
         }
 
-        self.bump_version(key);
+self.bump_version(&mut map, key);
         Ok(Some(new_id.to_string()))
     }
 
@@ -622,7 +622,7 @@ impl StorageEngine {
                             }
                             let removed = before - s.length;
                             if removed > 0 {
-                                self.bump_version(key);
+self.bump_version(&mut map, key);
                             }
                             Ok(removed)
                         }
@@ -676,7 +676,7 @@ impl StorageEngine {
                             if s.length == 0 {
                                 map.remove(key);
                             } else if removed > 0 {
-                                self.bump_version(key);
+self.bump_version(&mut map, key);
                             }
                             Ok(removed)
                         }
@@ -799,7 +799,7 @@ impl StorageEngine {
                                 )));
                             }
                             s.last_id = id;
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                             Ok(true)
                         }
                         _ => unreachable!(),

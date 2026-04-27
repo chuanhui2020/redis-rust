@@ -8,13 +8,13 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use log::info;
 
 use redis_rust::acl::AclManager;
-use redis_rust::aof::{AofReplayer, AofWriter};
+use redis_rust::aof::{AofAsyncWriter, AofReplayer};
 use redis_rust::pubsub::PubSubManager;
 use redis_rust::replication::ReplicationManager;
 use redis_rust::sentinel::SentinelManager;
@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aof = if no_aof {
         None
     } else {
-        Some(Arc::new(Mutex::new(AofWriter::new(AOF_PATH)?)))
+        Some(Arc::new(AofAsyncWriter::new(AOF_PATH)?))
     };
 
     // 启动后台过期键清理任务，每秒扫描并删除一次过期键

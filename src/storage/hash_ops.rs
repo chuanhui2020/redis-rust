@@ -148,14 +148,14 @@ impl StorageEngine {
                 };
                 let new_val = current.saturating_add(delta);
                 h.insert(field, Bytes::from(new_val.to_string()));
-                self.bump_version(key);
+self.bump_version(&mut map, key);
                 Ok(new_val)
             }
             None => {
                 let mut h = HashMap::new();
                 h.insert(field, Bytes::from(delta.to_string()));
                 map.insert(key.to_string(), Entry::new(StorageValue::Hash(h)));
-                self.bump_version(key);
+self.bump_version(&mut map, key);
                 Ok(delta)
             }
         }
@@ -182,7 +182,7 @@ impl StorageEngine {
                 let new_val = current + delta;
                 let new_str = format_float(new_val);
                 h.insert(field, Bytes::from(new_str.clone()));
-                self.bump_version(key);
+self.bump_version(&mut map, key);
                 Ok(new_str)
             }
             None => {
@@ -190,7 +190,7 @@ impl StorageEngine {
                 let new_str = format_float(delta);
                 h.insert(field, Bytes::from(new_str.clone()));
                 map.insert(key.to_string(), Entry::new(StorageValue::Hash(h)));
-                self.bump_version(key);
+self.bump_version(&mut map, key);
                 Ok(new_str)
             }
         }
@@ -257,7 +257,7 @@ impl StorageEngine {
                 if let std::collections::hash_map::Entry::Vacant(e) = h.entry(field) {
                     e.insert(value);
 
-                    self.bump_version(key);
+self.bump_version(&mut map, key);
 
                     Ok(1)
                 } else {
@@ -268,7 +268,7 @@ impl StorageEngine {
                 let mut h = HashMap::new();
                 h.insert(field, value);
                 map.insert(key.to_string(), Entry::new(StorageValue::Hash(h)));
-                self.bump_version(key);
+self.bump_version(&mut map, key);
                 Ok(1)
             }
         }
@@ -478,7 +478,7 @@ impl StorageEngine {
                 if field_map.is_empty() {
                     exp_map.remove(key);
                 }
-                self.bump_version(key);
+self.bump_version(&mut map, key);
                 Ok(result)
             }
             None => Ok(vec![-1; fields.len()]),
@@ -516,7 +516,7 @@ impl StorageEngine {
                 if field_map.is_empty() {
                     exp_map.remove(key);
                 }
-                self.bump_version(key);
+self.bump_version(&mut map, key);
                 Ok(result)
             }
             None => Ok(vec![-1; fields.len()]),
@@ -659,7 +659,7 @@ impl StorageEngine {
                         result.push(0);
                     }
                 }
-                self.bump_version(key);
+self.bump_version(&mut map, key);
                 Ok(result)
             }
             None => Ok(vec![-1; fields.len()]),

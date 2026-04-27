@@ -1,9 +1,18 @@
 //! 内存淘汰模块，支持 LRU/LFU/Random/TTL 策略
+//!
+//! 实现采用 Redis 风格的随机采样算法：
+//! 从所有 shard 中随机选取最多 16 个 key，然后在样本中根据策略选出最优者淘汰。
+//! 这样避免了 O(N) 全表扫描，在大数据量下性能稳定。
 
 use crate::error::{AppError, Result};
-use crate::storage::{EvictionPolicy, StorageEngine};
+use crate::storage::{Entry, EvictionPolicy, StorageEngine};
+use rand::Rng;
 use std::sync::atomic::Ordering;
-use std::time::Instant;
+
+/// 每次淘汰时随机采样的 key 数量（与 Redis 默认一致）
+const EVICTION_SAMPLE_SIZE: usize = 16;
+/// 从单个 shard 采样时，最多尝试次数（避免在无 volatile key 的 shard 上无限重试）
+const EVICTION_MAX_ATTEMPTS_PER_SHARD: usize = 5;
 
 impl StorageEngine {
     pub(crate) fn evict_if_needed(&self) -> Result<()> {
@@ -60,123 +69,107 @@ impl StorageEngine {
         Ok(())
     }
 
-    fn evict_lru(&self, volatile_only: bool) -> Result<bool> {
-        let mut lru_key: Option<(usize, String)> = None;
-        let mut lru_time = Instant::now();
+    /// 通用随机采样函数
+    ///
+    /// 从所有 db 的所有 shard 中随机采样最多 `sample_size` 个满足条件的 key。
+    ///
+    /// # 参数
+    /// - `sample_size` - 最大采样数量
+    /// - `volatile_only` - 是否只采样带有过期时间的 key
+    /// - `extract` - 从 Entry 中提取用于比较的值，返回 `None` 表示跳过该 entry
+    ///
+    /// # 返回值
+    /// 候选列表，每个元素为 `(db_idx, key, extracted_value)`
+    fn sample_keys<F, R>(&self, sample_size: usize, volatile_only: bool, mut extract: F) -> Vec<(usize, String, R)>
+    where
+        F: FnMut(&Entry) -> Option<R>,
+    {
+        use rand::seq::SliceRandom;
+        let mut rng = rand::thread_rng();
+        let mut candidates = Vec::with_capacity(sample_size);
 
-        let dbs = &self.dbs;
-        for (db_idx, db) in dbs.iter().enumerate() {
-            for shard in db.inner.all_shards() {
-                if let Ok(map) = shard.read() {
-                    for (key, entry) in map.iter() {
-                        if volatile_only && entry.expire_at.is_none() {
-                            continue;
-                        }
-                        if entry.last_access < lru_time {
-                            lru_time = entry.last_access;
-                            lru_key = Some((db_idx, key.clone()));
-                        }
+        // 收集所有 shard 的索引，然后随机打乱
+        let mut shards: Vec<(usize, usize)> = Vec::new();
+        for (db_idx, db) in self.dbs.iter().enumerate() {
+            for (shard_idx, _) in db.inner.all_shards().iter().enumerate() {
+                shards.push((db_idx, shard_idx));
+            }
+        }
+        shards.shuffle(&mut rng);
+
+        for (db_idx, shard_idx) in shards {
+            if candidates.len() >= sample_size {
+                break;
+            }
+
+            let shard = &self.dbs[db_idx].inner.all_shards()[shard_idx];
+            let map = match shard.try_read() {
+                Ok(guard) => guard,
+                Err(_) => continue,
+            };
+
+            if map.is_empty() {
+                continue;
+            }
+
+            let len = map.len();
+            for _ in 0..EVICTION_MAX_ATTEMPTS_PER_SHARD {
+                if candidates.len() >= sample_size {
+                    break;
+                }
+                let idx = rng.gen_range(0..len);
+                if let Some((key, entry)) = map.iter().nth(idx) {
+                    if volatile_only && entry.expire_at.is_none() {
+                        continue;
+                    }
+                    if let Some(val) = extract(entry) {
+                        candidates.push((db_idx, key.clone(), val));
+                        break;
                     }
                 }
             }
         }
 
-        match lru_key {
-            Some((db_idx, key)) => {
-                self.remove_key_from_db(db_idx, &key);
-                Ok(true)
-            }
-            None => Ok(false),
+        candidates
+    }
+
+    fn evict_lru(&self, volatile_only: bool) -> Result<bool> {
+        let candidates = self.sample_keys(EVICTION_SAMPLE_SIZE, volatile_only, |e| Some(e.last_access));
+        if let Some((db_idx, key, _)) = candidates.into_iter().min_by_key(|(_, _, t)| *t) {
+            self.remove_key_from_db(db_idx, &key);
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 
     fn evict_random(&self, volatile_only: bool) -> Result<bool> {
-        use rand::seq::IteratorRandom;
-        let mut rng = rand::thread_rng();
-
-        let dbs = &self.dbs;
-        for (db_idx, db) in dbs.iter().enumerate() {
-            for shard in db.inner.all_shards() {
-                if let Ok(map) = shard.read() {
-                    let keys: Vec<String> = if volatile_only {
-                        map.iter()
-                            .filter(|(_, entry)| entry.expire_at.is_some())
-                            .map(|(k, _)| k.clone())
-                            .collect()
-                    } else {
-                        map.keys().cloned().collect()
-                    };
-
-                    if let Some(key) = keys.iter().choose(&mut rng) {
-                        drop(map);
-                        self.remove_key_from_db(db_idx, key);
-                        return Ok(true);
-                    }
-                }
-            }
+        let candidates = self.sample_keys(1, volatile_only, |_e| Some(()));
+        if let Some((db_idx, key, _)) = candidates.into_iter().next() {
+            self.remove_key_from_db(db_idx, &key);
+            Ok(true)
+        } else {
+            Ok(false)
         }
-
-        Ok(false)
     }
 
     fn evict_lfu(&self, volatile_only: bool) -> Result<bool> {
-        let mut lfu_key: Option<(usize, String)> = None;
-        let mut min_count = u64::MAX;
-
-        let dbs = &self.dbs;
-        for (db_idx, db) in dbs.iter().enumerate() {
-            for shard in db.inner.all_shards() {
-                if let Ok(map) = shard.read() {
-                    for (key, entry) in map.iter() {
-                        if volatile_only && entry.expire_at.is_none() {
-                            continue;
-                        }
-                        if entry.access_count < min_count {
-                            min_count = entry.access_count;
-                            lfu_key = Some((db_idx, key.clone()));
-                        }
-                    }
-                }
-            }
-        }
-
-        match lfu_key {
-            Some((db_idx, key)) => {
-                self.remove_key_from_db(db_idx, &key);
-                Ok(true)
-            }
-            None => Ok(false),
+        let candidates = self.sample_keys(EVICTION_SAMPLE_SIZE, volatile_only, |e| Some(e.access_count));
+        if let Some((db_idx, key, _)) = candidates.into_iter().min_by_key(|(_, _, c)| *c) {
+            self.remove_key_from_db(db_idx, &key);
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 
     fn evict_ttl(&self) -> Result<bool> {
-        let mut ttl_key: Option<(usize, String)> = None;
-        let mut min_ttl = u64::MAX;
-        let now = Self::now_millis();
-
-        let dbs = &self.dbs;
-        for (db_idx, db) in dbs.iter().enumerate() {
-            for shard in db.inner.all_shards() {
-                if let Ok(map) = shard.read() {
-                    for (key, entry) in map.iter() {
-                        if let Some(expire_at) = entry.expire_at {
-                            let ttl = expire_at.saturating_sub(now);
-                            if ttl < min_ttl {
-                                min_ttl = ttl;
-                                ttl_key = Some((db_idx, key.clone()));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        match ttl_key {
-            Some((db_idx, key)) => {
-                self.remove_key_from_db(db_idx, &key);
-                Ok(true)
-            }
-            None => Ok(false),
+        let candidates = self.sample_keys(EVICTION_SAMPLE_SIZE, true, |e| e.expire_at);
+        if let Some((db_idx, key, _)) = candidates.into_iter().min_by_key(|(_, _, t)| *t) {
+            self.remove_key_from_db(db_idx, &key);
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 

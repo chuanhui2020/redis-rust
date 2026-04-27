@@ -336,7 +336,7 @@ impl StorageEngine {
                         if s.is_empty() {
                             map.remove(key);
                         }
-                        self.bump_version(key);
+self.bump_version(&mut map, key);
                         Ok(result)
                     }
                     _ => unreachable!(),
@@ -427,6 +427,7 @@ impl StorageEngine {
         if !removed {
             return Ok(false);
         }
+        self.bump_version(&mut src_map, source);
         drop(src_map);
 
         let mut dst_map = db
@@ -460,8 +461,7 @@ impl StorageEngine {
             }
         }
 
-        self.bump_version(source);
-        self.bump_version(destination);
+self.bump_version(&mut dst_map, destination);
         Ok(true)
     }
 
@@ -487,7 +487,7 @@ impl StorageEngine {
             }
             map.insert(destination.to_string(), Entry::new(StorageValue::Set(set)));
         }
-        self.bump_version(destination);
+self.bump_version(&mut map, destination);
         Ok(len)
     }
 
@@ -513,7 +513,7 @@ impl StorageEngine {
             }
             map.insert(destination.to_string(), Entry::new(StorageValue::Set(set)));
         }
-        self.bump_version(destination);
+self.bump_version(&mut map, destination);
         Ok(len)
     }
 
@@ -539,7 +539,7 @@ impl StorageEngine {
             }
             map.insert(destination.to_string(), Entry::new(StorageValue::Set(set)));
         }
-        self.bump_version(destination);
+self.bump_version(&mut map, destination);
         Ok(len)
     }
 

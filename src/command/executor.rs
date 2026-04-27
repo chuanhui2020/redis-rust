@@ -3,9 +3,9 @@
 use super::*;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use crate::aof::AofWriter;
+use crate::aof::AofAsyncWriter;
 use crate::error::{AppError, Result};
 use crate::keyspace::KeyspaceNotifier;
 use crate::protocol::RespValue;
@@ -17,8 +17,8 @@ use bytes::Bytes;
 pub struct CommandExecutor {
     /// 存储引擎引用
     pub(crate) storage: StorageEngine,
-    /// AOF 写入器（可选），用于持久化写操作
-    pub(crate) aof: Option<Arc<Mutex<AofWriter>>>,
+    /// AOF 异步写入器（可选），用于持久化写操作
+    pub(crate) aof: Option<Arc<AofAsyncWriter>>,
     /// Lua 脚本引擎（可选）
     pub(crate) script_engine: Option<ScriptEngine>,
     /// 慢查询日志（可选）
@@ -52,7 +52,7 @@ impl CommandExecutor {
     }
 
     /// 创建带 AOF 的命令执行器（用于正常服务）
-    pub fn new_with_aof(storage: StorageEngine, aof: Arc<Mutex<AofWriter>>) -> Self {
+    pub fn new_with_aof(storage: StorageEngine, aof: Arc<AofAsyncWriter>) -> Self {
         Self {
             storage,
             aof: Some(aof),
@@ -168,24 +168,9 @@ impl CommandExecutor {
     }
 
     /// 内部快速路径：直接将命令追加到 AOF，不重复检查 is_write_command
-    /// 使用 try_lock 减少锁竞争，获取失败时回退到阻塞 lock
     fn append_to_aof_unchecked(&self, cmd: &Command) {
         if let Some(ref aof) = self.aof {
-            let mut guard = match aof.try_lock() {
-                Ok(g) => g,
-                Err(std::sync::TryLockError::WouldBlock) => match aof.lock() {
-                    Ok(g) => g,
-                    Err(e) => {
-                        log::error!("AOF writer 锁中毒: {}", e);
-                        return;
-                    }
-                },
-                Err(std::sync::TryLockError::Poisoned(e)) => {
-                    log::error!("AOF writer 锁中毒: {}", e);
-                    return;
-                }
-            };
-            if let Err(e) = guard.append(cmd) {
+            if let Err(e) = aof.append(cmd) {
                 log::error!("AOF 写入失败: {}", e);
             }
         }

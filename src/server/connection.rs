@@ -1,8 +1,8 @@
 //! 客户端连接处理模块，实现请求解析、命令路由、pipeline 和 Cluster 重定向
 
-use super::handler::{ConnectionHandler, send_reply, write_resp};
+use super::handler::{ConnectionHandler, send_reply, write_resp_buf};
 use super::{ClientInfo, ClientMessage, ReplyMode, SubscriptionState, bulk};
-use crate::aof::AofWriter;
+use crate::aof::AofAsyncWriter;
 use crate::command::{Command, CommandExecutor, CommandParser, extract_cmd_info};
 use crate::error::Result;
 use crate::keyspace::KeyspaceNotifier;
@@ -587,7 +587,7 @@ pub(crate) async fn handle_connection(
     stream: TcpStream,
     peer_addr: String,
     mut storage: StorageEngine,
-    aof: Option<Arc<Mutex<AofWriter>>>,
+    aof: Option<Arc<AofAsyncWriter>>,
     pubsub: PubSubManager,
     password: Option<String>,
     clients: Arc<RwLock<HashMap<u64, ClientInfo>>>,
@@ -692,6 +692,7 @@ pub(crate) async fn handle_connection(
     let tx_storage = storage.clone();
 
     loop {
+        let mut encode_buf = Vec::with_capacity(4096);
         // 内层循环：处理缓冲区中所有可用命令（pipeline 支持）
         loop {
             // 尝试从缓冲区解析一个完整的 RESP 消息
@@ -700,7 +701,7 @@ pub(crate) async fn handle_connection(
                 Err(e) => {
                     log::warn!("RESP 协议解析错误: {}", e);
                     let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR protocol error: {}", e)));
-                    if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                    if let Err(e) = write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf).await {
                         log::error!("写入错误响应失败: {}", e);
                         return Ok(());
                     }
@@ -731,7 +732,7 @@ pub(crate) async fn handle_connection(
                             if !authenticated && password.is_some() && !is_auth_exempt {
                                 let resp =
                                     RespValue::Error(bytes::Bytes::from_static(b"NOAUTH Authentication required."));
-                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                     log::error!("写入响应失败: {}", e);
                                     return Ok(());
                                 }
@@ -780,7 +781,7 @@ pub(crate) async fn handle_connection(
                                                 + "' command",
                                         ));
                                         if let Err(e) =
-                                            write_resp(&mut stream, &handler, &resp).await
+                                            write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                         {
                                             log::error!("写入响应失败: {}", e);
                                             return Ok(());
@@ -790,7 +791,7 @@ pub(crate) async fn handle_connection(
                                     Err(e) => {
                                         let resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                         if let Err(e) =
-                                            write_resp(&mut stream, &handler, &resp).await
+                                            write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                         {
                                             log::error!("写入响应失败: {}", e);
                                             return Ok(());
@@ -809,7 +810,7 @@ pub(crate) async fn handle_connection(
                                 let resp = RespValue::Error(
                                     "ERR Connection closed by CLIENT KILL".into(),
                                 );
-                                let _ = write_resp(&mut stream, &handler, &resp).await;
+                                let _ = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await;
                                 return Ok(());
                             }
 
@@ -850,7 +851,7 @@ pub(crate) async fn handle_connection(
                                 let resp = RespValue::Error(
                                     "ERR unknown command, this is a sentinel node".into(),
                                 );
-                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                     log::error!("写入响应失败: {}", e);
                                     return Ok(());
                                 }
@@ -1100,7 +1101,7 @@ pub(crate) async fn handle_connection(
                                 } else {
                                     RespValue::Error(bytes::Bytes::from_static(b"ERR Sentinel mode not enabled"))
                                 };
-                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                     log::error!("写入响应失败: {}", e);
                                     return Ok(());
                                 }
@@ -1455,7 +1456,7 @@ pub(crate) async fn handle_connection(
                                             .into(),
                                     )
                                 };
-                                if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                     log::error!("写入响应失败: {}", e);
                                     return Ok(());
                                 }
@@ -1498,7 +1499,7 @@ pub(crate) async fn handle_connection(
                                                     slot, target_node.ip, target_node.port
                                                 )));
                                                 if let Err(e) =
-                                                    write_resp(&mut stream, &handler, &resp).await
+                                                    write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                                 {
                                                     log::error!("写入响应失败: {}", e);
                                                     return Ok(());
@@ -1528,7 +1529,7 @@ pub(crate) async fn handle_connection(
                                                     slot, node.ip, node.port
                                                 )));
                                                 if let Err(e) =
-                                                    write_resp(&mut stream, &handler, &resp).await
+                                                    write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                                 {
                                                     log::error!("写入响应失败: {}", e);
                                                     return Ok(());
@@ -1553,7 +1554,7 @@ pub(crate) async fn handle_connection(
                                         "CROSSSLOT Keys in request don't hash to the same slot".into()
                                     );
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -1585,7 +1586,7 @@ pub(crate) async fn handle_connection(
                                 }
                                 Command::BgRewriteAof => {
                                     let resp = if let Some(ref aof) = aof {
-                                        let path = aof.lock().map(|g| g.path().to_string()).ok();
+                                        let path = Some(aof.path().to_string());
                                         match path {
                                             Some(p) => {
                                                 let temp_path = format!("{}.tmp", p);
@@ -1598,7 +1599,7 @@ pub(crate) async fn handle_connection(
                                                     use_rdb_preamble,
                                                 ) {
                                                     Ok(_) => {
-                                                        let _ = aof.lock().map(|mut g| g.reopen());
+                                                        let _ = aof.reopen();
                                                         RespValue::SimpleString(bytes::Bytes::from_static(b"Background append only file rewriting started"))
                                                     }
                                                     Err(e) => RespValue::Error(bytes::Bytes::from(format!(
@@ -1614,7 +1615,7 @@ pub(crate) async fn handle_connection(
                                     } else {
                                         RespValue::Error(bytes::Bytes::from_static(b"ERR AOF is not enabled"))
                                     };
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -1657,7 +1658,7 @@ pub(crate) async fn handle_connection(
                                                 let resp =
                                                     RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                                 if let Err(e) =
-                                                    write_resp(&mut stream, &handler, &resp).await
+                                                    write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                                 {
                                                     log::error!("写入响应失败: {}", e);
                                                     return Ok(());
@@ -1668,7 +1669,7 @@ pub(crate) async fn handle_connection(
                                                     "ERR invalid password".into(),
                                                 );
                                                 if let Err(e) =
-                                                    write_resp(&mut stream, &handler, &resp).await
+                                                    write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                                 {
                                                     log::error!("写入响应失败: {}", e);
                                                     return Ok(());
@@ -1677,7 +1678,7 @@ pub(crate) async fn handle_connection(
                                             Err(e) => {
                                                 let resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                 if let Err(e) =
-                                                    write_resp(&mut stream, &handler, &resp).await
+                                                    write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                                 {
                                                     log::error!("写入响应失败: {}", e);
                                                     return Ok(());
@@ -1690,7 +1691,7 @@ pub(crate) async fn handle_connection(
                                             authenticated = true;
                                             let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -1700,7 +1701,7 @@ pub(crate) async fn handle_connection(
                                                 "ERR invalid password".into(),
                                             );
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -1712,7 +1713,7 @@ pub(crate) async fn handle_connection(
                                         current_user = username;
                                         let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                         if let Err(e) =
-                                            write_resp(&mut stream, &handler, &resp).await
+                                            write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                         {
                                             log::error!("写入响应失败: {}", e);
                                             return Ok(());
@@ -1721,12 +1722,12 @@ pub(crate) async fn handle_connection(
                                 }
                                 Command::Shutdown(_) => {
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    let _ = write_resp(&mut stream, &handler, &resp).await;
+                                    let _ = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await;
                                     return Ok(());
                                 }
                                 Command::Quit => {
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    let _ = write_resp(&mut stream, &handler, &resp).await;
+                                    let _ = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await;
                                     let _ = stream.flush().await;
                                     return Ok(());
                                 }
@@ -1739,7 +1740,7 @@ pub(crate) async fn handle_connection(
                                     match handler.executor.execute(cmd) {
                                         Ok(response) => {
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &response).await
+                                                write_resp_buf(&mut stream, &handler, &response, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -1748,7 +1749,7 @@ pub(crate) async fn handle_connection(
                                         Err(e) => {
                                             let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &err_resp).await
+                                                write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入错误响应失败: {}", e);
                                                 return Ok(());
@@ -1769,7 +1770,7 @@ pub(crate) async fn handle_connection(
                                             }
                                             let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -1778,7 +1779,7 @@ pub(crate) async fn handle_connection(
                                         Err(e) => {
                                             let resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -1794,7 +1795,7 @@ pub(crate) async fn handle_connection(
                                         info.name = Some(name);
                                     }
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -1806,7 +1807,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         None => RespValue::BulkString(None),
                                     };
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -1835,7 +1836,7 @@ pub(crate) async fn handle_connection(
                                         String::new()
                                     };
                                     let resp = RespValue::BulkString(Some(Bytes::from(list)));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -1851,7 +1852,7 @@ pub(crate) async fn handle_connection(
                                         if blocked { "1" } else { "0" }
                                     );
                                     let resp = RespValue::BulkString(Some(Bytes::from(info_str)));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -1872,7 +1873,7 @@ pub(crate) async fn handle_connection(
                                         }
                                     }
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -1893,7 +1894,7 @@ pub(crate) async fn handle_connection(
                                         }
                                     }
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -1901,7 +1902,7 @@ pub(crate) async fn handle_connection(
                                 Command::ClientReply(mode) => {
                                     reply_mode = mode;
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -1941,7 +1942,7 @@ pub(crate) async fn handle_connection(
                                         }
                                     }
                                     let resp = RespValue::Integer(count as i64);
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -1952,7 +1953,7 @@ pub(crate) async fn handle_connection(
                                         *cp = Some((end, mode.clone()));
                                     }
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -1962,7 +1963,7 @@ pub(crate) async fn handle_connection(
                                         *cp = None;
                                     }
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -1978,14 +1979,14 @@ pub(crate) async fn handle_connection(
                                         unblocked = true;
                                     }
                                     let resp = RespValue::Integer(if unblocked { 1 } else { 0 });
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
                                 }
                                 Command::ClientId => {
                                     let resp = RespValue::Integer(client_id as i64);
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -2010,7 +2011,7 @@ pub(crate) async fn handle_connection(
                                         tracked_keys.clear();
                                     }
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -2018,7 +2019,7 @@ pub(crate) async fn handle_connection(
                                 Command::ClientCaching(flag) => {
                                     caching_next = Some(flag);
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -2026,7 +2027,7 @@ pub(crate) async fn handle_connection(
                                 Command::ClientGetRedir => {
                                     let redir = tracking_redirect.unwrap_or(-1i64 as u64);
                                     let resp = RespValue::Integer(redir as i64);
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -2076,7 +2077,7 @@ pub(crate) async fn handle_connection(
                                         RespValue::BulkString(Some(Bytes::from("prefixes"))),
                                         RespValue::Array(prefixes_arr),
                                     ]);
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -2087,7 +2088,7 @@ pub(crate) async fn handle_connection(
                                         Some(m) => RespValue::Array(vec![bulk("pong"), bulk(&m)]),
                                         None => RespValue::SimpleString(bytes::Bytes::from_static(b"PONG")),
                                     };
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -2097,7 +2098,7 @@ pub(crate) async fn handle_connection(
                                     let resp = RespValue::Error(
                                     Bytes::from("ERR only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT allowed in this context")
                                 );
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -2126,7 +2127,7 @@ pub(crate) async fn handle_connection(
                                                         RespValue::BulkString(Some(value)),
                                                     ]);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2136,7 +2137,7 @@ pub(crate) async fn handle_connection(
                                                 Ok(None) => {
                                                     let resp = RespValue::BulkString(None);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2147,7 +2148,7 @@ pub(crate) async fn handle_connection(
                                                     let err_resp =
                                                         RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &err_resp)
+                                                        write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入错误响应失败: {}", e);
@@ -2158,7 +2159,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Ok(resp) => {
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -2168,7 +2169,7 @@ pub(crate) async fn handle_connection(
                                             log::error!("命令执行失败: {}", e);
                                             let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &err_resp).await
+                                                write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入错误响应失败: {}", e);
                                                 return Ok(());
@@ -2200,7 +2201,7 @@ pub(crate) async fn handle_connection(
                                                         RespValue::BulkString(Some(value)),
                                                     ]);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2210,7 +2211,7 @@ pub(crate) async fn handle_connection(
                                                 Ok(None) => {
                                                     let resp = RespValue::BulkString(None);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2221,7 +2222,7 @@ pub(crate) async fn handle_connection(
                                                     let err_resp =
                                                         RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &err_resp)
+                                                        write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入错误响应失败: {}", e);
@@ -2232,7 +2233,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Ok(resp) => {
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -2242,7 +2243,7 @@ pub(crate) async fn handle_connection(
                                             log::error!("命令执行失败: {}", e);
                                             let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &err_resp).await
+                                                write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入错误响应失败: {}", e);
                                                 return Ok(());
@@ -2263,7 +2264,7 @@ pub(crate) async fn handle_connection(
                                                 let resp =
                                                     RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                                 if let Err(e) =
-                                                    write_resp(&mut stream, &handler, &resp).await
+                                                    write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                                 {
                                                     log::error!("写入响应失败: {}", e);
                                                     return Ok(());
@@ -2273,7 +2274,7 @@ pub(crate) async fn handle_connection(
                                                 let err_resp =
                                                     RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                 if let Err(e) =
-                                                    write_resp(&mut stream, &handler, &err_resp)
+                                                    write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf)
                                                         .await
                                                 {
                                                     log::error!("写入错误响应失败: {}", e);
@@ -2286,7 +2287,7 @@ pub(crate) async fn handle_connection(
                                         let resp =
                                             RespValue::Error(bytes::Bytes::from("ERR RDB 路径未配置"));
                                         if let Err(e) =
-                                            write_resp(&mut stream, &handler, &resp).await
+                                            write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                         {
                                             log::error!("写入响应失败: {}", e);
                                             return Ok(());
@@ -2318,7 +2319,7 @@ pub(crate) async fn handle_connection(
                                             "Background saving started".into(),
                                         );
                                         if let Err(e) =
-                                            write_resp(&mut stream, &handler, &resp).await
+                                            write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                         {
                                             log::error!("写入响应失败: {}", e);
                                             return Ok(());
@@ -2328,7 +2329,7 @@ pub(crate) async fn handle_connection(
                                         let resp =
                                             RespValue::Error(bytes::Bytes::from("ERR RDB 路径未配置"));
                                         if let Err(e) =
-                                            write_resp(&mut stream, &handler, &resp).await
+                                            write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                         {
                                             log::error!("写入响应失败: {}", e);
                                             return Ok(());
@@ -2361,7 +2362,7 @@ pub(crate) async fn handle_connection(
                                                     );
                                                     let resp = RespValue::BulkString(Some(value));
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2371,7 +2372,7 @@ pub(crate) async fn handle_connection(
                                                 Ok(None) => {
                                                     let resp = RespValue::BulkString(None);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2382,7 +2383,7 @@ pub(crate) async fn handle_connection(
                                                     let err_resp =
                                                         RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &err_resp)
+                                                        write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入错误响应失败: {}", e);
@@ -2393,7 +2394,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Ok(resp) => {
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -2403,7 +2404,7 @@ pub(crate) async fn handle_connection(
                                             log::error!("命令执行失败: {}", e);
                                             let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &err_resp).await
+                                                write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入错误响应失败: {}", e);
                                                 return Ok(());
@@ -2443,7 +2444,7 @@ pub(crate) async fn handle_connection(
                                                     arr.push(RespValue::Array(vals));
                                                     let resp = RespValue::Array(arr);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2453,7 +2454,7 @@ pub(crate) async fn handle_connection(
                                                 Ok(None) => {
                                                     let resp = RespValue::BulkString(None);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2464,7 +2465,7 @@ pub(crate) async fn handle_connection(
                                                     let err_resp =
                                                         RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &err_resp)
+                                                        write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入错误响应失败: {}", e);
@@ -2475,7 +2476,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Ok(resp) => {
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -2485,7 +2486,7 @@ pub(crate) async fn handle_connection(
                                             log::error!("命令执行失败: {}", e);
                                             let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &err_resp).await
+                                                write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入错误响应失败: {}", e);
                                                 return Ok(());
@@ -2512,7 +2513,7 @@ pub(crate) async fn handle_connection(
                                                     );
                                                     let resp = RespValue::BulkString(Some(value));
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2522,7 +2523,7 @@ pub(crate) async fn handle_connection(
                                                 Ok(None) => {
                                                     let resp = RespValue::BulkString(None);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2533,7 +2534,7 @@ pub(crate) async fn handle_connection(
                                                     let err_resp =
                                                         RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &err_resp)
+                                                        write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入错误响应失败: {}", e);
@@ -2544,7 +2545,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Ok(resp) => {
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -2554,7 +2555,7 @@ pub(crate) async fn handle_connection(
                                             log::error!("命令执行失败: {}", e);
                                             let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &err_resp).await
+                                                write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入错误响应失败: {}", e);
                                                 return Ok(());
@@ -2600,7 +2601,7 @@ pub(crate) async fn handle_connection(
                                                         RespValue::Array(pair_values),
                                                     ]);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2610,7 +2611,7 @@ pub(crate) async fn handle_connection(
                                                 Ok(None) => {
                                                     let resp = RespValue::BulkString(None);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2621,7 +2622,7 @@ pub(crate) async fn handle_connection(
                                                     let err_resp =
                                                         RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &err_resp)
+                                                        write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入错误响应失败: {}", e);
@@ -2632,7 +2633,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Ok(resp) => {
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -2642,7 +2643,7 @@ pub(crate) async fn handle_connection(
                                             log::error!("命令执行失败: {}", e);
                                             let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &err_resp).await
+                                                write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入错误响应失败: {}", e);
                                                 return Ok(());
@@ -2663,7 +2664,7 @@ pub(crate) async fn handle_connection(
                                                 arr[1].clone(),
                                             ]);
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -2695,7 +2696,7 @@ pub(crate) async fn handle_connection(
                                                         )),
                                                     ]);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2705,7 +2706,7 @@ pub(crate) async fn handle_connection(
                                                 Ok(None) => {
                                                     let resp = RespValue::BulkString(None);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2716,7 +2717,7 @@ pub(crate) async fn handle_connection(
                                                     let err_resp =
                                                         RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &err_resp)
+                                                        write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入错误响应失败: {}", e);
@@ -2740,7 +2741,7 @@ pub(crate) async fn handle_connection(
                                                 arr[1].clone(),
                                             ]);
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -2772,7 +2773,7 @@ pub(crate) async fn handle_connection(
                                                         )),
                                                     ]);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2782,7 +2783,7 @@ pub(crate) async fn handle_connection(
                                                 Ok(None) => {
                                                     let resp = RespValue::BulkString(None);
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &resp)
+                                                        write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入响应失败: {}", e);
@@ -2793,7 +2794,7 @@ pub(crate) async fn handle_connection(
                                                     let err_resp =
                                                         RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
-                                                        write_resp(&mut stream, &handler, &err_resp)
+                                                        write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf)
                                                             .await
                                                     {
                                                         log::error!("写入错误响应失败: {}", e);
@@ -2846,7 +2847,7 @@ pub(crate) async fn handle_connection(
                                                 RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                             };
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -2855,7 +2856,7 @@ pub(crate) async fn handle_connection(
                                         Err(err_msg) => {
                                             let resp = RespValue::Error(Bytes::from(err_msg));
                                             if let Err(e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 log::error!("写入响应失败: {}", e);
                                                 return Ok(());
@@ -2865,7 +2866,7 @@ pub(crate) async fn handle_connection(
                                 }
                                 Command::Asking => {
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -2873,7 +2874,7 @@ pub(crate) async fn handle_connection(
                                 Command::ReadOnly => {
                                     readonly_mode = true;
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -2881,7 +2882,7 @@ pub(crate) async fn handle_connection(
                                 Command::ReadWrite => {
                                     readonly_mode = false;
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -2920,7 +2921,7 @@ pub(crate) async fn handle_connection(
                                         info.blocked_reason = None;
                                     }
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"RESET"));
-                                    if let Err(_e) = write_resp(&mut stream, &handler, &resp).await
+                                    if let Err(_e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                     {
                                         return Ok(());
                                     }
@@ -2939,7 +2940,7 @@ pub(crate) async fn handle_connection(
                                             "WRONGPASS invalid username-password pair or user is disabled.".into()
                                         );
                                             if let Err(_e) =
-                                                write_resp(&mut stream, &handler, &resp).await
+                                                write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                             {
                                                 return Ok(());
                                             }
@@ -2971,14 +2972,14 @@ pub(crate) async fn handle_connection(
                                         RespValue::BulkString(Some(Bytes::from("master"))),
                                     ];
                                     let resp = RespValue::Array(map);
-                                    if let Err(_e) = write_resp(&mut stream, &handler, &resp).await
+                                    if let Err(_e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                     {
                                         return Ok(());
                                     }
                                 }
                                 Command::Monitor => {
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(_e) = write_resp(&mut stream, &handler, &resp).await
+                                    if let Err(_e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await
                                     {
                                         return Ok(());
                                     }
@@ -2997,7 +2998,7 @@ pub(crate) async fn handle_connection(
                                                 match msg {
                                                     Ok(cmd_str) => {
                                                         let resp = RespValue::SimpleString(cmd_str.into());
-                                                        if let Err(_e) = write_resp(&mut stream, &handler, &resp).await {
+                                                        if let Err(_e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                                             return Ok(());
                                                         }
                                                         let _ = stream.flush().await;
@@ -3027,7 +3028,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         None => RespValue::Integer(0),
                                     };
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -3088,7 +3089,7 @@ pub(crate) async fn handle_connection(
                                                 .into(),
                                         ),
                                     };
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -3096,7 +3097,7 @@ pub(crate) async fn handle_connection(
                                 Command::FailoverAbort => {
                                     log::info!("FAILOVER ABORT");
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-                                    if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
+                                    if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
                                     }
@@ -3303,7 +3304,7 @@ pub(crate) async fn handle_connection(
                         Err(e) => {
                             log::error!("命令解析失败: {}", e);
                             let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
-                            if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
+                            if let Err(e) = write_resp_buf(&mut stream, &handler, &err_resp, &mut encode_buf).await {
                                 log::error!("写入错误响应失败: {}", e);
                                 return Ok(());
                             }

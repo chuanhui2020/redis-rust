@@ -143,7 +143,7 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         let entry = Entry::with_expire(StorageValue::String(value), Some(expire_at));
         map.insert(key.clone(), entry);
-        self.bump_version(&key);
+self.bump_version(&mut map, &key);
         drop(map);
         self.evict_if_needed()?;
         Ok(())
@@ -176,7 +176,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         map.insert(key.clone(), Entry::new(StorageValue::String(value)));
-        self.bump_version(&key);
+self.bump_version(&mut map, &key);
         drop(map);
         self.evict_if_needed()?;
         Ok(())
@@ -256,7 +256,7 @@ impl StorageEngine {
             key.clone(),
             Entry::with_expire(StorageValue::String(value), expire_at),
         );
-        self.bump_version(&key);
+self.bump_version(&mut map, &key);
         drop(map);
         self.evict_if_needed()?;
         Ok((true, old_value))
@@ -441,7 +441,7 @@ impl StorageEngine {
         }
 
         map.remove(key);
-        self.bump_version(key);
+self.bump_version(&mut map, key);
 
         let mut hash_exp = db.hash_field_expirations.write().unwrap();
         hash_exp.remove(key);
@@ -673,7 +673,7 @@ impl StorageEngine {
             key.to_string(),
             Entry::new(StorageValue::String(Bytes::copy_from_slice(formatted.as_bytes()))),
         );
-        self.bump_version(key);
+self.bump_version(&mut map, key);
         Ok(new_val)
     }
 
@@ -740,7 +740,7 @@ impl StorageEngine {
             key.to_string(),
             Entry::new(StorageValue::String(Bytes::from(new_value))),
         );
-        self.bump_version(key);
+self.bump_version(&mut map, key);
         Ok(new_len)
     }
 }
@@ -773,7 +773,7 @@ impl StorageEngine {
                 if entry.is_expired() {
                     map.remove(&key);
                     map.insert(key.clone(), Entry::new(StorageValue::String(value)));
-                    self.bump_version(&key);
+self.bump_version(&mut map, &key);
                     Ok(true)
                 } else {
                     Ok(false)
@@ -781,7 +781,7 @@ impl StorageEngine {
             }
             None => {
                 map.insert(key.clone(), Entry::new(StorageValue::String(value)));
-                self.bump_version(&key);
+self.bump_version(&mut map, &key);
                 Ok(true)
             }
         }
@@ -865,7 +865,7 @@ impl StorageEngine {
         };
 
         map.insert(key.to_string(), Entry::new(StorageValue::String(value)));
-        self.bump_version(key);
+self.bump_version(&mut map, key);
         drop(map);
         self.evict_if_needed()?;
         Ok(old)
@@ -913,7 +913,7 @@ impl StorageEngine {
 
         if result.is_some() {
             map.remove(key);
-            self.bump_version(key);
+self.bump_version(&mut map, key);
         }
         Ok(result)
     }
@@ -979,7 +979,7 @@ impl StorageEngine {
                     }
                 }
             }
-            self.bump_version(key);
+self.bump_version(&mut map, key);
         }
 
         Ok(result)
@@ -1020,7 +1020,7 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             map.insert(key.clone(), Entry::new(StorageValue::String(value.clone())));
-            self.bump_version(key);
+self.bump_version(&mut map, key);
         }
         self.evict_if_needed()?;
         Ok(1)
@@ -1076,7 +1076,7 @@ impl StorageEngine {
             key.to_string(),
             Entry::new(StorageValue::String(Bytes::from(new_str.clone()))),
         );
-        self.bump_version(key);
+self.bump_version(&mut map, key);
         Ok(new_str)
     }
 
@@ -1131,7 +1131,7 @@ impl StorageEngine {
 
         let new_len = existing.len();
         map.insert(key.to_string(), Entry::new(StorageValue::String(Bytes::from(existing))));
-        self.bump_version(key);
+self.bump_version(&mut map, key);
         Ok(new_len)
     }
 

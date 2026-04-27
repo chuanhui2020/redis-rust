@@ -102,6 +102,7 @@ impl StorageEngine {
                 if entry.is_expired() {
                     return Err(AppError::Storage("键不存在或已过期".to_string()));
                 }
+                self.bump_version(&mut map, key);
                 drop(map);
                 let mut new_map = db
                     .inner
@@ -109,8 +110,7 @@ impl StorageEngine {
                     .write()
                     .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
                 new_map.insert(newkey.to_string(), entry);
-                self.bump_version(key);
-                self.bump_version(newkey);
+                self.bump_version(&mut new_map, newkey);
                 Ok(())
             }
             None => Err(AppError::Storage("键不存在".to_string())),
@@ -405,7 +405,7 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             dst_map.insert(dest.clone(), Entry::new(StorageValue::List(list)));
-            self.bump_version(&dest);
+self.bump_version(&mut dst_map, &dest);
             return Ok(Vec::new());
         }
 
@@ -476,7 +476,7 @@ impl StorageEngine {
         }
 
         dst_map.insert(destination.to_string(), source_entry);
-        self.bump_version(destination);
+self.bump_version(&mut dst_map, destination);
         Ok(true)
     }
 
@@ -654,7 +654,7 @@ impl StorageEngine {
         };
 
         map.insert(key.to_string(), Entry::with_expire(value, ttl));
-        self.bump_version(key);
+self.bump_version(&mut map, key);
         Ok(())
     }
 

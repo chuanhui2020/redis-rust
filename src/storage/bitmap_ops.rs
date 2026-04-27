@@ -163,7 +163,7 @@ impl StorageEngine {
         }
 
         map.insert(key.to_string(), Entry::new(StorageValue::String(Bytes::from(bytes))));
-        self.bump_version(key);
+self.bump_version(&mut map, key);
         drop(map);
         self.evict_if_needed()?;
         Ok(old_bit as i64)
@@ -309,7 +309,7 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             dst_map.remove(destkey);
-            self.bump_version(destkey);
+self.bump_version(&mut dst_map, destkey);
             return Ok(0);
         }
 
@@ -346,7 +346,7 @@ impl StorageEngine {
             destkey.to_string(),
             Entry::new(StorageValue::String(Bytes::from(result))),
         );
-        self.bump_version(destkey);
+self.bump_version(&mut dst_map, destkey);
         drop(dst_map);
         self.evict_if_needed()?;
         Ok(max_len)
@@ -491,7 +491,7 @@ impl StorageEngine {
 
         if modified {
             map.insert(key.to_string(), Entry::new(StorageValue::String(Bytes::from(bytes))));
-            self.bump_version(key);
+self.bump_version(&mut map, key);
         }
 
         Ok(results)

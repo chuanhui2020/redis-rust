@@ -875,7 +875,7 @@ impl StorageEngine {
                     let mut zset = ZSetData::new();
                     zset.add(member.clone(), increment);
                     map.insert(key.to_string(), Entry::new(StorageValue::ZSet(zset)));
-                    self.bump_version(key);
+self.bump_version(&mut map, key);
                     self.notify_blocking_waiters(key);
                     Ok(format!("{}", increment))
                 } else {
@@ -884,7 +884,7 @@ impl StorageEngine {
                         StorageValue::ZSet(z) => {
                             let new_score = z.score(&member).unwrap_or(0.0) + increment;
                             z.add(member, new_score);
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                                     self.notify_blocking_waiters(key);
                             Ok(format!("{}", new_score))
                         }
@@ -896,7 +896,7 @@ impl StorageEngine {
                 let mut zset = ZSetData::new();
                 zset.add(member.clone(), increment);
                 map.insert(key.to_string(), Entry::new(StorageValue::ZSet(zset)));
-                self.bump_version(key);
+self.bump_version(&mut map, key);
                 self.notify_blocking_waiters(key);
                 Ok(format!("{}", increment))
             }
@@ -951,7 +951,7 @@ impl StorageEngine {
                             if z.member_to_score.is_empty() {
                                 map.remove(key);
                             }
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                                     Ok(result)
                         }
                         _ => unreachable!(),
@@ -984,7 +984,7 @@ impl StorageEngine {
                             if z.member_to_score.is_empty() {
                                 map.remove(key);
                             }
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                                     Ok(result)
                         }
                         _ => unreachable!(),
@@ -1288,7 +1288,7 @@ impl StorageEngine {
                             if z.member_to_score.is_empty() {
                                 map.remove(key);
                             }
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                                     Ok(count)
                         }
                         _ => unreachable!(),
@@ -1330,7 +1330,7 @@ impl StorageEngine {
                             if z.member_to_score.is_empty() {
                                 map.remove(key);
                             }
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                                     Ok(count)
                         }
                         _ => unreachable!(),
@@ -1372,7 +1372,7 @@ impl StorageEngine {
                             if z.member_to_score.is_empty() {
                                 map.remove(key);
                             }
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                                     Ok(count)
                         }
                         _ => unreachable!(),

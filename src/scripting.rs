@@ -837,6 +837,33 @@ fn resp_value_to_lua<'a>(lua: &'a Lua, resp: &RespValue) -> mlua::Result<Value<'
             }
             Ok(Value::Table(table))
         }
+        RespValue::Null => Ok(Value::Nil),
+        RespValue::Bool(b) => Ok(Value::Boolean(*b)),
+        RespValue::Double(v) => Ok(Value::Number(*v)),
+        RespValue::Map(entries) => {
+            let table = lua.create_table()?;
+            for (k, v) in entries {
+                table.set(resp_value_to_lua(lua, k)?, resp_value_to_lua(lua, v)?)?;
+            }
+            Ok(Value::Table(table))
+        }
+        RespValue::Set(entries) => {
+            let table = lua.create_table()?;
+            for (i, item) in entries.iter().enumerate() {
+                table.set(i + 1, resp_value_to_lua(lua, item)?)?;
+            }
+            Ok(Value::Table(table))
+        }
+        RespValue::Push { kind, data } => {
+            let table = lua.create_table()?;
+            table.set("kind", kind.as_str())?;
+            let data_table = lua.create_table()?;
+            for (i, item) in data.iter().enumerate() {
+                data_table.set(i + 1, resp_value_to_lua(lua, item)?)?;
+            }
+            table.set("data", data_table)?;
+            Ok(Value::Table(table))
+        }
     }
 }
 

@@ -24,14 +24,13 @@ impl StorageEngine {
             let mut map = self.write_shard(key)?;
 
             self.check_and_remove_expired(&mut map, key);
-            match map.get_mut(key) {
+            let len = match map.get_mut(key) {
                 Some(v) => {
                     Self::check_list_type(&v.value)?;
                     let list = Self::as_list_mut(&mut v.value).unwrap();
                     for value in values {
                         list.push_front(value);
                     }
-                    self.bump_version(key);
                     list.len()
                 }
                 None => {
@@ -41,10 +40,11 @@ impl StorageEngine {
                     }
                     let len = list.len();
                     map.insert(key.to_string(), Entry::new(StorageValue::List(list)));
-                    self.bump_version(key);
                     len
                 }
-            }
+            };
+            self.bump_version(&mut map, key);
+            len
         };
         self.notify_blocking_waiters(key);
         Ok(len)
@@ -72,14 +72,13 @@ impl StorageEngine {
             let mut map = self.write_shard(key)?;
 
             self.check_and_remove_expired(&mut map, key);
-            match map.get_mut(key) {
+            let len = match map.get_mut(key) {
                 Some(v) => {
                     Self::check_list_type(&v.value)?;
                     let list = Self::as_list_mut(&mut v.value).unwrap();
                     for value in values {
                         list.push_back(value);
                     }
-                    self.bump_version(key);
                     list.len()
                 }
                 None => {
@@ -89,10 +88,11 @@ impl StorageEngine {
                     }
                     let len = list.len();
                     map.insert(key.to_string(), Entry::new(StorageValue::List(list)));
-                    self.bump_version(key);
                     len
                 }
-            }
+            };
+            self.bump_version(&mut map, key);
+            len
         };
         self.notify_blocking_waiters(key);
         Ok(len)
@@ -132,7 +132,7 @@ impl StorageEngine {
                 if list.is_empty() {
                     map.remove(key);
                 }
-                self.bump_version(key);
+self.bump_version(&mut map, key);
                 Ok(result)
             }
             None => Ok(None),
@@ -173,7 +173,7 @@ impl StorageEngine {
                 if list.is_empty() {
                     map.remove(key);
                 }
-                self.bump_version(key);
+self.bump_version(&mut map, key);
                 Ok(result)
             }
             None => Ok(None),
@@ -377,11 +377,12 @@ impl StorageEngine {
                     return Err(AppError::Storage("ERR index out of range".to_string()));
                 }
                 list[idx as usize] = value;
-                self.bump_version(key);
                 Ok(())
             }
             None => Err(AppError::Storage("ERR no such key".to_string())),
-        }
+        }?;
+        self.bump_version(&mut map, key);
+        Ok(())
     }
 
     /// 在列表中 pivot 元素的前或后插入值（对标 Redis LINSERT 命令）
@@ -421,7 +422,7 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
         self.check_and_remove_expired(&mut map, key);
-        match map.get_mut(key) {
+        let result = match map.get_mut(key) {
             Some(v) => {
                 Self::check_list_type(&v.value)?;
                 let list = Self::as_list_mut(&mut v.value).unwrap();
@@ -444,11 +445,12 @@ impl StorageEngine {
                 if !found {
                     return Ok(-1);
                 }
-                self.bump_version(key);
                 Ok(list.len() as i64)
             }
             None => Ok(-1),
-        }
+        };
+        self.bump_version(&mut map, key);
+        result
     }
 
     /// 从列表中删除 count 个等于 value 的元素（对标 Redis LREM 命令）
@@ -498,7 +500,7 @@ impl StorageEngine {
                         }
                     });
                     if removed > 0 {
-                        self.bump_version(key);
+                        self.bump_version(&mut map, key);
                     }
                     return Ok(removed);
                 }
@@ -531,9 +533,10 @@ impl StorageEngine {
                     vec.remove(idx);
                 }
                 *list = VecDeque::from(vec);
+                let is_empty = list.is_empty();
                 if removed > 0 {
-                    self.bump_version(key);
-                    if list.is_empty() {
+                    self.bump_version(&mut map, key);
+                    if is_empty {
                         map.remove(key);
                     }
                 }
@@ -602,7 +605,7 @@ impl StorageEngine {
                 } else {
                     *list = new_list;
                 }
-                self.bump_version(key);
+self.bump_version(&mut map, key);
                 Ok(())
             }
             None => Ok(()),
@@ -936,6 +939,7 @@ impl StorageEngine {
                 if list.is_empty() {
                     src_map.remove(source);
                 }
+                self.bump_version(&mut src_map, source);
                 result
             }
             None => None,
@@ -972,8 +976,7 @@ impl StorageEngine {
             }
         };
 
-        self.bump_version(source);
-        self.bump_version(destination);
+self.bump_version(&mut dst_map, destination);
         drop(dst_map);
         self.notify_blocking_waiters(destination);
         Ok(Some(value))
@@ -1053,7 +1056,7 @@ impl StorageEngine {
                 }
                 None => continue,
             };
-            self.bump_version(key);
+self.bump_version(&mut map, key);
             drop(map);
             return Ok(Some((key.clone(), popped)));
         }

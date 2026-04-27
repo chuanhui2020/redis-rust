@@ -2017,14 +2017,14 @@ async fn test_keyspace_notification_keyevent() {
 
 #[tokio::test]
 async fn test_aof_rdb_preamble_integration() {
-    use redis_rust::aof::{AofReplayer, AofWriter};
-    use std::sync::{Arc, Mutex};
+    use redis_rust::aof::{AofAsyncWriter, AofReplayer};
+    use std::sync::Arc;
 
     let path = temp_test_path("aof_rdb_preamble_integration", "aof");
     let _ = std::fs::remove_file(&path);
 
     let storage = StorageEngine::new();
-    let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+    let aof = Arc::new(AofAsyncWriter::new(&path).unwrap());
     let server = Server::new(
         "127.0.0.1:0",
         storage.clone(),
@@ -5022,14 +5022,14 @@ async fn test_debug_object() {
 
 #[tokio::test]
 async fn test_bgrewriteaof() {
-    use redis_rust::aof::AofWriter;
-    use std::sync::{Arc, Mutex};
+    use redis_rust::aof::AofAsyncWriter;
+    use std::sync::Arc;
 
     let path = temp_test_path("bgrewriteaof_integration", "aof");
     let _ = std::fs::remove_file(&path);
 
     let storage = StorageEngine::new();
-    let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+    let aof = Arc::new(AofAsyncWriter::new(&path).unwrap());
     let server = Server::new(
         "127.0.0.1:0",
         storage,

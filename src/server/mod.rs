@@ -12,7 +12,7 @@ use bytes::Bytes;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
-use crate::aof::AofWriter;
+use crate::aof::AofAsyncWriter;
 use crate::error::Result;
 use crate::keyspace::KeyspaceNotifier;
 use crate::protocol::RespValue;
@@ -111,8 +111,8 @@ pub struct Server {
     addr: String,
     /// 存储引擎
     storage: StorageEngine,
-    /// AOF 写入器（可选）
-    aof: Option<Arc<Mutex<AofWriter>>>,
+    /// AOF 异步写入器（可选）
+    aof: Option<Arc<AofAsyncWriter>>,
     /// 发布订阅管理器
     pubsub: PubSubManager,
     /// 密码（可选）
@@ -152,7 +152,7 @@ impl Server {
     pub fn new(
         addr: &str,
         mut storage: StorageEngine,
-        aof: Option<Arc<Mutex<AofWriter>>>,
+        aof: Option<Arc<AofAsyncWriter>>,
         pubsub: PubSubManager,
         password: Option<String>,
     ) -> Self {

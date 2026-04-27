@@ -680,8 +680,8 @@ impl StorageEngine {
         map.remove(key);
         new_map.insert(newkey.to_string(), entry);
 
-        self.bump_version(key);
-        self.bump_version(newkey);
+self.bump_version(&mut map, key);
+        self.bump_version(&mut new_map, newkey);
         Ok(true)
     }
 
@@ -796,13 +796,8 @@ impl StorageEngine {
         removed
     }
 
-    /// 递增指定 key 的版本号
-    fn bump_version(&self, key: &str) {
-        if self.watch_count.load(Ordering::Relaxed) == 0 {
-            return;
-        }
-        let db = &self.dbs[self.current_db.load(Ordering::Relaxed).min(15)];
-        let mut map = db.inner.get_shard(key).write().unwrap();
+    /// 递增指定 key 的版本号（调用者必须已持有对应 shard 的写锁）
+    fn bump_version(&self, map: &mut std::collections::HashMap<String, Entry>, key: &str) {
         if let Some(entry) = map.get_mut(key) {
             let new_ver = self
                 .version_counter
@@ -812,11 +807,10 @@ impl StorageEngine {
         }
     }
 
-    fn bump_version_in_db(&self, db: &Db, key: &str) {
+    fn bump_version_in_db(&self, _db: &Db, map: &mut std::collections::HashMap<String, Entry>, key: &str) {
         if self.watch_count.load(Ordering::Relaxed) == 0 {
             return;
         }
-        let mut map = db.inner.get_shard(key).write().unwrap();
         if let Some(entry) = map.get_mut(key) {
             let new_ver = self
                 .version_counter
@@ -839,22 +833,54 @@ impl StorageEngine {
 
     pub fn get_version(&self, key: &str) -> Result<u64> {
         let db = self.db();
-        let map = db
-            .inner
-            .get_shard(key)
-            .read()
-            .map_err(|e| AppError::Storage(format!("版本号锁中毒: {}", e)))?;
+        let shard = db.inner.get_shard(key);
+        // 避免在 tokio 异步运行时中长时间阻塞：优先非阻塞获取
+        let map = match shard.try_read() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                // 短暂自旋让出 CPU，给其他任务释放锁的机会
+                for _ in 0..100 {
+                    std::thread::yield_now();
+                    if let Ok(guard) = shard.try_read() {
+                        return Ok(guard.get(key).map_or(0, |e| e.version));
+                    }
+                }
+                // 自旋失败后回退到阻塞锁（此时持有锁的任务大概率已释放）
+                shard.read().map_err(|e| {
+                    AppError::Storage(format!("版本号锁中毒: {}", e))
+                })?
+            }
+            Err(e) => return Err(AppError::Storage(format!("版本号锁中毒: {}", e))),
+        };
         Ok(map.get(key).map_or(0, |e| e.version))
     }
 
     pub fn watch_check(&self, watched: &HashMap<String, u64>) -> Result<bool> {
         let db = self.db();
         for (key, old_version) in watched {
-            let map = db
-                .inner
-                .get_shard(key)
-                .read()
-                .map_err(|e| AppError::Storage(format!("版本号锁中毒: {}", e)))?;
+            let shard = db.inner.get_shard(key);
+            // 避免在 tokio 异步运行时中长时间阻塞：优先非阻塞获取
+            let map = match shard.try_read() {
+                Ok(guard) => guard,
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    // 短暂自旋让出 CPU，给其他任务释放锁的机会
+                    for _ in 0..100 {
+                        std::thread::yield_now();
+                        if let Ok(guard) = shard.try_read() {
+                            let current = guard.get(key).map_or(0, |e| e.version);
+                            if current != *old_version {
+                                return Ok(false);
+                            }
+                            break;
+                        }
+                    }
+                    // 自旋仍未成功，回退到阻塞锁
+                    shard.read().map_err(|e| {
+                        AppError::Storage(format!("版本号锁中毒: {}", e))
+                    })?
+                }
+                Err(e) => return Err(AppError::Storage(format!("版本号锁中毒: {}", e))),
+            };
             let current = map.get(key).map_or(0, |e| e.version);
             if current != *old_version {
                 return Ok(false);

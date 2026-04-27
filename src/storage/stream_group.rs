@@ -79,7 +79,7 @@ impl StorageEngine {
             group_name.to_string(),
             ConsumerGroup::new(group_name.to_string(), last_id),
         );
-        self.bump_version(key);
+self.bump_version(&mut map, key);
         Ok(true)
     }
 
@@ -106,7 +106,7 @@ impl StorageEngine {
                             if s.length == 0 && s.groups.is_empty() {
                                 map.remove(key);
                             }
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                             Ok(removed)
                         }
                         _ => unreachable!(),
@@ -143,7 +143,7 @@ impl StorageEngine {
                         } else {
                             StreamId::parse(id)?
                         };
-                        self.bump_version(key);
+self.bump_version(&mut map, key);
                         Ok(true)
                     }
                     _ => unreachable!(),
@@ -184,7 +184,7 @@ impl StorageEngine {
                             let count = consumer.map(|c| c.pel.len()).unwrap_or(0);
                             // 清理 PEL 中该消费者的消息
                             group.pel.retain(|_, entry| entry.consumer != consumer_name);
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                             Ok(count)
                         }
                         _ => unreachable!(),
@@ -231,7 +231,7 @@ impl StorageEngine {
                                     consumer_name.to_string(),
                                     Consumer::new(consumer_name.to_string()),
                                 );
-                                self.bump_version(key);
+self.bump_version(&mut map, key);
                                 Ok(true)
                             }
                         }
@@ -386,7 +386,7 @@ impl StorageEngine {
                                     acked += 1;
                                 }
                             }
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                             Ok(acked)
                         }
                         _ => unreachable!(),
@@ -461,7 +461,7 @@ impl StorageEngine {
                                     }
                                 }
                             }
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                             Ok(result)
                         }
                         _ => unreachable!(),
@@ -549,7 +549,7 @@ impl StorageEngine {
                                 }
                                 next_id = StreamId::new(id.ms_time, id.seq + 1);
                             }
-                            self.bump_version(key);
+self.bump_version(&mut map, key);
                             Ok((next_id, result))
                         }
                         _ => unreachable!(),

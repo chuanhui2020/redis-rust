@@ -76,6 +76,138 @@ impl std::fmt::Debug for AofWriter {
     }
 }
 
+// ---------- 异步 AOF 写入器 ----------
+
+enum AofMessage {
+    Data(Vec<u8>),
+    Flush(std::sync::mpsc::Sender<()>),
+    Reopen(String),
+    Shutdown(std::sync::mpsc::Sender<()>),
+}
+
+/// AOF 异步写入器，通过 channel 将写入操作交给独立后台线程
+/// 消除 `Arc<Mutex<AofWriter>>` 带来的全局锁竞争
+pub struct AofAsyncWriter {
+    sender: crossbeam_channel::Sender<AofMessage>,
+    path: String,
+}
+
+impl AofAsyncWriter {
+    /// 创建异步 AOF 写入器，启动后台写入线程
+    pub fn new(path: &str) -> Result<Self> {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        let path = path.to_string();
+        let worker_path = path.clone();
+
+        std::thread::spawn(move || {
+            Self::worker_loop(receiver, &worker_path);
+        });
+
+        Ok(Self { sender, path })
+    }
+
+    fn worker_loop(receiver: crossbeam_channel::Receiver<AofMessage>, path: &str) {
+        let file = match OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                log::error!("AOF 文件打开失败: {}", e);
+                return;
+            }
+        };
+        let mut writer = BufWriter::new(file);
+
+        while let Ok(msg) = receiver.recv() {
+            match msg {
+                AofMessage::Data(data) => {
+                    if let Err(e) = writer.write_all(&data) {
+                        log::error!("AOF 写入失败: {}", e);
+                    }
+                }
+                AofMessage::Flush(reply) => {
+                    if let Err(e) = writer.flush() {
+                        log::error!("AOF flush 失败: {}", e);
+                    }
+                    let _ = reply.send(());
+                }
+                AofMessage::Reopen(new_path) => {
+                    if let Err(e) = writer.flush() {
+                        log::error!("AOF flush before reopen 失败: {}", e);
+                    }
+                    match OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&new_path)
+                    {
+                        Ok(file) => writer = BufWriter::new(file),
+                        Err(e) => log::error!("AOF 重新打开失败: {}", e),
+                    }
+                }
+                AofMessage::Shutdown(reply) => {
+                    if let Err(e) = writer.flush() {
+                        log::error!("AOF final flush 失败: {}", e);
+                    }
+                    let _ = reply.send(());
+                    break;
+                }
+            }
+        }
+    }
+
+    /// 将命令序列化为 RESP 并发送到后台写入线程
+    pub fn append(&self, cmd: &Command) -> Result<()> {
+        let resp = cmd.to_resp_value();
+        let parser = RespParser::new();
+        let encoded = parser.encode(&resp);
+        self.sender
+            .send(AofMessage::Data(encoded.to_vec()))
+            .map_err(|_| AppError::Storage("AOF channel 已关闭".to_string()))?;
+        Ok(())
+    }
+
+    /// 强制刷盘，等待后台线程完成 flush
+    pub fn flush(&self) -> Result<()> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.sender
+            .send(AofMessage::Flush(tx))
+            .map_err(|_| AppError::Storage("AOF channel 已关闭".to_string()))?;
+        rx.recv()
+            .map_err(|_| AppError::Storage("AOF flush 等待失败".to_string()))?;
+        Ok(())
+    }
+
+    /// 重新打开 AOF 文件（用于 BGREWRITEAOF 后切换）
+    pub fn reopen(&self) -> Result<()> {
+        self.sender
+            .send(AofMessage::Reopen(self.path.clone()))
+            .map_err(|_| AppError::Storage("AOF channel 已关闭".to_string()))?;
+        Ok(())
+    }
+
+    /// 获取 AOF 文件路径
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+}
+
+impl std::fmt::Debug for AofAsyncWriter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AofAsyncWriter").finish()
+    }
+}
+
+impl Drop for AofAsyncWriter {
+    fn drop(&mut self) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        if self.sender.send(AofMessage::Shutdown(tx)).is_ok() {
+            let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
+        }
+    }
+}
+
 /// AOF 重放器，启动时从 AOF 文件恢复数据
 pub struct AofReplayer;
 
@@ -301,7 +433,7 @@ mod tests {
         let path = temp_aof_path("write_and_replay");
 
         let storage1 = StorageEngine::new();
-        let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+        let aof = Arc::new(AofAsyncWriter::new(&path).unwrap());
         let executor = CommandExecutor::new_with_aof(storage1.clone(), aof.clone());
 
         executor
@@ -318,7 +450,7 @@ mod tests {
                 crate::storage::SetOptions::default(),
             ))
             .unwrap();
-        aof.lock().unwrap().flush().unwrap();
+        aof.flush().unwrap();
 
         // 用新 storage 重放
         let storage2 = StorageEngine::new();
@@ -335,7 +467,7 @@ mod tests {
         let path = temp_aof_path("failed_write");
 
         let storage1 = StorageEngine::new();
-        let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+        let aof = Arc::new(AofAsyncWriter::new(&path).unwrap());
         let executor = CommandExecutor::new_with_aof(storage1.clone(), aof.clone());
 
         executor
@@ -345,7 +477,7 @@ mod tests {
             ))
             .unwrap();
         assert!(executor.execute(Command::Incr("list".to_string())).is_err());
-        aof.lock().unwrap().flush().unwrap();
+        aof.flush().unwrap();
 
         let storage2 = StorageEngine::new();
         AofReplayer::replay(&path, storage2.clone()).unwrap();
@@ -361,7 +493,7 @@ mod tests {
         let path = temp_aof_path("del_replay");
 
         let storage1 = StorageEngine::new();
-        let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+        let aof = Arc::new(AofAsyncWriter::new(&path).unwrap());
         let executor = CommandExecutor::new_with_aof(storage1.clone(), aof.clone());
 
         executor
@@ -374,7 +506,7 @@ mod tests {
         executor
             .execute(Command::Del(vec!["key".to_string()]))
             .unwrap();
-        aof.lock().unwrap().flush().unwrap();
+        aof.flush().unwrap();
 
         let storage2 = StorageEngine::new();
         AofReplayer::replay(&path, storage2.clone()).unwrap();
@@ -389,7 +521,7 @@ mod tests {
         let path = temp_aof_path("setex_replay");
 
         let storage1 = StorageEngine::new();
-        let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+        let aof = Arc::new(AofAsyncWriter::new(&path).unwrap());
         let executor = CommandExecutor::new_with_aof(storage1.clone(), aof.clone());
 
         // 设置 1 小时的 TTL
@@ -400,7 +532,7 @@ mod tests {
                 3_600_000,
             ))
             .unwrap();
-        aof.lock().unwrap().flush().unwrap();
+        aof.flush().unwrap();
 
         let storage2 = StorageEngine::new();
         AofReplayer::replay(&path, storage2.clone()).unwrap();
@@ -417,7 +549,7 @@ mod tests {
         let path = temp_aof_path("flushall_replay");
 
         let storage1 = StorageEngine::new();
-        let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+        let aof = Arc::new(AofAsyncWriter::new(&path).unwrap());
         let executor = CommandExecutor::new_with_aof(storage1.clone(), aof.clone());
 
         executor
@@ -435,7 +567,7 @@ mod tests {
                 crate::storage::SetOptions::default(),
             ))
             .unwrap();
-        aof.lock().unwrap().flush().unwrap();
+        aof.flush().unwrap();
 
         let storage2 = StorageEngine::new();
         AofReplayer::replay(&path, storage2.clone()).unwrap();
@@ -513,7 +645,7 @@ mod tests {
         let temp_path = format!("{}.tmp", path);
 
         let storage = StorageEngine::new();
-        let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+        let aof = Arc::new(AofAsyncWriter::new(&path).unwrap());
         let executor = CommandExecutor::new_with_aof(storage.clone(), aof.clone());
 
         // 写入然后删除再写入，产生冗余的 AOF
@@ -541,7 +673,7 @@ mod tests {
         executor
             .execute(Command::Del(vec!["b".to_string()]))
             .unwrap(); // 删除不存在的 key
-        aof.lock().unwrap().flush().unwrap();
+        aof.flush().unwrap();
 
         let old_size = std::fs::metadata(&path).unwrap().len();
 
@@ -601,7 +733,7 @@ mod tests {
         let temp_path = format!("{}.tmp", path);
 
         let storage = StorageEngine::new();
-        let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+        let aof = Arc::new(AofAsyncWriter::new(&path).unwrap());
         let executor = CommandExecutor::new_with_aof(storage.clone(), aof.clone());
 
         // 写入初始数据（会被记录到 AOF）
@@ -619,7 +751,7 @@ mod tests {
                 crate::storage::SetOptions::default(),
             ))
             .unwrap();
-        aof.lock().unwrap().flush().unwrap();
+        aof.flush().unwrap();
 
         // 混合格式重写：RDB 快照 + 当前 AOF 中的命令被重写为新的 AOF 命令
         AofRewriter::rewrite(&storage, &temp_path, &path, true).unwrap();
@@ -639,7 +771,7 @@ mod tests {
         let path = temp_aof_path("pure_aof_compat");
 
         let storage1 = StorageEngine::new();
-        let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+        let aof = Arc::new(AofAsyncWriter::new(&path).unwrap());
         let executor = CommandExecutor::new_with_aof(storage1.clone(), aof.clone());
 
         executor
@@ -649,7 +781,7 @@ mod tests {
                 crate::storage::SetOptions::default(),
             ))
             .unwrap();
-        aof.lock().unwrap().flush().unwrap();
+        aof.flush().unwrap();
 
         // 纯 AOF 格式（无 RDB preamble）应能正常重放
         let storage2 = StorageEngine::new();

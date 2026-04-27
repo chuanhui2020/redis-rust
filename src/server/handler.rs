@@ -20,12 +20,31 @@ pub(crate) async fn write_resp_bytes(
 }
 
 /// 复用缓冲区编码 RESP 值并写入（避免每次分配新 Vec/Bytes）
+/// 对常见静态响应（OK/PONG/0/1/Null）直接写入预编码字节，跳过编码器
 pub(crate) async fn write_resp_buf(
     stream: &mut BufWriter<TcpStream>,
     handler: &ConnectionHandler,
     resp: &RespValue,
     encode_buf: &mut Vec<u8>,
 ) -> std::io::Result<()> {
+    match resp {
+        RespValue::SimpleString(b) if b.as_ref() == b"OK" => {
+            return stream.write_all(RESP_OK).await;
+        }
+        RespValue::SimpleString(b) if b.as_ref() == b"PONG" => {
+            return stream.write_all(RESP_PONG).await;
+        }
+        RespValue::Integer(0) => {
+            return stream.write_all(RESP_ZERO).await;
+        }
+        RespValue::Integer(1) => {
+            return stream.write_all(RESP_ONE).await;
+        }
+        RespValue::BulkString(None) => {
+            return stream.write_all(RESP_NULL).await;
+        }
+        _ => {}
+    }
     encode_buf.clear();
     handler.parser.encode_append(resp, encode_buf);
     stream.write_all(encode_buf).await
