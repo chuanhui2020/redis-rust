@@ -14,7 +14,10 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::Expire(key, _) => ("EXPIRE".to_string(), vec![key.clone()]),
         Command::Ttl(key) => ("TTL".to_string(), vec![key.clone()]),
         Command::ConfigGet(key) => ("CONFIG".to_string(), vec!["GET".to_string(), key.clone()]),
-        Command::ConfigSet(key, value) => ("CONFIG".to_string(), vec!["SET".to_string(), key.clone(), value.clone()]),
+        Command::ConfigSet(key, value) => (
+            "CONFIG".to_string(),
+            vec!["SET".to_string(), key.clone(), value.clone()],
+        ),
         Command::ConfigRewrite => ("CONFIG".to_string(), vec!["REWRITE".to_string()]),
         Command::ConfigResetStat => ("CONFIG".to_string(), vec!["RESETSTAT".to_string()]),
         Command::MemoryUsage(key, _) => ("MEMORY USAGE".to_string(), vec![key.clone()]),
@@ -27,11 +30,23 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::Monitor => ("MONITOR".to_string(), vec![]),
         Command::CommandInfo => ("COMMAND".to_string(), vec![]),
         Command::CommandCount => ("COMMAND".to_string(), vec!["COUNT".to_string()]),
-        Command::CommandList(filter) => ("COMMAND".to_string(), vec!["LIST".to_string(), filter.clone().unwrap_or_default()]),
-        Command::CommandDocs(names) => ("COMMAND".to_string(), vec!["DOCS".to_string(), names.join(" ")]),
-        Command::CommandGetKeys(args) => ("COMMAND".to_string(), vec!["GETKEYS".to_string(), args.join(" ")]),
+        Command::CommandList(filter) => (
+            "COMMAND".to_string(),
+            vec!["LIST".to_string(), filter.clone().unwrap_or_default()],
+        ),
+        Command::CommandDocs(names) => (
+            "COMMAND".to_string(),
+            vec!["DOCS".to_string(), names.join(" ")],
+        ),
+        Command::CommandGetKeys(args) => (
+            "COMMAND".to_string(),
+            vec!["GETKEYS".to_string(), args.join(" ")],
+        ),
         Command::MGet(keys) => ("MGET".to_string(), keys.clone()),
-        Command::MSet(pairs) => ("MSET".to_string(), pairs.iter().map(|(k, _)| k.clone()).collect()),
+        Command::MSet(pairs) => (
+            "MSET".to_string(),
+            pairs.iter().map(|(k, _)| k.clone()).collect(),
+        ),
         Command::Incr(key) => ("INCR".to_string(), vec![key.clone()]),
         Command::Decr(key) => ("DECR".to_string(), vec![key.clone()]),
         Command::IncrBy(key, _) => ("INCRBY".to_string(), vec![key.clone()]),
@@ -43,7 +58,10 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::GetSet(key, _) => ("GETSET".to_string(), vec![key.clone()]),
         Command::GetDel(key) => ("GETDEL".to_string(), vec![key.clone()]),
         Command::GetEx(key, _) => ("GETEX".to_string(), vec![key.clone()]),
-        Command::MSetNx(pairs) => ("MSETNX".to_string(), pairs.iter().map(|(k, _)| k.clone()).collect()),
+        Command::MSetNx(pairs) => (
+            "MSETNX".to_string(),
+            pairs.iter().map(|(k, _)| k.clone()).collect(),
+        ),
         Command::IncrByFloat(key, _) => ("INCRBYFLOAT".to_string(), vec![key.clone()]),
         Command::SetRange(key, _, _) => ("SETRANGE".to_string(), vec![key.clone()]),
         Command::GetRange(key, _, _) => ("GETRANGE".to_string(), vec![key.clone()]),
@@ -75,8 +93,12 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::HLen(key) => ("HLEN".to_string(), vec![key.clone()]),
         Command::HMGet(key, fields) => ("HMGET".to_string(), vec![key.clone(), fields.join(" ")]),
         Command::HMSet(key, _) => ("HMSET".to_string(), vec![key.clone()]),
-        Command::HIncrBy(key, field, _) => ("HINCRBY".to_string(), vec![key.clone(), field.clone()]),
-        Command::HIncrByFloat(key, field, _) => ("HINCRBYFLOAT".to_string(), vec![key.clone(), field.clone()]),
+        Command::HIncrBy(key, field, _) => {
+            ("HINCRBY".to_string(), vec![key.clone(), field.clone()])
+        }
+        Command::HIncrByFloat(key, field, _) => {
+            ("HINCRBYFLOAT".to_string(), vec![key.clone(), field.clone()])
+        }
         Command::HSetNx(key, field, _) => ("HSETNX".to_string(), vec![key.clone(), field.clone()]),
         Command::SAdd(key, _) => ("SADD".to_string(), vec![key.clone()]),
         Command::SRem(key, _) => ("SREM".to_string(), vec![key.clone()]),
@@ -88,10 +110,20 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::SDiff(keys) => ("SDIFF".to_string(), keys.clone()),
         Command::SPop(key, _) => ("SPOP".to_string(), vec![key.clone()]),
         Command::SRandMember(key, _) => ("SRANDMEMBER".to_string(), vec![key.clone()]),
-        Command::SMove(source, dest, _) => ("SMOVE".to_string(), vec![source.clone(), dest.clone()]),
-        Command::SUnionStore(dest, keys) => ("SUNIONSTORE".to_string(), vec![dest.clone(), keys.join(" ")]),
-        Command::SInterStore(dest, keys) => ("SINTERSTORE".to_string(), vec![dest.clone(), keys.join(" ")]),
-        Command::SDiffStore(dest, keys) => ("SDIFFSTORE".to_string(), vec![dest.clone(), keys.join(" ")]),
+        Command::SMove(source, dest, _) => {
+            ("SMOVE".to_string(), vec![source.clone(), dest.clone()])
+        }
+        Command::SUnionStore(dest, keys) => (
+            "SUNIONSTORE".to_string(),
+            vec![dest.clone(), keys.join(" ")],
+        ),
+        Command::SInterStore(dest, keys) => (
+            "SINTERSTORE".to_string(),
+            vec![dest.clone(), keys.join(" ")],
+        ),
+        Command::SDiffStore(dest, keys) => {
+            ("SDIFFSTORE".to_string(), vec![dest.clone(), keys.join(" ")])
+        }
         Command::SScan(key, _, _, _) => ("SSCAN".to_string(), vec![key.clone()]),
         Command::ZAdd(key, _) => ("ZADD".to_string(), vec![key.clone()]),
         Command::ZRem(key, members) => ("ZREM".to_string(), vec![key.clone(), members.join(" ")]),
@@ -99,9 +131,13 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::ZRange(key, _, _, _) => ("ZRANGE".to_string(), vec![key.clone()]),
         Command::ZRevRange(key, _, _, _) => ("ZREVRANGE".to_string(), vec![key.clone()]),
         Command::ZRank(key, member) => ("ZRANK".to_string(), vec![key.clone(), member.clone()]),
-        Command::ZRevRank(key, member) => ("ZREVRANK".to_string(), vec![key.clone(), member.clone()]),
+        Command::ZRevRank(key, member) => {
+            ("ZREVRANK".to_string(), vec![key.clone(), member.clone()])
+        }
         Command::ZScore(key, member) => ("ZSCORE".to_string(), vec![key.clone(), member.clone()]),
-        Command::ZIncrBy(key, _, member) => ("ZINCRBY".to_string(), vec![key.clone(), member.clone()]),
+        Command::ZIncrBy(key, _, member) => {
+            ("ZINCRBY".to_string(), vec![key.clone(), member.clone()])
+        }
         Command::ZPopMin(key, _) => ("ZPOPMIN".to_string(), vec![key.clone()]),
         Command::ZPopMax(key, _) => ("ZPOPMAX".to_string(), vec![key.clone()]),
         Command::ZUnionStore(dest, _, _, _) => ("ZUNIONSTORE".to_string(), vec![dest.clone()]),
@@ -121,16 +157,24 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::ZDiffStore(dest, _) => ("ZDIFFSTORE".to_string(), vec![dest.clone()]),
         Command::ZInter(keys, _, _, _) => ("ZINTER".to_string(), keys.clone()),
         Command::ZUnion(keys, _, _, _) => ("ZUNION".to_string(), keys.clone()),
-        Command::ZRangeStore(dst, src, _, _, _, _, _, _, _) => ("ZRANGESTORE".to_string(), vec![dst.clone(), src.clone()]),
+        Command::ZRangeStore(dst, src, _, _, _, _, _, _, _) => {
+            ("ZRANGESTORE".to_string(), vec![dst.clone(), src.clone()])
+        }
         Command::ZMpop(keys, _, _) => ("ZMPOP".to_string(), keys.clone()),
         Command::BZMpop(_, keys, _, _) => ("BZMPOP".to_string(), keys.clone()),
         Command::BZPopMin(keys, _) => ("BZPOPMIN".to_string(), keys.clone()),
         Command::BZPopMax(keys, _) => ("BZPOPMAX".to_string(), keys.clone()),
-        Command::ZRevRangeByScore(key, _, _, _, _, _) => ("ZREVRANGEBYSCORE".to_string(), vec![key.clone()]),
-        Command::ZRevRangeByLex(key, _, _, _, _) => ("ZREVRANGEBYLEX".to_string(), vec![key.clone()]),
+        Command::ZRevRangeByScore(key, _, _, _, _, _) => {
+            ("ZREVRANGEBYSCORE".to_string(), vec![key.clone()])
+        }
+        Command::ZRevRangeByLex(key, _, _, _, _) => {
+            ("ZREVRANGEBYLEX".to_string(), vec![key.clone()])
+        }
         Command::ZMScore(key, _) => ("ZMSCORE".to_string(), vec![key.clone()]),
         Command::ZLexCount(key, _, _) => ("ZLEXCOUNT".to_string(), vec![key.clone()]),
-        Command::ZRangeUnified(key, _, _, _, _, _, _, _, _) => ("ZRANGE".to_string(), vec![key.clone()]),
+        Command::ZRangeUnified(key, _, _, _, _, _, _, _, _) => {
+            ("ZRANGE".to_string(), vec![key.clone()])
+        }
         Command::Keys(_) => ("KEYS".to_string(), vec![]),
         Command::Scan(_, _, _) => ("SCAN".to_string(), vec![]),
         Command::Rename(src, dest) => ("RENAME".to_string(), vec![src.clone(), dest.clone()]),
@@ -143,7 +187,10 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::SetBit(key, _, _) => ("SETBIT".to_string(), vec![key.clone()]),
         Command::GetBit(key, _) => ("GETBIT".to_string(), vec![key.clone()]),
         Command::BitCount(key, _, _, _) => ("BITCOUNT".to_string(), vec![key.clone()]),
-        Command::BitOp(op, dest, keys) => ("BITOP".to_string(), vec![op.clone(), dest.clone(), keys.join(" ")]),
+        Command::BitOp(op, dest, keys) => (
+            "BITOP".to_string(),
+            vec![op.clone(), dest.clone(), keys.join(" ")],
+        ),
         Command::BitPos(key, _, _, _, _) => ("BITPOS".to_string(), vec![key.clone()]),
         Command::BitField(key, _) => ("BITFIELD".to_string(), vec![key.clone()]),
         Command::BitFieldRo(key, _) => ("BITFIELD_RO".to_string(), vec![key.clone()]),
@@ -175,13 +222,36 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::GeoDist(key, _, _, _) => ("GEODIST".to_string(), vec![key.clone()]),
         Command::GeoHash(key, _) => ("GEOHASH".to_string(), vec![key.clone()]),
         Command::GeoPos(key, _) => ("GEOPOS".to_string(), vec![key.clone()]),
-        Command::GeoSearch(key, _, _, _, _, _, _, _, _, _) => ("GEOSEARCH".to_string(), vec![key.clone()]),
-        Command::GeoSearchStore(dest, _, _, _, _, _, _, _, _) => ("GEOSEARCHSTORE".to_string(), vec![dest.clone()]),
-        Command::GeoRadius(key, _, _, _, _, _, _, _, _, _, _, _) => ("GEORADIUS".to_string(), vec![key.clone()]),
-        Command::GeoRadiusByMember(key, _, _, _, _, _, _, _, _) => ("GEORADIUSBYMEMBER".to_string(), vec![key.clone()]),
-        Command::GeoRadiusRo(key, _, _, _, _, _, _, _, _, _) => ("GEORADIUS_RO".to_string(), vec![key.clone()]),
-        Command::GeoRadiusByMemberRo(key, _, _, _, _, _, _, _, _) => ("GEORADIUSBYMEMBER_RO".to_string(), vec![key.clone()]),
-        Command::WaitAof { numlocal, numreplicas, timeout } => ("WAITAOF".to_string(), vec![numlocal.to_string(), numreplicas.to_string(), timeout.to_string()]),
+        Command::GeoSearch(key, _, _, _, _, _, _, _, _, _) => {
+            ("GEOSEARCH".to_string(), vec![key.clone()])
+        }
+        Command::GeoSearchStore(dest, _, _, _, _, _, _, _, _) => {
+            ("GEOSEARCHSTORE".to_string(), vec![dest.clone()])
+        }
+        Command::GeoRadius(key, _, _, _, _, _, _, _, _, _, _, _) => {
+            ("GEORADIUS".to_string(), vec![key.clone()])
+        }
+        Command::GeoRadiusByMember(key, _, _, _, _, _, _, _, _) => {
+            ("GEORADIUSBYMEMBER".to_string(), vec![key.clone()])
+        }
+        Command::GeoRadiusRo(key, _, _, _, _, _, _, _, _, _) => {
+            ("GEORADIUS_RO".to_string(), vec![key.clone()])
+        }
+        Command::GeoRadiusByMemberRo(key, _, _, _, _, _, _, _, _) => {
+            ("GEORADIUSBYMEMBER_RO".to_string(), vec![key.clone()])
+        }
+        Command::WaitAof {
+            numlocal,
+            numreplicas,
+            timeout,
+        } => (
+            "WAITAOF".to_string(),
+            vec![
+                numlocal.to_string(),
+                numreplicas.to_string(),
+                timeout.to_string(),
+            ],
+        ),
         Command::Select(db) => ("SELECT".to_string(), vec![db.to_string()]),
         Command::Auth(_, _) => ("AUTH".to_string(), vec![]),
         Command::AclSetUser(username, _) => ("ACL SETUSER".to_string(), vec![username.clone()]),
@@ -199,7 +269,10 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
             args.extend(command.clone());
             ("ACL DRYRUN".to_string(), args)
         }
-        Command::ClientSetName(name) => ("CLIENT".to_string(), vec!["SETNAME".to_string(), name.clone()]),
+        Command::ClientSetName(name) => (
+            "CLIENT".to_string(),
+            vec!["SETNAME".to_string(), name.clone()],
+        ),
         Command::ClientGetName => ("CLIENT".to_string(), vec!["GETNAME".to_string()]),
         Command::ClientList => ("CLIENT".to_string(), vec!["LIST".to_string()]),
         Command::ClientId => ("CLIENT".to_string(), vec!["ID".to_string()]),
@@ -227,7 +300,10 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::ScriptLoad(_) => ("SCRIPT".to_string(), vec!["LOAD".to_string()]),
         Command::ScriptExists(_) => ("SCRIPT".to_string(), vec!["EXISTS".to_string()]),
         Command::ScriptFlush => ("SCRIPT".to_string(), vec!["FLUSH".to_string()]),
-        Command::ScriptDebug(mode) => ("SCRIPT".to_string(), vec!["DEBUG".to_string(), mode.clone()]),
+        Command::ScriptDebug(mode) => (
+            "SCRIPT".to_string(),
+            vec!["DEBUG".to_string(), mode.clone()],
+        ),
         Command::ScriptHelp => ("SCRIPT".to_string(), vec!["HELP".to_string()]),
         Command::FunctionLoad(_, _) => ("FUNCTION LOAD".to_string(), vec![]),
         Command::FunctionDelete(lib) => ("FUNCTION DELETE".to_string(), vec![lib.clone()]),
@@ -242,16 +318,41 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::EvalShaRO(_, keys, _) => ("EVALSHA_RO".to_string(), keys.clone()),
         Command::Save => ("SAVE".to_string(), vec![]),
         Command::BgSave => ("BGSAVE".to_string(), vec![]),
-        Command::SlowLogGet(count) => ("SLOWLOG".to_string(), vec!["GET".to_string(), count.to_string()]),
+        Command::SlowLogGet(count) => (
+            "SLOWLOG".to_string(),
+            vec!["GET".to_string(), count.to_string()],
+        ),
         Command::SlowLogLen => ("SLOWLOG".to_string(), vec!["LEN".to_string()]),
         Command::SlowLogReset => ("SLOWLOG".to_string(), vec!["RESET".to_string()]),
-        Command::ObjectEncoding(key) => ("OBJECT".to_string(), vec!["ENCODING".to_string(), key.clone()]),
-        Command::ObjectRefCount(key) => ("OBJECT".to_string(), vec!["REFCOUNT".to_string(), key.clone()]),
-        Command::ObjectIdleTime(key) => ("OBJECT".to_string(), vec!["IDLETIME".to_string(), key.clone()]),
+        Command::ObjectEncoding(key) => (
+            "OBJECT".to_string(),
+            vec!["ENCODING".to_string(), key.clone()],
+        ),
+        Command::ObjectRefCount(key) => (
+            "OBJECT".to_string(),
+            vec!["REFCOUNT".to_string(), key.clone()],
+        ),
+        Command::ObjectIdleTime(key) => (
+            "OBJECT".to_string(),
+            vec!["IDLETIME".to_string(), key.clone()],
+        ),
         Command::ObjectFreq(key) => ("OBJECT".to_string(), vec!["FREQ".to_string(), key.clone()]),
         Command::ObjectHelp => ("OBJECT".to_string(), vec!["HELP".to_string()]),
-        Command::DebugSetActiveExpire(flag) => ("DEBUG".to_string(), vec!["SET-ACTIVE-EXPIRE".to_string(), if *flag { "1".to_string() } else { "0".to_string() }]),
-        Command::DebugSleep(seconds) => ("DEBUG".to_string(), vec!["SLEEP".to_string(), seconds.to_string()]),
+        Command::DebugSetActiveExpire(flag) => (
+            "DEBUG".to_string(),
+            vec![
+                "SET-ACTIVE-EXPIRE".to_string(),
+                if *flag {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                },
+            ],
+        ),
+        Command::DebugSleep(seconds) => (
+            "DEBUG".to_string(),
+            vec!["SLEEP".to_string(), seconds.to_string()],
+        ),
         Command::DebugObject(key) => ("DEBUG".to_string(), vec!["OBJECT".to_string(), key.clone()]),
         Command::Echo(msg) => ("ECHO".to_string(), vec![msg.clone()]),
         Command::Time => ("TIME".to_string(), vec![]),
@@ -261,72 +362,168 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::PExpireAt(key, ts) => ("PEXPIREAT".to_string(), vec![key.clone(), ts.to_string()]),
         Command::ExpireTime(key) => ("EXPIRETIME".to_string(), vec![key.clone()]),
         Command::PExpireTime(key) => ("PEXPIRETIME".to_string(), vec![key.clone()]),
-        Command::RenameNx(key, newkey) => ("RENAMENX".to_string(), vec![key.clone(), newkey.clone()]),
-        Command::SwapDb(idx1, idx2) => ("SWAPDB".to_string(), vec![idx1.to_string(), idx2.to_string()]),
+        Command::RenameNx(key, newkey) => {
+            ("RENAMENX".to_string(), vec![key.clone(), newkey.clone()])
+        }
+        Command::SwapDb(idx1, idx2) => (
+            "SWAPDB".to_string(),
+            vec![idx1.to_string(), idx2.to_string()],
+        ),
         Command::FlushDb => ("FLUSHDB".to_string(), vec![]),
         Command::Shutdown(_) => ("SHUTDOWN".to_string(), vec![]),
         Command::LastSave => ("LASTSAVE".to_string(), vec![]),
         Command::SubStr(key, _, _) => ("SUBSTR".to_string(), vec![key.clone()]),
-        Command::Lcs(key1, key2, _, _, _, _) => ("LCS".to_string(), vec![key1.clone(), key2.clone()]),
-        Command::Lmove(source, dest, _, _) => ("LMOVE".to_string(), vec![source.clone(), dest.clone()]),
-        Command::Rpoplpush(source, dest) => ("RPOPLPUSH".to_string(), vec![source.clone(), dest.clone()]),
+        Command::Lcs(key1, key2, _, _, _, _) => {
+            ("LCS".to_string(), vec![key1.clone(), key2.clone()])
+        }
+        Command::Lmove(source, dest, _, _) => {
+            ("LMOVE".to_string(), vec![source.clone(), dest.clone()])
+        }
+        Command::Rpoplpush(source, dest) => {
+            ("RPOPLPUSH".to_string(), vec![source.clone(), dest.clone()])
+        }
         Command::Lmpop(keys, _, _) => ("LMPOP".to_string(), keys.clone()),
-        Command::BLmove(source, dest, _, _, _) => ("BLMOVE".to_string(), vec![source.clone(), dest.clone()]),
+        Command::BLmove(source, dest, _, _, _) => {
+            ("BLMOVE".to_string(), vec![source.clone(), dest.clone()])
+        }
         Command::BLmpop(keys, _, _, _) => ("BLMPOP".to_string(), keys.clone()),
-        Command::BRpoplpush(source, dest, _) => ("BRPOPLPUSH".to_string(), vec![source.clone(), dest.clone()]),
-        Command::Multi | Command::Exec | Command::Discard | Command::Watch(_) | Command::Unwatch => ("MULTI".to_string(), vec![]),
+        Command::BRpoplpush(source, dest, _) => {
+            ("BRPOPLPUSH".to_string(), vec![source.clone(), dest.clone()])
+        }
+        Command::Multi
+        | Command::Exec
+        | Command::Discard
+        | Command::Watch(_)
+        | Command::Unwatch => ("MULTI".to_string(), vec![]),
         Command::Quit => ("QUIT".to_string(), vec![]),
         Command::SetEx(key, _, _) => ("SETEX".to_string(), vec![key.clone()]),
         Command::HRandField(key, _, _) => ("HRANDFIELD".to_string(), vec![key.clone()]),
         Command::HScan(key, _, _, _) => ("HSCAN".to_string(), vec![key.clone()]),
-        Command::HExpire(key, fields, _) => ("HEXPIRE".to_string(), vec![key.clone(), fields.join(" ")]),
-        Command::HPExpire(key, fields, _) => ("HPEXPIRE".to_string(), vec![key.clone(), fields.join(" ")]),
-        Command::HExpireAt(key, fields, _) => ("HEXPIREAT".to_string(), vec![key.clone(), fields.join(" ")]),
-        Command::HPExpireAt(key, fields, _) => ("HPEXPIREAT".to_string(), vec![key.clone(), fields.join(" ")]),
+        Command::HExpire(key, fields, _) => {
+            ("HEXPIRE".to_string(), vec![key.clone(), fields.join(" ")])
+        }
+        Command::HPExpire(key, fields, _) => {
+            ("HPEXPIRE".to_string(), vec![key.clone(), fields.join(" ")])
+        }
+        Command::HExpireAt(key, fields, _) => {
+            ("HEXPIREAT".to_string(), vec![key.clone(), fields.join(" ")])
+        }
+        Command::HPExpireAt(key, fields, _) => (
+            "HPEXPIREAT".to_string(),
+            vec![key.clone(), fields.join(" ")],
+        ),
         Command::HTtl(key, fields) => ("HTTL".to_string(), vec![key.clone(), fields.join(" ")]),
         Command::HPTtl(key, fields) => ("HPTTL".to_string(), vec![key.clone(), fields.join(" ")]),
-        Command::HExpireTime(key, fields) => ("HEXPIRETIME".to_string(), vec![key.clone(), fields.join(" ")]),
-        Command::HPExpireTime(key, fields) => ("HPEXPIRETIME".to_string(), vec![key.clone(), fields.join(" ")]),
-        Command::HPersist(key, fields) => ("HPERSIST".to_string(), vec![key.clone(), fields.join(" ")]),
-        Command::HGetDel(key, fields) => ("HGETDEL".to_string(), vec![key.clone(), fields.join(" ")]),
-        Command::HGetEx(key, _, fields) => ("HGETEX".to_string(), vec![key.clone(), fields.join(" ")]),
+        Command::HExpireTime(key, fields) => (
+            "HEXPIRETIME".to_string(),
+            vec![key.clone(), fields.join(" ")],
+        ),
+        Command::HPExpireTime(key, fields) => (
+            "HPEXPIRETIME".to_string(),
+            vec![key.clone(), fields.join(" ")],
+        ),
+        Command::HPersist(key, fields) => {
+            ("HPERSIST".to_string(), vec![key.clone(), fields.join(" ")])
+        }
+        Command::HGetDel(key, fields) => {
+            ("HGETDEL".to_string(), vec![key.clone(), fields.join(" ")])
+        }
+        Command::HGetEx(key, _, fields) => {
+            ("HGETEX".to_string(), vec![key.clone(), fields.join(" ")])
+        }
         Command::HSetEx(key, _, _) => ("HSETEX".to_string(), vec![key.clone()]),
         Command::Subscribe(channels) => ("SUBSCRIBE".to_string(), channels.clone()),
         Command::Unsubscribe(channels) => ("UNSUBSCRIBE".to_string(), channels.clone()),
         Command::PSubscribe(patterns) => ("PSUBSCRIBE".to_string(), patterns.clone()),
         Command::PUnsubscribe(patterns) => ("PUNSUBSCRIBE".to_string(), patterns.clone()),
         Command::Publish(channel, _) => ("PUBLISH".to_string(), vec![channel.clone()]),
-        Command::PubSubChannels(pattern) => ("PUBSUB CHANNELS".to_string(), pattern.clone().into_iter().collect()),
+        Command::PubSubChannels(pattern) => (
+            "PUBSUB CHANNELS".to_string(),
+            pattern.clone().into_iter().collect(),
+        ),
         Command::PubSubNumSub(channels) => ("PUBSUB NUMSUB".to_string(), channels.clone()),
         Command::PubSubNumPat => ("PUBSUB NUMPAT".to_string(), vec![]),
         Command::SSubscribe(channels) => ("SSUBSCRIBE".to_string(), channels.clone()),
         Command::SUnsubscribe(channels) => ("SUNSUBSCRIBE".to_string(), channels.clone()),
         Command::SPublish(channel, _) => ("SPUBLISH".to_string(), vec![channel.clone()]),
-        Command::PubSubShardChannels(pattern) => ("PUBSUB SHARDCHANNELS".to_string(), pattern.clone().into_iter().collect()),
-        Command::PubSubShardNumSub(channels) => ("PUBSUB SHARDNUMSUB".to_string(), channels.clone()),
+        Command::PubSubShardChannels(pattern) => (
+            "PUBSUB SHARDCHANNELS".to_string(),
+            pattern.clone().into_iter().collect(),
+        ),
+        Command::PubSubShardNumSub(channels) => {
+            ("PUBSUB SHARDNUMSUB".to_string(), channels.clone())
+        }
         Command::BgRewriteAof => ("BGREWRITEAOF".to_string(), vec![]),
         Command::ReplConf { args } => ("REPLCONF".to_string(), args.clone()),
-        Command::Psync { replid, offset } => ("PSYNC".to_string(), vec![replid.clone(), offset.to_string()]),
+        Command::Psync { replid, offset } => (
+            "PSYNC".to_string(),
+            vec![replid.clone(), offset.to_string()],
+        ),
         Command::Role => ("ROLE".to_string(), vec![]),
-        Command::ReplicaOf { host, port } => ("REPLICAOF".to_string(), vec![host.clone(), port.to_string()]),
+        Command::ReplicaOf { host, port } => (
+            "REPLICAOF".to_string(),
+            vec![host.clone(), port.to_string()],
+        ),
         Command::Sync => ("SYNC".to_string(), vec![]),
-        Command::ReplicaOfNoOne => ("REPLICAOF".to_string(), vec!["NO".to_string(), "ONE".to_string()]),
-        Command::Wait { numreplicas, timeout } => ("WAIT".to_string(), vec![numreplicas.to_string(), timeout.to_string()]),
+        Command::ReplicaOfNoOne => (
+            "REPLICAOF".to_string(),
+            vec!["NO".to_string(), "ONE".to_string()],
+        ),
+        Command::Wait {
+            numreplicas,
+            timeout,
+        } => (
+            "WAIT".to_string(),
+            vec![numreplicas.to_string(), timeout.to_string()],
+        ),
         Command::Failover { .. } => ("FAILOVER".to_string(), vec![]),
         Command::FailoverAbort => ("FAILOVER".to_string(), vec!["ABORT".to_string()]),
         Command::SentinelMasters => ("SENTINEL".to_string(), vec!["MASTERS".to_string()]),
-        Command::SentinelMaster(name) => ("SENTINEL".to_string(), vec!["MASTER".to_string(), name.clone()]),
-        Command::SentinelReplicas(name) => ("SENTINEL".to_string(), vec!["REPLICAS".to_string(), name.clone()]),
-        Command::SentinelSentinels(name) => ("SENTINEL".to_string(), vec!["SENTINELS".to_string(), name.clone()]),
-        Command::SentinelGetMasterAddrByName(name) => ("SENTINEL".to_string(), vec!["GET-MASTER-ADDR-BY-NAME".to_string(), name.clone()]),
-        Command::SentinelMonitor { name, .. } => ("SENTINEL".to_string(), vec!["MONITOR".to_string(), name.clone()]),
-        Command::SentinelRemove(name) => ("SENTINEL".to_string(), vec!["REMOVE".to_string(), name.clone()]),
-        Command::SentinelSet { name, .. } => ("SENTINEL".to_string(), vec!["SET".to_string(), name.clone()]),
-        Command::SentinelFailover(name) => ("SENTINEL".to_string(), vec!["FAILOVER".to_string(), name.clone()]),
-        Command::SentinelReset(pattern) => ("SENTINEL".to_string(), vec!["RESET".to_string(), pattern.clone()]),
-        Command::SentinelCkquorum(name) => ("SENTINEL".to_string(), vec!["CKQUORUM".to_string(), name.clone()]),
+        Command::SentinelMaster(name) => (
+            "SENTINEL".to_string(),
+            vec!["MASTER".to_string(), name.clone()],
+        ),
+        Command::SentinelReplicas(name) => (
+            "SENTINEL".to_string(),
+            vec!["REPLICAS".to_string(), name.clone()],
+        ),
+        Command::SentinelSentinels(name) => (
+            "SENTINEL".to_string(),
+            vec!["SENTINELS".to_string(), name.clone()],
+        ),
+        Command::SentinelGetMasterAddrByName(name) => (
+            "SENTINEL".to_string(),
+            vec!["GET-MASTER-ADDR-BY-NAME".to_string(), name.clone()],
+        ),
+        Command::SentinelMonitor { name, .. } => (
+            "SENTINEL".to_string(),
+            vec!["MONITOR".to_string(), name.clone()],
+        ),
+        Command::SentinelRemove(name) => (
+            "SENTINEL".to_string(),
+            vec!["REMOVE".to_string(), name.clone()],
+        ),
+        Command::SentinelSet { name, .. } => (
+            "SENTINEL".to_string(),
+            vec!["SET".to_string(), name.clone()],
+        ),
+        Command::SentinelFailover(name) => (
+            "SENTINEL".to_string(),
+            vec!["FAILOVER".to_string(), name.clone()],
+        ),
+        Command::SentinelReset(pattern) => (
+            "SENTINEL".to_string(),
+            vec!["RESET".to_string(), pattern.clone()],
+        ),
+        Command::SentinelCkquorum(name) => (
+            "SENTINEL".to_string(),
+            vec!["CKQUORUM".to_string(), name.clone()],
+        ),
         Command::SentinelMyId => ("SENTINEL".to_string(), vec!["MYID".to_string()]),
-        Command::SentinelIsMasterDownByAddr { .. } => ("SENTINEL".to_string(), vec!["IS-MASTER-DOWN-BY-ADDR".to_string()]),
+        Command::SentinelIsMasterDownByAddr { .. } => (
+            "SENTINEL".to_string(),
+            vec!["IS-MASTER-DOWN-BY-ADDR".to_string()],
+        ),
         Command::ClusterInfo => ("CLUSTER".to_string(), vec!["INFO".to_string()]),
         Command::ClusterNodes => ("CLUSTER".to_string(), vec!["NODES".to_string()]),
         Command::ClusterMyId => ("CLUSTER".to_string(), vec!["MYID".to_string()]),
@@ -342,17 +539,29 @@ pub(crate) fn extract_cmd_info(cmd: &Command) -> (String, Vec<String>) {
         Command::ClusterFailover(_) => ("CLUSTER".to_string(), vec!["FAILOVER".to_string()]),
         Command::ClusterReset(_) => ("CLUSTER".to_string(), vec!["RESET".to_string()]),
         Command::ClusterKeySlot(_) => ("CLUSTER".to_string(), vec!["KEYSLOT".to_string()]),
-        Command::ClusterCountKeysInSlot(_) => ("CLUSTER".to_string(), vec!["COUNTKEYSINSLOT".to_string()]),
-        Command::ClusterGetKeysInSlot(_, _) => ("CLUSTER".to_string(), vec!["GETKEYSINSLOT".to_string()]),
+        Command::ClusterCountKeysInSlot(_) => {
+            ("CLUSTER".to_string(), vec!["COUNTKEYSINSLOT".to_string()])
+        }
+        Command::ClusterGetKeysInSlot(_, _) => {
+            ("CLUSTER".to_string(), vec!["GETKEYSINSLOT".to_string()])
+        }
         Command::ClusterLinks => ("CLUSTER".to_string(), vec!["LINKS".to_string()]),
-        Command::ClusterCountFailureReports(_) => ("CLUSTER".to_string(), vec!["COUNTFAILUREREPORTS".to_string()]),
+        Command::ClusterCountFailureReports(_) => (
+            "CLUSTER".to_string(),
+            vec!["COUNTFAILUREREPORTS".to_string()],
+        ),
         Command::ClusterFlushSlots => ("CLUSTER".to_string(), vec!["FLUSHSLOTS".to_string()]),
         Command::ClusterSaveConfig => ("CLUSTER".to_string(), vec!["SAVECONFIG".to_string()]),
-        Command::ClusterSetConfigEpoch(_) => ("CLUSTER".to_string(), vec!["SET-CONFIG-EPOCH".to_string()]),
+        Command::ClusterSetConfigEpoch(_) => {
+            ("CLUSTER".to_string(), vec!["SET-CONFIG-EPOCH".to_string()])
+        }
         Command::ClusterMyShardId => ("CLUSTER".to_string(), vec!["MYSHARDID".to_string()]),
         Command::ModuleList => ("MODULE".to_string(), vec!["LIST".to_string()]),
         Command::ModuleLoad(path) => ("MODULE".to_string(), vec!["LOAD".to_string(), path.clone()]),
-        Command::ModuleUnload(name) => ("MODULE".to_string(), vec!["UNLOAD".to_string(), name.clone()]),
+        Command::ModuleUnload(name) => (
+            "MODULE".to_string(),
+            vec!["UNLOAD".to_string(), name.clone()],
+        ),
         Command::Migrate { keys, .. } => ("MIGRATE".to_string(), keys.clone()),
         Command::Asking => ("ASKING".to_string(), vec![]),
         Command::Unknown(name) => (name.clone(), vec![]),

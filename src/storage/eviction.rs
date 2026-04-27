@@ -1,9 +1,9 @@
 //! 内存淘汰模块，支持 LRU/LFU/Random/TTL 策略
 
-use std::sync::atomic::Ordering;
-use std::time::Instant;
 use crate::error::{AppError, Result};
 use crate::storage::{EvictionPolicy, StorageEngine};
+use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 impl StorageEngine {
     /// 如果需要则淘汰 key，直到内存使用低于 maxmemory
@@ -205,9 +205,14 @@ impl StorageEngine {
         let db = dbs[db_idx].clone();
         let _ = dbs;
         let mut map = db.inner.get_shard(key).write().unwrap();
-        map.remove(key);
+        let removed = map.remove(key).is_some();
+        if removed {
+            self.bump_version_in_db(&db, key);
+        }
         let mut versions = db.versions.get_shard(key).write().unwrap();
-        versions.remove(key);
+        if self.watch_count.load(Ordering::Relaxed) == 0 {
+            versions.remove(key);
+        }
         let mut expires = db.expires.get_shard(key).write().unwrap();
         expires.remove(key);
         let mut times = db.access_times.write().unwrap();

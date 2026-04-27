@@ -43,13 +43,15 @@ impl StreamId {
     /// 对应 Redis Stream ID 的解析规则，与 Redis 7 行为一致。
     pub fn parse(s: &str) -> Result<Self> {
         if s == "*" {
-            return Err(AppError::Command("StreamId::parse 不支持 * 通配符".to_string()));
+            return Err(AppError::Command(
+                "StreamId::parse 不支持 * 通配符".to_string(),
+            ));
         }
         let parts: Vec<&str> = s.split('-').collect();
         if parts.len() == 1 {
-            let ms_time: u64 = parts[0].parse().map_err(|_| {
-                AppError::Command(format!("Stream ID 格式错误: {}", s))
-            })?;
+            let ms_time: u64 = parts[0]
+                .parse()
+                .map_err(|_| AppError::Command(format!("Stream ID 格式错误: {}", s)))?;
             return Ok(Self::new(ms_time, 0));
         }
         if parts.len() != 2 {
@@ -58,9 +60,9 @@ impl StreamId {
         let ms_time: u64 = parts[0].parse().map_err(|_| {
             AppError::Command(format!("Stream ID 毫秒时间戳必须是整数: {}", parts[0]))
         })?;
-        let seq: u64 = parts[1].parse().map_err(|_| {
-            AppError::Command(format!("Stream ID 序号必须是整数: {}", parts[1]))
-        })?;
+        let seq: u64 = parts[1]
+            .parse()
+            .map_err(|_| AppError::Command(format!("Stream ID 序号必须是整数: {}", parts[1])))?;
         Ok(Self::new(ms_time, seq))
     }
 
@@ -235,7 +237,6 @@ impl Default for StreamData {
     }
 }
 
-
 impl StorageEngine {
     /// 向 Stream 添加消息（对标 Redis XADD 命令）
     ///
@@ -258,7 +259,15 @@ impl StorageEngine {
     ///
     /// # Redis 兼容性
     /// 对标 Redis 7 `XADD` 命令，支持 `NOMKSTREAM`、`MAXLEN`、`MINID` 选项。
-    pub fn xadd(&self, key: &str, id: &str, fields: Vec<(String, String)>, nomkstream: bool, max_len: Option<usize>, min_id: Option<StreamId>) -> Result<Option<String>> {
+    pub fn xadd(
+        &self,
+        key: &str,
+        id: &str,
+        fields: Vec<(String, String)>,
+        nomkstream: bool,
+        max_len: Option<usize>,
+        min_id: Option<StreamId>,
+    ) -> Result<Option<String>> {
         self.evict_if_needed()?;
         let db = self.db();
         let mut map = db
@@ -319,9 +328,9 @@ impl StorageEngine {
             StreamId::new(ms, seq)
         } else if let Some(ms_str) = id.strip_suffix("-*") {
             // "ms-*" 格式
-            let ms: u64 = ms_str.parse().map_err(|_| {
-                AppError::Command("XADD ID 毫秒时间戳必须是整数".to_string())
-            })?;
+            let ms: u64 = ms_str
+                .parse()
+                .map_err(|_| AppError::Command("XADD ID 毫秒时间戳必须是整数".to_string()))?;
             let seq = if ms == stream.last_id.ms_time {
                 stream.last_id.seq + 1
             } else {
@@ -361,7 +370,8 @@ impl StorageEngine {
             }
         }
         if let Some(min) = min_id {
-            let to_remove: Vec<StreamId> = stream.entries
+            let to_remove: Vec<StreamId> = stream
+                .entries
                 .keys()
                 .take_while(|id| **id < min)
                 .copied()
@@ -429,7 +439,13 @@ impl StorageEngine {
     ///
     /// # Redis 兼容性
     /// 对标 Redis 7 `XRANGE` 命令，支持 `COUNT` 选项。
-    pub fn xrange(&self, key: &str, start: &str, end: &str, count: Option<usize>) -> Result<Vec<(StreamId, Vec<(String, String)>)>> {
+    pub fn xrange(
+        &self,
+        key: &str,
+        start: &str,
+        end: &str,
+        count: Option<usize>,
+    ) -> Result<Vec<(StreamId, Vec<(String, String)>)>> {
         let db = self.db();
         let mut map = db
             .inner
@@ -452,9 +468,10 @@ impl StorageEngine {
                             for (id, fields) in s.entries.range(start_id..=end_id) {
                                 result.push((*id, fields.clone()));
                                 if let Some(c) = count
-                                    && result.len() >= c {
-                                        break;
-                                    }
+                                    && result.len() >= c
+                                {
+                                    break;
+                                }
                             }
                             Ok(result)
                         }
@@ -482,7 +499,13 @@ impl StorageEngine {
     ///
     /// # Redis 兼容性
     /// 对标 Redis 7 `XREVRANGE` 命令。
-    pub fn xrevrange(&self, key: &str, end: &str, start: &str, count: Option<usize>) -> Result<Vec<(StreamId, Vec<(String, String)>)>> {
+    pub fn xrevrange(
+        &self,
+        key: &str,
+        end: &str,
+        start: &str,
+        count: Option<usize>,
+    ) -> Result<Vec<(StreamId, Vec<(String, String)>)>> {
         let db = self.db();
         let mut map = db
             .inner
@@ -505,9 +528,10 @@ impl StorageEngine {
                             for (id, fields) in s.entries.range(start_id..=end_id).rev() {
                                 result.push((*id, fields.clone()));
                                 if let Some(c) = count
-                                    && result.len() >= c {
-                                        break;
-                                    }
+                                    && result.len() >= c
+                                {
+                                    break;
+                                }
                             }
                             Ok(result)
                         }
@@ -536,7 +560,13 @@ impl StorageEngine {
     /// # Redis 兼容性
     /// 对标 Redis 7 `XTRIM` 命令，支持 `MAXLEN` 和 `MINID` 策略。
     /// `~` 近似标志当前未实现，按精确裁剪处理。
-    pub fn xtrim(&self, key: &str, strategy: &str, threshold: &str, _approx: bool) -> Result<usize> {
+    pub fn xtrim(
+        &self,
+        key: &str,
+        strategy: &str,
+        threshold: &str,
+        _approx: bool,
+    ) -> Result<usize> {
         self.evict_if_needed()?;
         let db = self.db();
         let mut map = db
@@ -558,7 +588,9 @@ impl StorageEngine {
                             let strategy_upper = strategy.to_ascii_uppercase();
                             if strategy_upper == "MAXLEN" {
                                 let max: usize = threshold.parse().map_err(|_| {
-                                    AppError::Command("XTRIM MAXLEN threshold 必须是整数".to_string())
+                                    AppError::Command(
+                                        "XTRIM MAXLEN threshold 必须是整数".to_string(),
+                                    )
                                 })?;
                                 while s.length > max {
                                     if let Some(first_id) = s.entries.keys().next().copied() {
@@ -570,7 +602,8 @@ impl StorageEngine {
                                 }
                             } else if strategy_upper == "MINID" {
                                 let min_id = StreamId::parse(threshold)?;
-                                let to_remove: Vec<StreamId> = s.entries
+                                let to_remove: Vec<StreamId> = s
+                                    .entries
                                     .keys()
                                     .take_while(|id| **id < min_id)
                                     .copied()
@@ -580,7 +613,10 @@ impl StorageEngine {
                                     s.length -= 1;
                                 }
                             } else {
-                                return Err(AppError::Command(format!("XTRIM 不支持策略: {}", strategy)));
+                                return Err(AppError::Command(format!(
+                                    "XTRIM 不支持策略: {}",
+                                    strategy
+                                )));
                             }
                             let removed = before - s.length;
                             if removed > 0 {
@@ -667,7 +703,12 @@ impl StorageEngine {
     /// # Redis 兼容性
     /// 对标 Redis 7 `XREAD` 命令，支持 `COUNT` 和多 key 读取。
     /// 阻塞读取（BLOCK）在上层命令处理中实现。
-    pub fn xread(&self, keys: &[String], ids: &[String], count: Option<usize>) -> Result<Vec<(String, Vec<(StreamId, Vec<(String, String)>)>)>> {
+    pub fn xread(
+        &self,
+        keys: &[String],
+        ids: &[String],
+        count: Option<usize>,
+    ) -> Result<Vec<(String, Vec<(StreamId, Vec<(String, String)>)>)>> {
         let db = self.db();
 
         let mut result = Vec::new();
@@ -695,12 +736,16 @@ impl StorageEngine {
                 if let StorageValue::Stream(s) = v {
                     let mut stream_result = Vec::new();
                     // 找到 start_id 之后的所有消息（不包括 start_id）
-                    for (id, fields) in s.entries.range((std::ops::Bound::Excluded(start_id), std::ops::Bound::Unbounded)) {
+                    for (id, fields) in s.entries.range((
+                        std::ops::Bound::Excluded(start_id),
+                        std::ops::Bound::Unbounded,
+                    )) {
                         stream_result.push((*id, fields.clone()));
                         if let Some(c) = count
-                            && stream_result.len() >= c {
-                                break;
-                            }
+                            && stream_result.len() >= c
+                        {
+                            break;
+                        }
                     }
                     if !stream_result.is_empty() {
                         result.push((key.clone(), stream_result));
@@ -763,4 +808,3 @@ impl StorageEngine {
         }
     }
 }
-

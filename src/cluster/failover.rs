@@ -35,17 +35,24 @@ pub fn start_failure_detector(cluster: Arc<ClusterState>) -> tokio::task::JoinHa
                 let elapsed = now.saturating_sub(last_pong);
 
                 if elapsed > cluster_node_timeout {
-                    if !node.flags.contains(&NodeFlag::PFail) && !node.flags.contains(&NodeFlag::Fail) {
+                    if !node.flags.contains(&NodeFlag::PFail)
+                        && !node.flags.contains(&NodeFlag::Fail)
+                    {
                         log::warn!(
                             "Cluster: 节点 {} ({}:{}) 标记为 PFAIL，超时 {}ms",
-                            node.id, node.ip, node.port, elapsed
+                            node.id,
+                            node.ip,
+                            node.port,
+                            elapsed
                         );
                         cluster.set_node_flag(&node.id, NodeFlag::PFail);
                     }
                 } else if node.flags.contains(&NodeFlag::PFail) {
                     log::info!(
                         "Cluster: 节点 {} ({}:{}) 恢复，清除 PFAIL",
-                        node.id, node.ip, node.port
+                        node.id,
+                        node.ip,
+                        node.port
                     );
                     cluster.remove_node_flag(&node.id, &NodeFlag::PFail);
                 }
@@ -76,7 +83,9 @@ fn check_and_promote_fail(cluster: &ClusterState) {
         if node.flags.contains(&NodeFlag::Master) && cluster.slots_count_for_node(&node.id) > 0 {
             log::error!(
                 "Cluster: 节点 {} ({}:{}) 标记为 FAIL",
-                node.id, node.ip, node.port
+                node.id,
+                node.ip,
+                node.port
             );
             cluster.remove_node_flag(&node.id, &NodeFlag::PFail);
             cluster.set_node_flag(&node.id, NodeFlag::Fail);
@@ -98,7 +107,8 @@ async fn try_failover(cluster: Arc<ClusterState>) {
             let epoch = cluster.get_current_epoch();
             log::warn!(
                 "Cluster: 故障转移完成，本节点已接管 master {} 的所有 slot，epoch={}",
-                node.id, epoch
+                node.id,
+                epoch
             );
 
             // 通过 Gossip 广播新的拓扑
@@ -121,7 +131,9 @@ fn update_cluster_ok(cluster: &ClusterState) {
     // 检查是否有 FAIL 的 master 节点持有 slot
     let nodes = cluster.get_nodes();
     let has_failed_master = nodes.iter().any(|n| {
-        n.flags.contains(&NodeFlag::Fail) && n.flags.contains(&NodeFlag::Master) && n.slot_count() > 0
+        n.flags.contains(&NodeFlag::Fail)
+            && n.flags.contains(&NodeFlag::Master)
+            && n.slot_count() > 0
     });
 
     cluster.set_cluster_ok(!has_failed_master);

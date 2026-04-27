@@ -59,9 +59,7 @@ impl AofWriter {
         let resp = cmd.to_resp_value();
         let parser = RespParser::new();
         let encoded = parser.encode(&resp);
-        self.writer
-            .write_all(&encoded)
-            .map_err(AppError::Io)?;
+        self.writer.write_all(&encoded).map_err(AppError::Io)?;
         Ok(())
     }
 
@@ -132,28 +130,21 @@ impl AofReplayer {
 
         while !buf.is_empty() {
             match parser.parse(&mut buf) {
-                Ok(Some(resp)) => {
-                    match cmd_parser.parse(resp) {
-                        Ok(cmd) => {
-                            match executor.execute(cmd) {
-                                Ok(_) => count += 1,
-                                Err(e) => {
-                                    log::warn!("AOF 重放命令执行失败: {}", e);
-                                    errors += 1;
-                                }
-                            }
-                        }
+                Ok(Some(resp)) => match cmd_parser.parse(resp) {
+                    Ok(cmd) => match executor.execute(cmd) {
+                        Ok(_) => count += 1,
                         Err(e) => {
-                            log::warn!("AOF 重放命令解析失败: {}", e);
+                            log::warn!("AOF 重放命令执行失败: {}", e);
                             errors += 1;
                         }
+                    },
+                    Err(e) => {
+                        log::warn!("AOF 重放命令解析失败: {}", e);
+                        errors += 1;
                     }
-                }
+                },
                 Ok(None) => {
-                    log::warn!(
-                        "AOF 文件末尾数据不完整，忽略剩余 {} 字节",
-                        buf.len()
-                    );
+                    log::warn!("AOF 文件末尾数据不完整，忽略剩余 {} 字节", buf.len());
                     break;
                 }
                 Err(e) => {
@@ -164,11 +155,7 @@ impl AofReplayer {
             }
         }
 
-        log::info!(
-            "AOF 重放完成，成功: {} 条，失败: {} 条",
-            count,
-            errors
-        );
+        log::info!("AOF 重放完成，成功: {} 条，失败: {} 条", count, errors);
         Ok(())
     }
 }
@@ -180,11 +167,14 @@ impl AofRewriter {
     /// 执行 AOF 重写
     /// 将当前 storage 中所有存活的 key 写入临时文件，然后原子替换目标文件
     /// use_rdb_preamble: 是否先写入 RDB 快照作为 preamble
-    pub fn rewrite(storage: &StorageEngine, temp_path: &str, target_path: &str, use_rdb_preamble: bool) -> Result<()> {
+    pub fn rewrite(
+        storage: &StorageEngine,
+        temp_path: &str,
+        target_path: &str,
+        use_rdb_preamble: bool,
+    ) -> Result<()> {
         let parser = RespParser::new();
-        let mut writer = BufWriter::new(
-            File::create(temp_path).map_err(AppError::Io)?
-        );
+        let mut writer = BufWriter::new(File::create(temp_path).map_err(AppError::Io)?);
 
         // 如果启用混合格式，先写入 RDB 快照
         if use_rdb_preamble {
@@ -199,7 +189,11 @@ impl AofRewriter {
                 match key_type.as_str() {
                     "string" => {
                         if let Some(value) = storage.get(&key)? {
-                            let cmd = Command::Set(key.clone(), value, crate::storage::SetOptions::default());
+                            let cmd = Command::Set(
+                                key.clone(),
+                                value,
+                                crate::storage::SetOptions::default(),
+                            );
                             Self::write_cmd(&parser, &mut writer, &cmd)?;
 
                             // 如果有 TTL，追加 PEXPIRE
@@ -225,9 +219,7 @@ impl AofRewriter {
                     "hash" => {
                         let fields = storage.hgetall(&key)?;
                         if !fields.is_empty() {
-                            let pairs: Vec<(String, Bytes)> = fields
-                                .into_iter()
-                                .collect();
+                            let pairs: Vec<(String, Bytes)> = fields.into_iter().collect();
                             let cmd = Command::HMSet(key.clone(), pairs);
                             Self::write_cmd(&parser, &mut writer, &cmd)?;
                         }
@@ -252,10 +244,8 @@ impl AofRewriter {
                     "zset" => {
                         let members = storage.zrange(&key, 0, -1, true)?;
                         if !members.is_empty() {
-                            let pairs: Vec<(f64, String)> = members
-                                .into_iter()
-                                .map(|(m, s)| (s, m))
-                                .collect();
+                            let pairs: Vec<(f64, String)> =
+                                members.into_iter().map(|(m, s)| (s, m)).collect();
                             let cmd = Command::ZAdd(key.clone(), pairs);
                             Self::write_cmd(&parser, &mut writer, &cmd)?;
                         }
@@ -282,11 +272,7 @@ impl AofRewriter {
     }
 
     /// 将单个命令编码并写入
-    fn write_cmd(
-        parser: &RespParser,
-        writer: &mut BufWriter<File>,
-        cmd: &Command,
-    ) -> Result<()> {
+    fn write_cmd(parser: &RespParser, writer: &mut BufWriter<File>, cmd: &Command) -> Result<()> {
         let resp = cmd.to_resp_value();
         let encoded = parser.encode(&resp);
         writer.write_all(&encoded).map_err(AppError::Io)?;
@@ -319,10 +305,18 @@ mod tests {
         let executor = CommandExecutor::new_with_aof(storage1.clone(), aof.clone());
 
         executor
-            .execute(Command::Set("name".to_string(), Bytes::from("redis"), crate::storage::SetOptions::default()))
+            .execute(Command::Set(
+                "name".to_string(),
+                Bytes::from("redis"),
+                crate::storage::SetOptions::default(),
+            ))
             .unwrap();
         executor
-            .execute(Command::Set("age".to_string(), Bytes::from("10"), crate::storage::SetOptions::default()))
+            .execute(Command::Set(
+                "age".to_string(),
+                Bytes::from("10"),
+                crate::storage::SetOptions::default(),
+            ))
             .unwrap();
         aof.lock().unwrap().flush().unwrap();
 
@@ -330,11 +324,34 @@ mod tests {
         let storage2 = StorageEngine::new();
         AofReplayer::replay(&path, storage2.clone()).unwrap();
 
-        assert_eq!(
-            storage2.get("name").unwrap(),
-            Some(Bytes::from("redis"))
-        );
+        assert_eq!(storage2.get("name").unwrap(), Some(Bytes::from("redis")));
         assert_eq!(storage2.get("age").unwrap(), Some(Bytes::from("10")));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_aof_does_not_record_failed_write() {
+        let path = temp_aof_path("failed_write");
+
+        let storage1 = StorageEngine::new();
+        let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+        let executor = CommandExecutor::new_with_aof(storage1.clone(), aof.clone());
+
+        executor
+            .execute(Command::LPush(
+                "list".to_string(),
+                vec![Bytes::from("value")],
+            ))
+            .unwrap();
+        assert!(executor.execute(Command::Incr("list".to_string())).is_err());
+        aof.lock().unwrap().flush().unwrap();
+
+        let storage2 = StorageEngine::new();
+        AofReplayer::replay(&path, storage2.clone()).unwrap();
+
+        let values = storage2.lrange("list", 0, -1).unwrap();
+        assert_eq!(values, vec![Bytes::from("value")]);
 
         let _ = std::fs::remove_file(&path);
     }
@@ -348,7 +365,11 @@ mod tests {
         let executor = CommandExecutor::new_with_aof(storage1.clone(), aof.clone());
 
         executor
-            .execute(Command::Set("key".to_string(), Bytes::from("val"), crate::storage::SetOptions::default()))
+            .execute(Command::Set(
+                "key".to_string(),
+                Bytes::from("val"),
+                crate::storage::SetOptions::default(),
+            ))
             .unwrap();
         executor
             .execute(Command::Del(vec!["key".to_string()]))
@@ -400,11 +421,19 @@ mod tests {
         let executor = CommandExecutor::new_with_aof(storage1.clone(), aof.clone());
 
         executor
-            .execute(Command::Set("a".to_string(), Bytes::from("1"), crate::storage::SetOptions::default()))
+            .execute(Command::Set(
+                "a".to_string(),
+                Bytes::from("1"),
+                crate::storage::SetOptions::default(),
+            ))
             .unwrap();
         executor.execute(Command::FlushAll).unwrap();
         executor
-            .execute(Command::Set("b".to_string(), Bytes::from("2"), crate::storage::SetOptions::default()))
+            .execute(Command::Set(
+                "b".to_string(),
+                Bytes::from("2"),
+                crate::storage::SetOptions::default(),
+            ))
             .unwrap();
         aof.lock().unwrap().flush().unwrap();
 
@@ -437,7 +466,9 @@ mod tests {
         // 写入一些数据
         storage.set("a".to_string(), Bytes::from("1")).unwrap();
         storage.set("b".to_string(), Bytes::from("2")).unwrap();
-        storage.lpush("list", vec![Bytes::from("x"), Bytes::from("y")]).unwrap();
+        storage
+            .lpush("list", vec![Bytes::from("x"), Bytes::from("y")])
+            .unwrap();
 
         // 执行重写
         AofRewriter::rewrite(&storage, &temp_path, &path, false).unwrap();
@@ -460,7 +491,9 @@ mod tests {
         let temp_path = format!("{}.tmp", path);
 
         let storage = StorageEngine::new();
-        storage.set_with_ttl("k".to_string(), Bytes::from("v"), 3_600_000).unwrap();
+        storage
+            .set_with_ttl("k".to_string(), Bytes::from("v"), 3_600_000)
+            .unwrap();
 
         AofRewriter::rewrite(&storage, &temp_path, &path, false).unwrap();
 
@@ -484,10 +517,30 @@ mod tests {
         let executor = CommandExecutor::new_with_aof(storage.clone(), aof.clone());
 
         // 写入然后删除再写入，产生冗余的 AOF
-        executor.execute(Command::Set("a".to_string(), Bytes::from("old"), crate::storage::SetOptions::default())).unwrap();
-        executor.execute(Command::Set("a".to_string(), Bytes::from("mid"), crate::storage::SetOptions::default())).unwrap();
-        executor.execute(Command::Set("a".to_string(), Bytes::from("new"), crate::storage::SetOptions::default())).unwrap();
-        executor.execute(Command::Del(vec!["b".to_string()])).unwrap(); // 删除不存在的 key
+        executor
+            .execute(Command::Set(
+                "a".to_string(),
+                Bytes::from("old"),
+                crate::storage::SetOptions::default(),
+            ))
+            .unwrap();
+        executor
+            .execute(Command::Set(
+                "a".to_string(),
+                Bytes::from("mid"),
+                crate::storage::SetOptions::default(),
+            ))
+            .unwrap();
+        executor
+            .execute(Command::Set(
+                "a".to_string(),
+                Bytes::from("new"),
+                crate::storage::SetOptions::default(),
+            ))
+            .unwrap();
+        executor
+            .execute(Command::Del(vec!["b".to_string()]))
+            .unwrap(); // 删除不存在的 key
         aof.lock().unwrap().flush().unwrap();
 
         let old_size = std::fs::metadata(&path).unwrap().len();
@@ -496,7 +549,12 @@ mod tests {
         AofRewriter::rewrite(&storage, &temp_path, &path, false).unwrap();
         let new_size = std::fs::metadata(&path).unwrap().len();
 
-        assert!(new_size < old_size, "重写后文件应变小: {} -> {}", old_size, new_size);
+        assert!(
+            new_size < old_size,
+            "重写后文件应变小: {} -> {}",
+            old_size,
+            new_size
+        );
 
         // 验证数据正确
         let storage2 = StorageEngine::new();
@@ -514,7 +572,9 @@ mod tests {
         let storage = StorageEngine::new();
         storage.set("a".to_string(), Bytes::from("1")).unwrap();
         storage.set("b".to_string(), Bytes::from("2")).unwrap();
-        storage.lpush("list", vec![Bytes::from("x"), Bytes::from("y")]).unwrap();
+        storage
+            .lpush("list", vec![Bytes::from("x"), Bytes::from("y")])
+            .unwrap();
 
         // 使用混合格式重写
         AofRewriter::rewrite(&storage, &temp_path, &path, true).unwrap();
@@ -545,8 +605,20 @@ mod tests {
         let executor = CommandExecutor::new_with_aof(storage.clone(), aof.clone());
 
         // 写入初始数据（会被记录到 AOF）
-        executor.execute(Command::Set("a".to_string(), Bytes::from("1"), crate::storage::SetOptions::default())).unwrap();
-        executor.execute(Command::Set("b".to_string(), Bytes::from("2"), crate::storage::SetOptions::default())).unwrap();
+        executor
+            .execute(Command::Set(
+                "a".to_string(),
+                Bytes::from("1"),
+                crate::storage::SetOptions::default(),
+            ))
+            .unwrap();
+        executor
+            .execute(Command::Set(
+                "b".to_string(),
+                Bytes::from("2"),
+                crate::storage::SetOptions::default(),
+            ))
+            .unwrap();
         aof.lock().unwrap().flush().unwrap();
 
         // 混合格式重写：RDB 快照 + 当前 AOF 中的命令被重写为新的 AOF 命令
@@ -570,7 +642,13 @@ mod tests {
         let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
         let executor = CommandExecutor::new_with_aof(storage1.clone(), aof.clone());
 
-        executor.execute(Command::Set("key".to_string(), Bytes::from("val"), crate::storage::SetOptions::default())).unwrap();
+        executor
+            .execute(Command::Set(
+                "key".to_string(),
+                Bytes::from("val"),
+                crate::storage::SetOptions::default(),
+            ))
+            .unwrap();
         aof.lock().unwrap().flush().unwrap();
 
         // 纯 AOF 格式（无 RDB preamble）应能正常重放

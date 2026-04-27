@@ -11,14 +11,14 @@ use crate::pubsub::PubSubManager;
 /// Keyspace 事件类型位掩码
 pub const NOTIFY_KEYSPACE: u16 = 1 << 0; // K
 pub const NOTIFY_KEYEVENT: u16 = 1 << 1; // E
-pub const NOTIFY_GENERIC: u16 = 1 << 2;  // g
-pub const NOTIFY_STRING: u16 = 1 << 3;   // $
-pub const NOTIFY_LIST: u16 = 1 << 4;     // l
-pub const NOTIFY_SET: u16 = 1 << 5;      // s
-pub const NOTIFY_HASH: u16 = 1 << 6;     // h
-pub const NOTIFY_ZSET: u16 = 1 << 7;     // z
-pub const NOTIFY_EXPIRED: u16 = 1 << 8;  // x
-pub const NOTIFY_EVICTED: u16 = 1 << 9;  // e
+pub const NOTIFY_GENERIC: u16 = 1 << 2; // g
+pub const NOTIFY_STRING: u16 = 1 << 3; // $
+pub const NOTIFY_LIST: u16 = 1 << 4; // l
+pub const NOTIFY_SET: u16 = 1 << 5; // s
+pub const NOTIFY_HASH: u16 = 1 << 6; // h
+pub const NOTIFY_ZSET: u16 = 1 << 7; // z
+pub const NOTIFY_EXPIRED: u16 = 1 << 8; // x
+pub const NOTIFY_EVICTED: u16 = 1 << 9; // e
 
 /// 所有数据类型的掩码（不含 K/E/x/e）
 const NOTIFY_ALL_TYPES: u16 = NOTIFY_GENERIC

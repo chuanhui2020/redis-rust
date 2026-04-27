@@ -2,6 +2,7 @@
 
 pub mod acl;
 pub mod aof;
+pub mod cluster;
 pub mod command;
 pub mod error;
 pub mod keyspace;
@@ -11,7 +12,6 @@ pub mod pubsub;
 pub mod rdb;
 pub mod replication;
 pub mod scripting;
-pub mod cluster;
 pub mod sentinel;
 pub mod server;
 pub mod slowlog;

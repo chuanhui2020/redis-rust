@@ -1,7 +1,7 @@
 //! Pub/Sub 命令解析器
+use super::{Command, CommandParser};
 use crate::error::{AppError, Result};
 use crate::protocol::RespValue;
-use super::{Command, CommandParser};
 
 impl CommandParser {
     /// 解析 SUBSCRIBE 命令
@@ -59,9 +59,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_publish(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command(
-                "PUBLISH 命令需要 2 个参数".to_string(),
-            ));
+            return Err(AppError::Command("PUBLISH 命令需要 2 个参数".to_string()));
         }
         let channel = self.extract_string(&arr[1])?;
         let message = self.extract_bytes(&arr[2])?;
@@ -69,7 +67,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -91,7 +89,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -112,7 +110,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -134,7 +132,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -155,7 +153,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -165,9 +163,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_spublish(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command(
-                "SPUBLISH 命令需要 2 个参数".to_string(),
-            ));
+            return Err(AppError::Command("SPUBLISH 命令需要 2 个参数".to_string()));
         }
         let channel = self.extract_string(&arr[1])?;
         let message = self.extract_bytes(&arr[2])?;
@@ -175,7 +171,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -185,9 +181,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_pubsub(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "PUBSUB 命令需要子命令".to_string(),
-            ));
+            return Err(AppError::Command("PUBSUB 命令需要子命令".to_string()));
         }
         let subcmd = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match subcmd.as_str() {
@@ -212,9 +206,7 @@ impl CommandParser {
             }
             "NUMPAT" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command(
-                        "PUBSUB NUMPAT 不需要参数".to_string(),
-                    ));
+                    return Err(AppError::Command("PUBSUB NUMPAT 不需要参数".to_string()));
                 }
                 Ok(Command::PubSubNumPat)
             }
@@ -237,9 +229,10 @@ impl CommandParser {
                 };
                 Ok(Command::PubSubShardNumSub(channels))
             }
-            _ => Err(AppError::Command(
-                format!("未知的 PUBSUB 子命令: {}", subcmd),
-            )),
+            _ => Err(AppError::Command(format!(
+                "未知的 PUBSUB 子命令: {}",
+                subcmd
+            ))),
         }
     }
 }

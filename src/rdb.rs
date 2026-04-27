@@ -116,9 +116,9 @@ pub fn save_to_writer_with_repl(
         // 过滤掉已过期和空的 key
         let mut valid_entries: Vec<(String, StorageValue, Option<u64>)> = Vec::new();
         for shard in db.inner.all_shards() {
-            let map = shard.read().map_err(|e| {
-                AppError::Storage(format!("RDB 保存时锁中毒: {}", e))
-            })?;
+            let map = shard
+                .read()
+                .map_err(|e| AppError::Storage(format!("RDB 保存时锁中毒: {}", e)))?;
             for (key, value) in map.iter() {
                 let expires = db.expires.get_shard(key).read().unwrap();
                 let ttl = expires.get(key).copied();
@@ -204,7 +204,9 @@ fn write_key_value(
         StorageValue::ZSet(_) => TYPE_ZSET,
         StorageValue::HyperLogLog(_) => TYPE_HLL,
         StorageValue::Stream(_) => {
-            return Err(AppError::Storage("Stream 类型暂不支持 RDB 持久化".to_string()));
+            return Err(AppError::Storage(
+                "Stream 类型暂不支持 RDB 持久化".to_string(),
+            ));
         }
     };
     writer.write_all(&[type_byte])?;
@@ -316,7 +318,9 @@ fn write_key_value(
             crc.update(&data);
         }
         StorageValue::Stream(_) => {
-            return Err(AppError::Storage("Stream 类型暂不支持 RDB 持久化".to_string()));
+            return Err(AppError::Storage(
+                "Stream 类型暂不支持 RDB 持久化".to_string(),
+            ));
         }
     }
 
@@ -349,10 +353,7 @@ fn write_aux_string(
 }
 
 /// 读取 AUX 字符串
-fn read_aux_string(
-    reader: &mut impl Read,
-    crc: &mut crc32fast::Hasher,
-) -> Result<String> {
+fn read_aux_string(reader: &mut impl Read, crc: &mut crc32fast::Hasher) -> Result<String> {
     let len = read_u32(reader)?;
     crc.update(&len.to_be_bytes());
     let bytes = read_bytes(reader, len as usize)?;
@@ -594,9 +595,11 @@ fn read_key_value(
         }
     };
 
-    let mut map = db.inner.get_shard(&key).write().map_err(|e| {
-        AppError::Storage(format!("RDB 加载时锁中毒: {}", e))
-    })?;
+    let mut map = db
+        .inner
+        .get_shard(&key)
+        .write()
+        .map_err(|e| AppError::Storage(format!("RDB 加载时锁中毒: {}", e)))?;
     map.insert(key.clone(), value);
     if let Some(expire_at) = ttl {
         let mut expires = db.expires.get_shard(&key).write().unwrap();
@@ -611,37 +614,67 @@ mod tests {
     use crate::storage::StorageEngine;
     use bytes::Bytes;
 
+    fn temp_rdb_path(name: &str) -> String {
+        let mut path = std::env::temp_dir();
+        path.push(format!("redis_rust_{}_{}.rdb", name, std::process::id()));
+        path.to_string_lossy().into_owned()
+    }
+
     fn create_test_storage() -> StorageEngine {
         let storage = StorageEngine::new();
 
         // db 0: String
-        storage.set("str_key".to_string(), Bytes::from("hello")).unwrap();
+        storage
+            .set("str_key".to_string(), Bytes::from("hello"))
+            .unwrap();
 
         // db 0: String with TTL
-        storage.set_with_ttl("ttl_key".to_string(), Bytes::from("ttl_value"), 100_000).unwrap();
+        storage
+            .set_with_ttl("ttl_key".to_string(), Bytes::from("ttl_value"), 100_000)
+            .unwrap();
 
         // db 0: List
-        storage.rpush("list_key", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        storage
+            .rpush(
+                "list_key",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
 
         // db 0: Hash
-        storage.hset("hash_key", "f1".to_string(), Bytes::from("v1")).unwrap();
-        storage.hset("hash_key", "f2".to_string(), Bytes::from("v2")).unwrap();
+        storage
+            .hset("hash_key", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
+        storage
+            .hset("hash_key", "f2".to_string(), Bytes::from("v2"))
+            .unwrap();
 
         // db 0: Set
-        storage.sadd("set_key", vec![Bytes::from("x"), Bytes::from("y")]).unwrap();
+        storage
+            .sadd("set_key", vec![Bytes::from("x"), Bytes::from("y")])
+            .unwrap();
 
         // db 0: ZSet
-        storage.zadd("zset_key", vec![(1.0, "a".to_string()), (2.0, "b".to_string())]).unwrap();
+        storage
+            .zadd(
+                "zset_key",
+                vec![(1.0, "a".to_string()), (2.0, "b".to_string())],
+            )
+            .unwrap();
 
         // db 0: HyperLogLog
         let mut hll = crate::storage::HyperLogLog::new();
         hll.add("elem1");
         hll.add("elem2");
-        storage.pfadd("hll_key", &["elem1".to_string(), "elem2".to_string()]).unwrap();
+        storage
+            .pfadd("hll_key", &["elem1".to_string(), "elem2".to_string()])
+            .unwrap();
 
         // db 1: 另一个 key
         storage.select(1).unwrap();
-        storage.set("db1_key".to_string(), Bytes::from("db1_value")).unwrap();
+        storage
+            .set("db1_key".to_string(), Bytes::from("db1_value"))
+            .unwrap();
         storage.select(0).unwrap();
 
         storage
@@ -650,11 +683,12 @@ mod tests {
     #[test]
     fn test_save_load_roundtrip() {
         let storage = create_test_storage();
-        let path = "/tmp/test_rdb_1.rdb";
-        save(&storage, path, None).unwrap();
+        let path = temp_rdb_path("roundtrip");
+        let _ = std::fs::remove_file(&path);
+        save(&storage, &path, None).unwrap();
 
         let loaded = StorageEngine::new();
-        let (replid, offset) = load(&loaded, path).unwrap();
+        let (replid, offset) = load(&loaded, &path).unwrap();
         assert!(replid.is_none());
         assert!(offset.is_none());
 
@@ -663,12 +697,21 @@ mod tests {
 
         // List
         let list = loaded.lrange("list_key", 0, -1).unwrap();
-        let list_str: Vec<String> = list.iter().map(|b| String::from_utf8_lossy(b).to_string()).collect();
+        let list_str: Vec<String> = list
+            .iter()
+            .map(|b| String::from_utf8_lossy(b).to_string())
+            .collect();
         assert_eq!(list_str, vec!["a", "b", "c"]);
 
         // Hash
-        assert_eq!(loaded.hget("hash_key", "f1").unwrap(), Some(Bytes::from("v1")));
-        assert_eq!(loaded.hget("hash_key", "f2").unwrap(), Some(Bytes::from("v2")));
+        assert_eq!(
+            loaded.hget("hash_key", "f1").unwrap(),
+            Some(Bytes::from("v1"))
+        );
+        assert_eq!(
+            loaded.hget("hash_key", "f2").unwrap(),
+            Some(Bytes::from("v2"))
+        );
 
         // Set
         assert!(loaded.sismember("set_key", &Bytes::from("x")).unwrap());
@@ -683,94 +726,105 @@ mod tests {
 
         // db 1
         loaded.select(1).unwrap();
-        assert_eq!(loaded.get("db1_key").unwrap(), Some(Bytes::from("db1_value")));
+        assert_eq!(
+            loaded.get("db1_key").unwrap(),
+            Some(Bytes::from("db1_value"))
+        );
 
-        std::fs::remove_file(path).ok();
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_save_load_ttl() {
         let storage = StorageEngine::new();
-        storage.set_with_ttl("ttl_key".to_string(), Bytes::from("value"), 100_000).unwrap();
+        storage
+            .set_with_ttl("ttl_key".to_string(), Bytes::from("value"), 100_000)
+            .unwrap();
 
-        let path = "/tmp/test_rdb_ttl.rdb";
-        save(&storage, path, None).unwrap();
+        let path = temp_rdb_path("ttl");
+        let _ = std::fs::remove_file(&path);
+        save(&storage, &path, None).unwrap();
 
         let loaded = StorageEngine::new();
-        load(&loaded, path).unwrap();
+        load(&loaded, &path).unwrap();
 
         // 加载后 TTL 应存在（key 未过期）
         assert!(loaded.exists("ttl_key").unwrap());
         assert_eq!(loaded.get("ttl_key").unwrap(), Some(Bytes::from("value")));
 
-        std::fs::remove_file(path).ok();
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_save_load_empty() {
         let storage = StorageEngine::new();
-        let path = "/tmp/test_rdb_empty.rdb";
-        save(&storage, path, None).unwrap();
+        let path = temp_rdb_path("empty");
+        let _ = std::fs::remove_file(&path);
+        save(&storage, &path, None).unwrap();
 
         let loaded = StorageEngine::new();
-        load(&loaded, path).unwrap();
+        load(&loaded, &path).unwrap();
         assert_eq!(loaded.dbsize().unwrap(), 0);
 
-        std::fs::remove_file(path).ok();
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_load_corrupted_truncated() {
-        let path = "/tmp/test_rdb_truncated.rdb";
-        std::fs::write(path, b"REDIS-RUST").unwrap();
+        let path = temp_rdb_path("truncated");
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, b"REDIS-RUST").unwrap();
         let loaded = StorageEngine::new();
-        let result = load(&loaded, path);
+        let result = load(&loaded, &path);
         assert!(result.is_err());
-        std::fs::remove_file(path).ok();
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_load_corrupted_wrong_magic() {
-        let path = "/tmp/test_rdb_magic.rdb";
-        std::fs::write(path, b"WRONG-MAGIC").unwrap();
+        let path = temp_rdb_path("magic");
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, b"WRONG-MAGIC").unwrap();
         let loaded = StorageEngine::new();
-        let result = load(&loaded, path);
+        let result = load(&loaded, &path);
         assert!(result.is_err());
-        std::fs::remove_file(path).ok();
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_save_load_with_repl_info() {
         let storage = create_test_storage();
-        let path = "/tmp/test_rdb_repl.rdb";
+        let path = temp_rdb_path("repl");
+        let _ = std::fs::remove_file(&path);
         let replid = "abc123def456abc123def456abc123def456abc1";
         let offset = 12345i64;
-        save(&storage, path, Some((replid.to_string(), offset))).unwrap();
+        save(&storage, &path, Some((replid.to_string(), offset))).unwrap();
 
         let loaded = StorageEngine::new();
-        let (loaded_replid, loaded_offset) = load(&loaded, path).unwrap();
+        let (loaded_replid, loaded_offset) = load(&loaded, &path).unwrap();
         assert_eq!(loaded_replid, Some(replid.to_string()));
         assert_eq!(loaded_offset, Some(offset));
 
         // 验证数据也正确加载
         assert_eq!(loaded.get("str_key").unwrap(), Some(Bytes::from("hello")));
 
-        std::fs::remove_file(path).ok();
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn test_load_old_rdb_without_aux() {
         // 测试旧格式 RDB（没有 AUX 段）仍然可以正常加载
         let storage = create_test_storage();
-        let path = "/tmp/test_rdb_old.rdb";
-        save(&storage, path, None).unwrap();
+        let path = temp_rdb_path("old");
+        let _ = std::fs::remove_file(&path);
+        save(&storage, &path, None).unwrap();
 
         let loaded = StorageEngine::new();
-        let (replid, offset) = load(&loaded, path).unwrap();
+        let (replid, offset) = load(&loaded, &path).unwrap();
         assert!(replid.is_none());
         assert!(offset.is_none());
         assert_eq!(loaded.get("str_key").unwrap(), Some(Bytes::from("hello")));
 
-        std::fs::remove_file(path).ok();
+        std::fs::remove_file(&path).ok();
     }
 }

@@ -5,24 +5,24 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use super::{SentinelManager, ReplicaInstance};
+use super::{ReplicaInstance, SentinelManager};
 
 /// 启动 master 监控任务
 pub fn start_monitor(sentinel: Arc<SentinelManager>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         let mut info_interval_counter: u64 = 0;
-        
+
         loop {
             interval.tick().await;
             info_interval_counter += 1;
-            
+
             let masters = sentinel.get_masters();
             for master in &masters {
                 let ip = master.ip.clone();
                 let port = master.port;
                 let name = master.name.clone();
-                
+
                 // 每秒发送 PING
                 match ping_instance(&ip, port).await {
                     Ok(true) => {
@@ -32,7 +32,7 @@ pub fn start_monitor(sentinel: Arc<SentinelManager>) -> tokio::task::JoinHandle<
                         log::debug!("PING {}:{} 失败", ip, port);
                     }
                 }
-                
+
                 // 每 10 秒发送 INFO replication 发现 replica
                 if info_interval_counter.is_multiple_of(10) {
                     match get_info_replication(&ip, port).await {
@@ -46,7 +46,7 @@ pub fn start_monitor(sentinel: Arc<SentinelManager>) -> tokio::task::JoinHandle<
                     }
                 }
             }
-            
+
             // 检查 SDOWN 状态
             sentinel.check_sdown();
         }
@@ -59,13 +59,13 @@ async fn ping_instance(ip: &str, port: u16) -> Result<bool, Box<dyn std::error::
     let timeout = Duration::from_millis(500);
     let stream = tokio::time::timeout(timeout, TcpStream::connect(&addr)).await??;
     let (read_half, mut write_half) = stream.into_split();
-    
+
     write_half.write_all(b"*1\r\n$4\r\nPING\r\n").await?;
-    
+
     let mut reader = tokio::io::BufReader::new(read_half);
     let mut line = String::new();
     tokio::time::timeout(timeout, reader.read_line(&mut line)).await??;
-    
+
     Ok(line.trim().starts_with("+PONG"))
 }
 
@@ -75,23 +75,25 @@ async fn get_info_replication(ip: &str, port: u16) -> Result<String, Box<dyn std
     let timeout = Duration::from_secs(2);
     let stream = tokio::time::timeout(timeout, TcpStream::connect(&addr)).await??;
     let (read_half, mut write_half) = stream.into_split();
-    
-    write_half.write_all(b"*2\r\n$4\r\nINFO\r\n$11\r\nreplication\r\n").await?;
-    
+
+    write_half
+        .write_all(b"*2\r\n$4\r\nINFO\r\n$11\r\nreplication\r\n")
+        .await?;
+
     let mut reader = tokio::io::BufReader::new(read_half);
     let mut line = String::new();
-    
+
     // 读取 bulk string 长度行
     tokio::time::timeout(timeout, reader.read_line(&mut line)).await??;
     if !line.starts_with('$') {
         return Err(format!("期望 bulk string，收到: {}", line).into());
     }
     let len: usize = line.trim()[1..].parse()?;
-    
+
     // 读取内容
     let mut buf = vec![0u8; len + 2]; // +2 for \r\n
     tokio::time::timeout(timeout, reader.read_exact(&mut buf)).await??;
-    
+
     Ok(String::from_utf8_lossy(&buf[..len]).to_string())
 }
 
@@ -107,10 +109,12 @@ fn parse_replicas_from_info(info: &str) -> Vec<ReplicaInstance> {
         let mut ip = String::new();
         let mut port: u16 = 0;
         let mut offset: i64 = 0;
-        
+
         for part in parts_str.split(',') {
             let kv: Vec<&str> = part.split('=').collect();
-            if kv.len() != 2 { continue; }
+            if kv.len() != 2 {
+                continue;
+            }
             match kv[0] {
                 "ip" => ip = kv[1].to_string(),
                 "port" => port = kv[1].parse().unwrap_or(0),
@@ -118,7 +122,7 @@ fn parse_replicas_from_info(info: &str) -> Vec<ReplicaInstance> {
                 _ => {}
             }
         }
-        
+
         if !ip.is_empty() && port > 0 {
             replicas.push(ReplicaInstance {
                 ip,

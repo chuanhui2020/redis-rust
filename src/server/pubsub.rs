@@ -1,14 +1,14 @@
 //! 发布订阅命令处理模块
 
-use tokio::io::BufWriter;
-use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use super::handler::{ConnectionHandler, write_resp};
+use super::{ClientMessage, SubscriptionState};
 use crate::command::Command;
 use crate::error::Result;
 use crate::protocol::RespValue;
 use crate::pubsub::PubSubManager;
-use super::{ClientMessage, SubscriptionState};
-use super::handler::{ConnectionHandler, write_resp};
+use tokio::io::BufWriter;
+use tokio::net::TcpStream;
+use tokio::sync::mpsc;
 
 /// 处理发布订阅相关命令
 /// 包括 SUBSCRIBE、UNSUBSCRIBE、PSUBSCRIBE、PUNSUBSCRIBE、PUBLISH 等
@@ -33,7 +33,10 @@ pub(crate) async fn handle_pubsub_command(
                     loop {
                         match rx.recv().await {
                             Ok(data) => {
-                                if tx.send(ClientMessage::Message(ch_clone.clone(), data)).is_err() {
+                                if tx
+                                    .send(ClientMessage::Message(ch_clone.clone(), data))
+                                    .is_err()
+                                {
                                     break;
                                 }
                             }
@@ -96,7 +99,10 @@ pub(crate) async fn handle_pubsub_command(
                     loop {
                         match rx.recv().await {
                             Ok((ch, data)) => {
-                                if tx.send(ClientMessage::PMessage(pat_clone.clone(), ch, data)).is_err() {
+                                if tx
+                                    .send(ClientMessage::PMessage(pat_clone.clone(), ch, data))
+                                    .is_err()
+                                {
                                     break;
                                 }
                             }
@@ -105,7 +111,9 @@ pub(crate) async fn handle_pubsub_command(
                         }
                     }
                 });
-                sub_state.patterns.insert(pat.clone(), handle.abort_handle());
+                sub_state
+                    .patterns
+                    .insert(pat.clone(), handle.abort_handle());
 
                 let count = sub_state.total();
                 let resp = RespValue::Array(vec![
@@ -168,9 +176,7 @@ pub(crate) async fn handle_pubsub_command(
         }
         Command::PubSubChannels(pattern) => {
             let channels = pubsub.channels(pattern.as_deref());
-            let resp = RespValue::Array(
-                channels.into_iter().map(|ch| super::bulk(&ch)).collect(),
-            );
+            let resp = RespValue::Array(channels.into_iter().map(|ch| super::bulk(&ch)).collect());
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);
@@ -211,7 +217,10 @@ pub(crate) async fn handle_pubsub_command(
                     loop {
                         match rx.recv().await {
                             Ok(data) => {
-                                if tx.send(ClientMessage::SMessage(ch_clone.clone(), data)).is_err() {
+                                if tx
+                                    .send(ClientMessage::SMessage(ch_clone.clone(), data))
+                                    .is_err()
+                                {
                                     break;
                                 }
                             }
@@ -220,7 +229,9 @@ pub(crate) async fn handle_pubsub_command(
                         }
                     }
                 });
-                sub_state.shard_channels.insert(ch.clone(), handle.abort_handle());
+                sub_state
+                    .shard_channels
+                    .insert(ch.clone(), handle.abort_handle());
 
                 let count = sub_state.total();
                 let resp = RespValue::Array(vec![
@@ -284,9 +295,7 @@ pub(crate) async fn handle_pubsub_command(
         }
         Command::PubSubShardChannels(pattern) => {
             let channels = pubsub.shard_channels(pattern.as_deref());
-            let resp = RespValue::Array(
-                channels.into_iter().map(|ch| super::bulk(&ch)).collect(),
-            );
+            let resp = RespValue::Array(channels.into_iter().map(|ch| super::bulk(&ch)).collect());
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);

@@ -31,7 +31,11 @@ fn unsigned_to_signed(value: u64, bits: usize) -> i64 {
 
 /// 将 i64 转换为指定宽度的无符号表示
 fn signed_to_unsigned(value: i64, bits: usize) -> u64 {
-    let mask = if bits == 64 { !0u64 } else { (1u64 << bits) - 1 };
+    let mask = if bits == 64 {
+        !0u64
+    } else {
+        (1u64 << bits) - 1
+    };
     (value as u64) & mask
 }
 
@@ -144,10 +148,15 @@ impl StorageEngine {
                 } else {
                     match v {
                         StorageValue::String(b) => b.to_vec(),
-                        StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::Set(_) | StorageValue::ZSet(_) | StorageValue::HyperLogLog(_) | StorageValue::Stream(_) => {
+                        StorageValue::List(_)
+                        | StorageValue::Hash(_)
+                        | StorageValue::Set(_)
+                        | StorageValue::ZSet(_)
+                        | StorageValue::HyperLogLog(_)
+                        | StorageValue::Stream(_) => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -204,11 +213,14 @@ impl StorageEngine {
                                 Ok(((b[byte_index] >> bit_index) & 1) as i64)
                             }
                         }
-                        StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::Set(_) | StorageValue::ZSet(_) | StorageValue::HyperLogLog(_) | StorageValue::Stream(_) => {
-                            Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
-                        }
+                        StorageValue::List(_)
+                        | StorageValue::Hash(_)
+                        | StorageValue::Set(_)
+                        | StorageValue::ZSet(_)
+                        | StorageValue::HyperLogLog(_)
+                        | StorageValue::Stream(_) => Err(AppError::Storage(
+                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
+                        )),
                     }
                 }
             }
@@ -237,10 +249,15 @@ impl StorageEngine {
                 } else {
                     match v {
                         StorageValue::String(b) => b.clone(),
-                        StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::Set(_) | StorageValue::ZSet(_) | StorageValue::HyperLogLog(_) | StorageValue::Stream(_) => {
+                        StorageValue::List(_)
+                        | StorageValue::Hash(_)
+                        | StorageValue::Set(_)
+                        | StorageValue::ZSet(_)
+                        | StorageValue::HyperLogLog(_)
+                        | StorageValue::Stream(_) => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -314,20 +331,24 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_key_expired(&db, key) {
-                    match v {
-                        StorageValue::String(b) => {
-                            let vec = b.to_vec();
-                            max_len = max_len.max(vec.len());
-                            byte_arrays.push(vec);
-                        }
-                        _ => {}
+                && !Self::is_key_expired(&db, key)
+            {
+                match v {
+                    StorageValue::String(b) => {
+                        let vec = b.to_vec();
+                        max_len = max_len.max(vec.len());
+                        byte_arrays.push(vec);
                     }
+                    _ => {}
                 }
+            }
         }
 
         if byte_arrays.is_empty() {
-            let mut dst_map = db.inner.get_shard(destkey).write()
+            let mut dst_map = db
+                .inner
+                .get_shard(destkey)
+                .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             dst_map.remove(destkey);
             self.bump_version(destkey);
@@ -360,9 +381,15 @@ impl StorageEngine {
             }
         }
 
-        let mut dst_map = db.inner.get_shard(destkey).write()
+        let mut dst_map = db
+            .inner
+            .get_shard(destkey)
+            .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-        dst_map.insert(destkey.to_string(), StorageValue::String(Bytes::from(result)));
+        dst_map.insert(
+            destkey.to_string(),
+            StorageValue::String(Bytes::from(result)),
+        );
         let mut expires = db.expires.get_shard(destkey).write().unwrap();
         expires.remove(destkey);
         self.bump_version(destkey);
@@ -374,7 +401,14 @@ impl StorageEngine {
 
     /// 查找第一个值为 bit（0 或 1）的位的位置
     /// is_byte 为 true 时 start/end 是字节索引，否则是位索引
-    pub fn bitpos(&self, key: &str, bit: u8, start: isize, end: isize, is_byte: bool) -> Result<i64> {
+    pub fn bitpos(
+        &self,
+        key: &str,
+        bit: u8,
+        start: isize,
+        end: isize,
+        is_byte: bool,
+    ) -> Result<i64> {
         let db = self.db();
         let mut map = db
             .inner
@@ -392,10 +426,15 @@ impl StorageEngine {
                 } else {
                     match v {
                         StorageValue::String(b) => b.clone(),
-                        StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::Set(_) | StorageValue::ZSet(_) | StorageValue::HyperLogLog(_) | StorageValue::Stream(_) => {
+                        StorageValue::List(_)
+                        | StorageValue::Hash(_)
+                        | StorageValue::Set(_)
+                        | StorageValue::ZSet(_)
+                        | StorageValue::HyperLogLog(_)
+                        | StorageValue::Stream(_) => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -480,7 +519,7 @@ impl StorageEngine {
                         _ => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -557,7 +596,7 @@ impl StorageEngine {
                     _ => {
                         return Err(AppError::Storage(
                             "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                        ))
+                        ));
                     }
                 }
             }
@@ -573,9 +612,7 @@ impl StorageEngine {
                     results.push(BitFieldResult::Value(value));
                 }
                 _ => {
-                    return Err(AppError::Command(
-                        "BITFIELD_RO 只支持 GET 操作".to_string(),
-                    ));
+                    return Err(AppError::Command("BITFIELD_RO 只支持 GET 操作".to_string()));
                 }
             }
         }
@@ -584,4 +621,3 @@ impl StorageEngine {
 
     // ---------- HyperLogLog 操作 ----------
 }
-

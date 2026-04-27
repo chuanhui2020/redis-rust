@@ -103,9 +103,7 @@ impl StorageEngine {
                 } else {
                     Self::check_set_type(v)?;
                     match v {
-                        StorageValue::Set(s) => {
-                            Ok(s.iter().cloned().collect())
-                        }
+                        StorageValue::Set(s) => Ok(s.iter().cloned().collect()),
                         _ => unreachable!(),
                     }
                 }
@@ -375,7 +373,8 @@ impl StorageEngine {
                         let members: Vec<Bytes> = s.iter().cloned().collect();
                         if count > 0 {
                             let n = abs_count.min(s.len());
-                            let selected: Vec<Bytes> = members.choose_multiple(&mut rng, n).cloned().collect();
+                            let selected: Vec<Bytes> =
+                                members.choose_multiple(&mut rng, n).cloned().collect();
                             Ok(selected)
                         } else {
                             let mut result = Vec::with_capacity(abs_count);
@@ -430,7 +429,10 @@ impl StorageEngine {
         }
         drop(src_map);
 
-        let mut dst_map = db.inner.get_shard(destination).write()
+        let mut dst_map = db
+            .inner
+            .get_shard(destination)
+            .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
         // 添加到 destination
@@ -602,9 +604,10 @@ impl StorageEngine {
                 } else {
                     Self::check_set_type(v)?;
                     match v {
-                        StorageValue::Set(s) => {
-                            Ok(members.iter().map(|m| if s.contains(m) { 1 } else { 0 }).collect())
-                        }
+                        StorageValue::Set(s) => Ok(members
+                            .iter()
+                            .map(|m| if s.contains(m) { 1 } else { 0 })
+                            .collect()),
                         _ => unreachable!(),
                     }
                 }
@@ -614,7 +617,13 @@ impl StorageEngine {
     }
 
     /// 增量迭代集合成员
-    pub fn sscan(&self, key: &str, cursor: usize, pattern: &str, count: usize) -> Result<(usize, Vec<Bytes>)> {
+    pub fn sscan(
+        &self,
+        key: &str,
+        cursor: usize,
+        pattern: &str,
+        count: usize,
+    ) -> Result<(usize, Vec<Bytes>)> {
         let db = self.db();
         let mut map = db
             .inner

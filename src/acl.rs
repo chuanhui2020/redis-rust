@@ -177,11 +177,15 @@ impl AclManager {
 
     /// 设置/修改用户
     pub fn setuser(&self, name: &str, rules: &[&str]) -> Result<()> {
-        let mut inner = self.inner.write().map_err(|e| {
-            AppError::Storage(format!("ACL 锁中毒: {}", e))
-        })?;
+        let mut inner = self
+            .inner
+            .write()
+            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
 
-        let user = inner.users.entry(name.to_string()).or_insert_with(|| AclUser::new(name));
+        let user = inner
+            .users
+            .entry(name.to_string())
+            .or_insert_with(|| AclUser::new(name));
 
         for rule in rules {
             let rule = rule.trim();
@@ -225,7 +229,10 @@ impl AclManager {
                                     for c in cmds {
                                         allow.insert(c.to_lowercase());
                                     }
-                                    user.commands = AclCommands::Specific { allow, deny: HashSet::new() };
+                                    user.commands = AclCommands::Specific {
+                                        allow,
+                                        deny: HashSet::new(),
+                                    };
                                 }
                                 AclCommands::Specific { allow, .. } => {
                                     for c in cmds {
@@ -240,7 +247,10 @@ impl AclManager {
                                 AclCommands::NoCommands => {
                                     let mut allow = HashSet::new();
                                     allow.insert(cmd.to_lowercase());
-                                    user.commands = AclCommands::Specific { allow, deny: HashSet::new() };
+                                    user.commands = AclCommands::Specific {
+                                        allow,
+                                        deny: HashSet::new(),
+                                    };
                                 }
                                 AclCommands::Specific { allow, deny } => {
                                     allow.insert(cmd.to_lowercase());
@@ -324,17 +334,19 @@ impl AclManager {
 
     /// 获取用户信息
     pub fn getuser(&self, name: &str) -> Result<Option<AclUser>> {
-        let inner = self.inner.read().map_err(|e| {
-            AppError::Storage(format!("ACL 锁中毒: {}", e))
-        })?;
+        let inner = self
+            .inner
+            .read()
+            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
         Ok(inner.users.get(name).cloned())
     }
 
     /// 删除用户，返回删除数量
     pub fn deluser(&self, names: &[&str]) -> Result<usize> {
-        let mut inner = self.inner.write().map_err(|e| {
-            AppError::Storage(format!("ACL 锁中毒: {}", e))
-        })?;
+        let mut inner = self
+            .inner
+            .write()
+            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
         let mut count = 0;
         for name in names {
             if *name == "default" {
@@ -349,9 +361,10 @@ impl AclManager {
 
     /// 列出所有用户的 ACL 规则字符串
     pub fn list(&self) -> Result<Vec<String>> {
-        let inner = self.inner.read().map_err(|e| {
-            AppError::Storage(format!("ACL 锁中毒: {}", e))
-        })?;
+        let inner = self
+            .inner
+            .read()
+            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
         let mut result = Vec::new();
         for user in inner.users.values() {
             let rules = user.to_rules().join(" ");
@@ -377,9 +390,10 @@ impl AclManager {
 
     /// 返回 ACL 拒绝日志
     pub fn log(&self, count: Option<usize>) -> Result<Vec<AclLogEntry>> {
-        let inner = self.inner.read().map_err(|e| {
-            AppError::Storage(format!("ACL 锁中毒: {}", e))
-        })?;
+        let inner = self
+            .inner
+            .read()
+            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
         let n = count.unwrap_or(10);
         let result: Vec<AclLogEntry> = inner.log.iter().rev().take(n).cloned().collect();
         Ok(result)
@@ -387,18 +401,26 @@ impl AclManager {
 
     /// 重置 ACL 日志
     pub fn log_reset(&self) -> Result<()> {
-        let mut inner = self.inner.write().map_err(|e| {
-            AppError::Storage(format!("ACL 锁中毒: {}", e))
-        })?;
+        let mut inner = self
+            .inner
+            .write()
+            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
         inner.log.clear();
         Ok(())
     }
 
     /// 记录 ACL 拒绝日志
-    pub fn log_deny(&self, username: &str, reason: &str, context: &str, object: &str) -> Result<()> {
-        let mut inner = self.inner.write().map_err(|e| {
-            AppError::Storage(format!("ACL 锁中毒: {}", e))
-        })?;
+    pub fn log_deny(
+        &self,
+        username: &str,
+        reason: &str,
+        context: &str,
+        object: &str,
+    ) -> Result<()> {
+        let mut inner = self
+            .inner
+            .write()
+            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
         inner.log.push(AclLogEntry {
             reason: reason.to_string(),
             context: context.to_string(),
@@ -415,9 +437,10 @@ impl AclManager {
 
     /// 保存 ACL 规则到文件
     pub fn save(&self, path: &str) -> Result<()> {
-        let users = self.inner.read().map_err(|e| {
-            AppError::Storage(format!("ACL 锁中毒: {}", e))
-        })?;
+        let users = self
+            .inner
+            .read()
+            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
         let mut content = String::new();
         for (name, user) in users.users.iter() {
             let rules = user.to_rules();
@@ -470,9 +493,10 @@ impl AclManager {
 
     /// 检查命令权限
     pub fn check_command(&self, username: &str, cmd: &str, keys: &[&str]) -> Result<bool> {
-        let inner = self.inner.read().map_err(|e| {
-            AppError::Storage(format!("ACL 锁中毒: {}", e))
-        })?;
+        let inner = self
+            .inner
+            .read()
+            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
 
         let user = match inner.users.get(username) {
             Some(u) => u,
@@ -508,9 +532,8 @@ impl AclManager {
                 if patterns.is_empty() {
                     false
                 } else {
-                    keys.iter().all(|key| {
-                        patterns.iter().any(|pattern| glob_match(pattern, key))
-                    })
+                    keys.iter()
+                        .all(|key| patterns.iter().any(|pattern| glob_match(pattern, key)))
                 }
             }
         };
@@ -520,9 +543,10 @@ impl AclManager {
 
     /// 检查频道权限
     pub fn check_channel(&self, username: &str, channel: &str) -> Result<bool> {
-        let inner = self.inner.read().map_err(|e| {
-            AppError::Storage(format!("ACL 锁中毒: {}", e))
-        })?;
+        let inner = self
+            .inner
+            .read()
+            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
 
         let user = match inner.users.get(username) {
             Some(u) => u,
@@ -547,9 +571,10 @@ impl AclManager {
 
     /// 验证用户名密码
     pub fn authenticate(&self, username: &str, password: &str) -> Result<bool> {
-        let inner = self.inner.read().map_err(|e| {
-            AppError::Storage(format!("ACL 锁中毒: {}", e))
-        })?;
+        let inner = self
+            .inner
+            .read()
+            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
 
         let user = match inner.users.get(username) {
             Some(u) => u,
@@ -577,7 +602,7 @@ impl Default for AclManager {
 
 /// 密码哈希（使用 SHA1）
 fn hash_password(input: &str) -> String {
-    use sha1::{Sha1, Digest};
+    use sha1::{Digest, Sha1};
     let mut hasher = Sha1::new();
     hasher.update(input.as_bytes());
     format!("{:x}", hasher.finalize())
@@ -587,35 +612,161 @@ fn hash_password(input: &str) -> String {
 fn get_category_commands(category: &str) -> Vec<String> {
     let cmds: Vec<&str> = match category.to_lowercase().as_str() {
         "read" => vec![
-            "get", "mget", "exists", "ttl", "pttl", "type", "strlen", "getrange",
-            "hget", "hmget", "hgetall", "hkeys", "hvals", "hlen", "hexists", "hstrlen", "hscan",
-            "lrange", "llen", "lindex",
-            "smembers", "sismember", "scard", "srandmember", "sscan",
-            "zrange", "zrevrange", "zrangebyscore", "zrevrangebyscore", "zrangebylex", "zrevrangebylex",
-            "zcard", "zcount", "zlexcount", "zscore", "zmscore", "zrank", "zrevrank", "zscan",
-            "xrange", "xrevrange", "xlen", "xread", "xreadgroup", "xinfo", "xpending",
-            "keys", "scan", "dbsize", "info", "client", "command",
-            "pfcount", "pfmerge",
-            "bitcount", "bitpos", "getbit", "bitfield", "bitfield_ro",
-            "geoadd", "geodist", "geohash", "geopos", "georadius", "georadiusbymember", "geosearch",
+            "get",
+            "mget",
+            "exists",
+            "ttl",
+            "pttl",
+            "type",
+            "strlen",
+            "getrange",
+            "hget",
+            "hmget",
+            "hgetall",
+            "hkeys",
+            "hvals",
+            "hlen",
+            "hexists",
+            "hstrlen",
+            "hscan",
+            "lrange",
+            "llen",
+            "lindex",
+            "smembers",
+            "sismember",
+            "scard",
+            "srandmember",
+            "sscan",
+            "zrange",
+            "zrevrange",
+            "zrangebyscore",
+            "zrevrangebyscore",
+            "zrangebylex",
+            "zrevrangebylex",
+            "zcard",
+            "zcount",
+            "zlexcount",
+            "zscore",
+            "zmscore",
+            "zrank",
+            "zrevrank",
+            "zscan",
+            "xrange",
+            "xrevrange",
+            "xlen",
+            "xread",
+            "xreadgroup",
+            "xinfo",
+            "xpending",
+            "keys",
+            "scan",
+            "dbsize",
+            "info",
+            "client",
+            "command",
+            "pfcount",
+            "pfmerge",
+            "bitcount",
+            "bitpos",
+            "getbit",
+            "bitfield",
+            "bitfield_ro",
+            "geoadd",
+            "geodist",
+            "geohash",
+            "geopos",
+            "georadius",
+            "georadiusbymember",
+            "geosearch",
         ],
         "write" => vec![
-            "set", "mset", "del", "expire", "pexpire", "expireat", "pexpireat", "persist",
-            "incr", "decr", "incrby", "decrby", "append", "setnx", "setex", "psetex", "getset", "getdel",
-            "hset", "hmset", "hsetnx", "hdel", "hincrby", "hincrbyfloat", "hexpire", "hpexpire",
-            "lpush", "rpush", "lpop", "rpop", "lrem", "ltrim", "lset", "linsert", "lmove", "blmove",
-            "sadd", "srem", "spop", "smove", "sdiffstore", "sinterstore", "sunionstore",
-            "zadd", "zrem", "zincrby", "zunionstore", "zinterstore", "zdiffstore", "zrangestore",
-            "xadd", "xtrim", "xdel", "xgroup", "xack", "xclaim", "xautoclaim",
-            "rename", "renamenx", "flushall", "flushdb",
-            "pfadd", "pfmerge",
-            "setbit", "setrange",
-            "copy", "move",
+            "set",
+            "mset",
+            "del",
+            "expire",
+            "pexpire",
+            "expireat",
+            "pexpireat",
+            "persist",
+            "incr",
+            "decr",
+            "incrby",
+            "decrby",
+            "append",
+            "setnx",
+            "setex",
+            "psetex",
+            "getset",
+            "getdel",
+            "hset",
+            "hmset",
+            "hsetnx",
+            "hdel",
+            "hincrby",
+            "hincrbyfloat",
+            "hexpire",
+            "hpexpire",
+            "lpush",
+            "rpush",
+            "lpop",
+            "rpop",
+            "lrem",
+            "ltrim",
+            "lset",
+            "linsert",
+            "lmove",
+            "blmove",
+            "sadd",
+            "srem",
+            "spop",
+            "smove",
+            "sdiffstore",
+            "sinterstore",
+            "sunionstore",
+            "zadd",
+            "zrem",
+            "zincrby",
+            "zunionstore",
+            "zinterstore",
+            "zdiffstore",
+            "zrangestore",
+            "xadd",
+            "xtrim",
+            "xdel",
+            "xgroup",
+            "xack",
+            "xclaim",
+            "xautoclaim",
+            "rename",
+            "renamenx",
+            "flushall",
+            "flushdb",
+            "pfadd",
+            "pfmerge",
+            "setbit",
+            "setrange",
+            "copy",
+            "move",
         ],
         "admin" => vec![
-            "config", "debug", "shutdown", "bgsave", "bgrewriteaof", "save", "lastsave",
-            "acl", "auth", "client", "slowlog", "monitor", "info", "role", "replicaof",
-            "slaveof", "sync", "psync",
+            "config",
+            "debug",
+            "shutdown",
+            "bgsave",
+            "bgrewriteaof",
+            "save",
+            "lastsave",
+            "acl",
+            "auth",
+            "client",
+            "slowlog",
+            "monitor",
+            "info",
+            "role",
+            "replicaof",
+            "slaveof",
+            "sync",
+            "psync",
         ],
         "all" => {
             let all = get_all_commands();
@@ -636,10 +787,32 @@ fn get_all_commands() -> HashSet<String> {
     }
     // 添加一些未分类的命令
     let extras = vec![
-        "ping", "echo", "select", "quit", "multi", "exec", "discard", "watch", "unwatch",
-        "subscribe", "unsubscribe", "psubscribe", "punsubscribe", "publish",
-        "eval", "evalsha", "script", "slowlog", "time", "readonly", "readwrite",
-        "memory", "latency", "module", "hello", "reset",
+        "ping",
+        "echo",
+        "select",
+        "quit",
+        "multi",
+        "exec",
+        "discard",
+        "watch",
+        "unwatch",
+        "subscribe",
+        "unsubscribe",
+        "psubscribe",
+        "punsubscribe",
+        "publish",
+        "eval",
+        "evalsha",
+        "script",
+        "slowlog",
+        "time",
+        "readonly",
+        "readwrite",
+        "memory",
+        "latency",
+        "module",
+        "hello",
+        "reset",
     ];
     for cmd in extras {
         all.insert(cmd.to_string());
@@ -721,7 +894,11 @@ mod tests {
     #[test]
     fn test_setuser_create() {
         let acl = AclManager::new();
-        acl.setuser("alice", &["on", ">password123", "+get", "+set", "~foo:*", "&chat:*"]).unwrap();
+        acl.setuser(
+            "alice",
+            &["on", ">password123", "+get", "+set", "~foo:*", "&chat:*"],
+        )
+        .unwrap();
 
         let user = acl.getuser("alice").unwrap().unwrap();
         assert!(user.enabled);
@@ -736,7 +913,8 @@ mod tests {
     #[test]
     fn test_command_permission() {
         let acl = AclManager::new();
-        acl.setuser("bob", &["on", "nopass", "+get", "-set", "allkeys"]).unwrap();
+        acl.setuser("bob", &["on", "nopass", "+get", "-set", "allkeys"])
+            .unwrap();
 
         assert!(acl.check_command("bob", "get", &["key1"]).unwrap());
         assert!(!acl.check_command("bob", "set", &["key1"]).unwrap());
@@ -746,7 +924,11 @@ mod tests {
     #[test]
     fn test_key_pattern_permission() {
         let acl = AclManager::new();
-        acl.setuser("carol", &["on", "nopass", "allcommands", "~data:*", "~cache:*"]).unwrap();
+        acl.setuser(
+            "carol",
+            &["on", "nopass", "allcommands", "~data:*", "~cache:*"],
+        )
+        .unwrap();
 
         assert!(acl.check_command("carol", "get", &["data:foo"]).unwrap());
         assert!(acl.check_command("carol", "get", &["cache:bar"]).unwrap());
@@ -756,7 +938,8 @@ mod tests {
     #[test]
     fn test_category_permission() {
         let acl = AclManager::new();
-        acl.setuser("dave", &["on", "nopass", "+@read", "allkeys"]).unwrap();
+        acl.setuser("dave", &["on", "nopass", "+@read", "allkeys"])
+            .unwrap();
 
         assert!(acl.check_command("dave", "get", &["key"]).unwrap());
         assert!(acl.check_command("dave", "hget", &["key"]).unwrap());
@@ -831,7 +1014,11 @@ mod tests {
     #[test]
     fn test_channel_permission() {
         let acl = AclManager::new();
-        acl.setuser("pub", &["on", "nopass", "allcommands", "allkeys", "&news:*"]).unwrap();
+        acl.setuser(
+            "pub",
+            &["on", "nopass", "allcommands", "allkeys", "&news:*"],
+        )
+        .unwrap();
 
         assert!(acl.check_channel("pub", "news:sports").unwrap());
         assert!(!acl.check_channel("pub", "chat:general").unwrap());
@@ -840,7 +1027,8 @@ mod tests {
     #[test]
     fn test_off_user_denied() {
         let acl = AclManager::new();
-        acl.setuser("frank", &["on", "nopass", "allcommands", "allkeys"]).unwrap();
+        acl.setuser("frank", &["on", "nopass", "allcommands", "allkeys"])
+            .unwrap();
         assert!(acl.check_command("frank", "get", &["key"]).unwrap());
 
         acl.setuser("frank", &["off"]).unwrap();

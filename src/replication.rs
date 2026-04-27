@@ -17,17 +17,17 @@
 //! 核心类型为 [`ReplicationManager`]，它在主节点模式下管理已连接的副本列表、
 //! 广播写命令并维护积压缓冲区；在从节点模式下负责与主节点握手、同步及持续接收命令。
 
-use std::collections::VecDeque;
-use std::io::Write;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, Ordering};
-use std::sync::RwLock;
-use std::time::{Duration, Instant};
-use rand::Rng;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tokio::sync::{broadcast, Notify};
 use crate::error::{AppError, Result};
 use crate::storage::StorageEngine;
+use rand::Rng;
+use std::collections::VecDeque;
+use std::io::Write;
+use std::sync::RwLock;
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, Ordering};
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use tokio::sync::{Notify, broadcast};
 
 /// 复制角色：标识当前节点在主从架构中的身份。
 ///
@@ -376,7 +376,11 @@ impl ReplicationManager {
             if let Some(p) = port {
                 info.push_str(&format!("master_port:{}\r\n", p));
             }
-            let link_status = if self.master_link_up.load(Ordering::Relaxed) { "up" } else { "down" };
+            let link_status = if self.master_link_up.load(Ordering::Relaxed) {
+                "up"
+            } else {
+                "down"
+            };
             info.push_str(&format!("master_link_status:{}\r\n", link_status));
             let last_io_secs = {
                 let guard = self.master_last_io.read().unwrap();
@@ -394,9 +398,15 @@ impl ReplicationManager {
                         None => -1,
                     }
                 };
-                info.push_str(&format!("master_link_down_since_seconds:{}\r\n", down_since));
+                info.push_str(&format!(
+                    "master_link_down_since_seconds:{}\r\n",
+                    down_since
+                ));
             }
-            info.push_str(&format!("slave_repl_offset:{}\r\n", self.get_master_repl_offset()));
+            info.push_str(&format!(
+                "slave_repl_offset:{}\r\n",
+                self.get_master_repl_offset()
+            ));
             info.push_str("slave_read_only:1\r\n");
         } else {
             let replicas = self.get_connected_replicas();
@@ -535,7 +545,10 @@ impl ReplicationManager {
     /// 满足条件的副本数量。
     pub fn count_replicas_at_offset(&self, target_offset: i64) -> i64 {
         let replicas = self.connected_replicas.read().unwrap();
-        replicas.iter().filter(|r| r.offset >= target_offset).count() as i64
+        replicas
+            .iter()
+            .filter(|r| r.offset >= target_offset)
+            .count() as i64
     }
 
     /// 阻塞等待指定数量的副本确认已接收到目标偏移量。
@@ -552,7 +565,12 @@ impl ReplicationManager {
     /// # 说明
     /// 对应 Redis 的 `WAIT numreplicas timeout` 命令语义，
     /// 用于在写命令返回客户端前保证数据被指定数量的副本接收，提升持久化保障。
-    pub async fn wait_for_replicas(&self, target_offset: i64, numreplicas: i64, timeout_ms: i64) -> i64 {
+    pub async fn wait_for_replicas(
+        &self,
+        target_offset: i64,
+        numreplicas: i64,
+        timeout_ms: i64,
+    ) -> i64 {
         // 立即检查
         let count = self.count_replicas_at_offset(target_offset);
         if count >= numreplicas || numreplicas <= 0 {
@@ -694,10 +712,7 @@ impl ReplicationManager {
         line.clear();
         reader.read_line(&mut line).await.map_err(AppError::Io)?;
         if !line.trim().starts_with("+OK") {
-            return Err(AppError::Command(format!(
-                "REPLCONF capa 失败: {}",
-                line
-            )));
+            return Err(AppError::Command(format!("REPLCONF capa 失败: {}", line)));
         }
 
         // 4. 发送 PSYNC：如果已有 replid 和 offset，尝试增量同步
@@ -745,7 +760,10 @@ impl ReplicationManager {
 
             // 6. 读取 RDB 数据
             let mut rdb_data = vec![0u8; rdb_len];
-            reader.read_exact(&mut rdb_data).await.map_err(AppError::Io)?;
+            reader
+                .read_exact(&mut rdb_data)
+                .await
+                .map_err(AppError::Io)?;
 
             // 7. 清空现有数据后保存到临时文件并加载
             if let Err(e) = storage.flush() {
@@ -767,7 +785,8 @@ impl ReplicationManager {
                 let mut master_replid_guard = self.master_replid.write().unwrap();
                 *master_replid_guard = final_replid.clone();
             }
-            self.master_repl_offset.store(final_offset, Ordering::Relaxed);
+            self.master_repl_offset
+                .store(final_offset, Ordering::Relaxed);
 
             log::info!("全量同步完成，replid: {}, offset: {}", replid, offset);
             self.set_master_link_up(true);

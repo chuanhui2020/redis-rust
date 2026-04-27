@@ -113,7 +113,9 @@ impl StorageEngine {
                 return Err(AppError::Command("经度范围必须在 [-180, 180]".to_string()));
             }
             if *lat < -85.05112878 || *lat > 85.05112878 {
-                return Err(AppError::Command("纬度范围必须在 [-85.05112878, 85.05112878]".to_string()));
+                return Err(AppError::Command(
+                    "纬度范围必须在 [-85.05112878, 85.05112878]".to_string(),
+                ));
             }
         }
 
@@ -130,7 +132,13 @@ impl StorageEngine {
 
     /// 计算两个成员之间的距离
     /// unit: m/km/mi/ft，默认 m
-    pub fn geodist(&self, key: &str, member1: &str, member2: &str, unit: &str) -> Result<Option<f64>> {
+    pub fn geodist(
+        &self,
+        key: &str,
+        member1: &str,
+        member2: &str,
+        unit: &str,
+    ) -> Result<Option<f64>> {
         let db = self.db();
         let mut map = db
             .inner
@@ -306,8 +314,10 @@ impl StorageEngine {
         // 排序
         if let Some(order_str) = order {
             match order_str.to_ascii_uppercase().as_str() {
-                "ASC" => results.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)),
-                "DESC" => results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)),
+                "ASC" => results
+                    .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)),
+                "DESC" => results
+                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)),
                 _ => {}
             }
         }
@@ -342,10 +352,10 @@ impl StorageEngine {
         if results.is_empty() {
             let db = self.db();
             let mut map = db
-            .inner
-            .get_shard(destination)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .inner
+                .get_shard(destination)
+                .write()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             map.remove(destination);
             self.bump_version(destination);
             return Ok(0);
@@ -369,6 +379,4 @@ impl StorageEngine {
         self.touch(destination);
         Ok(result_count)
     }
-
 }
-

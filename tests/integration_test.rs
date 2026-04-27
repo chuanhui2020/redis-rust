@@ -1,4 +1,4 @@
-﻿// 集成测试：启动真实 TCP 服务器，通过 tokio TcpStream 发送 RESP 命令验证功能
+// 集成测试：启动真实 TCP 服务器，通过 tokio TcpStream 发送 RESP 命令验证功能
 
 use bytes::{Bytes, BytesMut};
 use redis_rust::protocol::{RespParser, RespValue};
@@ -8,7 +8,7 @@ use redis_rust::storage::StorageEngine;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 /// 向 TCP 流发送 RESP 数组格式的命令
 async fn send_cmd(stream: &mut TcpStream, parts: &[&str]) {
@@ -41,6 +41,17 @@ async fn recv_resp(stream: &mut TcpStream) -> RespValue {
 async fn exec(stream: &mut TcpStream, parts: &[&str]) -> RespValue {
     send_cmd(stream, parts).await;
     recv_resp(stream).await
+}
+
+fn temp_test_path(name: &str, extension: &str) -> String {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "redis_rust_{}_{}.{}",
+        name,
+        std::process::id(),
+        extension
+    ));
+    path.to_string_lossy().into_owned()
 }
 
 // ---------- 基础命令测试 ----------
@@ -226,10 +237,7 @@ async fn test_long_key() {
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     let resp = exec(&mut stream, &["GET", &long_key]).await;
-    assert_eq!(
-        resp,
-        RespValue::BulkString(Some(bytes::Bytes::from("val")))
-    );
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("val"))));
 }
 
 #[tokio::test]
@@ -304,10 +312,7 @@ async fn test_concurrent_clients() {
             assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
             let resp = exec(&mut stream, &["GET", &key]).await;
-            assert_eq!(
-                resp,
-                RespValue::BulkString(Some(bytes::Bytes::from(value)))
-            );
+            assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from(value))));
         }));
     }
 
@@ -442,8 +447,14 @@ async fn test_pubsub() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 3);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("subscribe"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("ch1"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("subscribe")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(bytes::Bytes::from("ch1")))
+            );
             assert_eq!(arr[2], RespValue::Integer(1));
         }
         _ => panic!("期望 subscribe 确认数组, 得到 {:?}", resp),
@@ -460,9 +471,18 @@ async fn test_pubsub() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 3);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("message"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("ch1"))));
-            assert_eq!(arr[2], RespValue::BulkString(Some(bytes::Bytes::from("hello"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("message")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(bytes::Bytes::from("ch1")))
+            );
+            assert_eq!(
+                arr[2],
+                RespValue::BulkString(Some(bytes::Bytes::from("hello")))
+            );
         }
         _ => panic!("期望 message 推送数组, 得到 {:?}", resp),
     }
@@ -473,8 +493,14 @@ async fn test_pubsub() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 3);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("unsubscribe"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("ch1"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("unsubscribe")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(bytes::Bytes::from("ch1")))
+            );
             assert_eq!(arr[2], RespValue::Integer(0));
         }
         _ => panic!("期望 unsubscribe 确认数组, 得到 {:?}", resp),
@@ -499,8 +525,14 @@ async fn test_pubsub_psubscribe() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 3);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("psubscribe"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("news.*"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("psubscribe")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(bytes::Bytes::from("news.*")))
+            );
             assert_eq!(arr[2], RespValue::Integer(1));
         }
         _ => panic!("期望 psubscribe 确认数组, 得到 {:?}", resp),
@@ -517,10 +549,22 @@ async fn test_pubsub_psubscribe() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 4);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("pmessage"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("news.*"))));
-            assert_eq!(arr[2], RespValue::BulkString(Some(bytes::Bytes::from("news.sport"))));
-            assert_eq!(arr[3], RespValue::BulkString(Some(bytes::Bytes::from("goal"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("pmessage")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(bytes::Bytes::from("news.*")))
+            );
+            assert_eq!(
+                arr[2],
+                RespValue::BulkString(Some(bytes::Bytes::from("news.sport")))
+            );
+            assert_eq!(
+                arr[3],
+                RespValue::BulkString(Some(bytes::Bytes::from("goal")))
+            );
         }
         _ => panic!("期望 pmessage 推送数组, 得到 {:?}", resp),
     }
@@ -553,7 +597,10 @@ async fn test_pubsub_ping_in_subscribed_mode() {
     let resp = recv_resp(&mut stream).await;
     match resp {
         RespValue::Error(msg) => {
-            assert!(msg.contains("allowed in this context"), "错误信息应提示仅允许 pub/sub 命令");
+            assert!(
+                msg.contains("allowed in this context"),
+                "错误信息应提示仅允许 pub/sub 命令"
+            );
         }
         _ => panic!("期望错误响应, 得到 {:?}", resp),
     }
@@ -694,12 +741,19 @@ async fn test_watch_exec_failure() {
 
     send_cmd(&mut stream_a, &["EXEC"]).await;
     let resp = recv_resp(&mut stream_a).await;
-    assert_eq!(resp, RespValue::BulkString(None), "WATCH 被修改后 EXEC 应返回 nil");
+    assert_eq!(
+        resp,
+        RespValue::BulkString(None),
+        "WATCH 被修改后 EXEC 应返回 nil"
+    );
 
     // 验证值是连接 B 修改的
     send_cmd(&mut stream_a, &["GET", "w"]).await;
     let resp = recv_resp(&mut stream_a).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("modified"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("modified")))
+    );
 }
 
 #[tokio::test]
@@ -757,8 +811,14 @@ async fn test_config_maxmemory() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 2);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("maxmemory"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("100"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("maxmemory")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(bytes::Bytes::from("100")))
+            );
         }
         _ => panic!("期望 CONFIG GET 返回数组, 得到 {:?}", resp),
     }
@@ -856,7 +916,10 @@ async fn test_string_tail_commands_tcp() {
     let resp = exec(&mut stream, &["INCRBYFLOAT", "f", "0.5"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("0.5"))));
     let resp = exec(&mut stream, &["INCRBYFLOAT", "f", "0.25"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("0.75"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("0.75")))
+    );
 
     // SETRANGE
     let resp = exec(&mut stream, &["SET", "s", "Hello World"]).await;
@@ -864,7 +927,10 @@ async fn test_string_tail_commands_tcp() {
     let resp = exec(&mut stream, &["SETRANGE", "s", "6", "Redis"]).await;
     assert_eq!(resp, RespValue::Integer(11));
     let resp = exec(&mut stream, &["GET", "s"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("Hello Redis"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("Hello Redis")))
+    );
 }
 
 #[tokio::test]
@@ -928,7 +994,10 @@ async fn test_list_tail_commands_tcp() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 2);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("blist"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("blist")))
+            );
             assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("a"))));
         }
         _ => panic!("期望 BLPOP 返回数组, 得到 {:?}", resp),
@@ -937,6 +1006,50 @@ async fn test_list_tail_commands_tcp() {
     // BLPOP timeout
     let resp = exec(&mut stream, &["BLPOP", "nobody", "0.1"]).await;
     assert_eq!(resp, RespValue::BulkString(None));
+}
+
+#[tokio::test]
+async fn test_blpop_blocking_does_not_pop_twice() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut blocked_stream = TcpStream::connect(addr).await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let blocked =
+        tokio::spawn(async move { exec(&mut blocked_stream, &["BLPOP", "blocklist", "2"]).await });
+
+    sleep(Duration::from_millis(50)).await;
+
+    let resp = exec(&mut stream, &["RPUSH", "blocklist", "first", "second"]).await;
+    assert_eq!(resp, RespValue::Integer(2));
+
+    let resp = tokio::time::timeout(Duration::from_secs(2), blocked)
+        .await
+        .expect("BLPOP should wake before timeout")
+        .expect("BLPOP task should complete");
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("blocklist")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(bytes::Bytes::from("first")))
+            );
+        }
+        _ => panic!("期望 BLPOP 返回数组, 得到 {:?}", resp),
+    }
+
+    let resp = exec(&mut stream, &["LLEN", "blocklist"]).await;
+    assert_eq!(resp, RespValue::Integer(1));
+    let resp = exec(&mut stream, &["LPOP", "blocklist"]).await;
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("second")))
+    );
 }
 
 #[tokio::test]
@@ -1085,7 +1198,11 @@ async fn test_zset_tail_commands_tcp() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     // ZADD 准备数据
-    let resp = exec(&mut stream, &["ZADD", "z1", "10", "a", "20", "b", "30", "c"]).await;
+    let resp = exec(
+        &mut stream,
+        &["ZADD", "z1", "10", "a", "20", "b", "30", "c"],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(3));
 
     // ZREVRANGE
@@ -1136,7 +1253,11 @@ async fn test_zset_tail_commands_tcp() {
     // ZUNIONSTORE
     let resp = exec(&mut stream, &["ZADD", "z2", "2", "b", "3", "d"]).await;
     assert_eq!(resp, RespValue::Integer(2));
-    let resp = exec(&mut stream, &["ZUNIONSTORE", "z3", "2", "z1", "z2", "AGGREGATE", "SUM"]).await;
+    let resp = exec(
+        &mut stream,
+        &["ZUNIONSTORE", "z3", "2", "z1", "z2", "AGGREGATE", "SUM"],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(2));
 
     // ZINTERSTORE
@@ -1153,7 +1274,11 @@ async fn test_zset_tail_commands_tcp() {
     }
 
     // ZRANGEBYLEX
-    let resp = exec(&mut stream, &["ZADD", "z5", "0", "a", "0", "b", "0", "c", "0", "d"]).await;
+    let resp = exec(
+        &mut stream,
+        &["ZADD", "z5", "0", "a", "0", "b", "0", "c", "0", "d"],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(4));
     let resp = exec(&mut stream, &["ZRANGEBYLEX", "z5", "[b", "[c"]).await;
     match resp {
@@ -1269,7 +1394,13 @@ async fn test_geo_commands_tcp() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     // GEOADD
-    let resp = exec(&mut stream, &["GEOADD", "cities", "116.4074", "39.9042", "北京", "121.4737", "31.2304", "上海"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "GEOADD", "cities", "116.4074", "39.9042", "北京", "121.4737", "31.2304", "上海",
+        ],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(2));
 
     // GEODIST
@@ -1301,7 +1432,21 @@ async fn test_geo_commands_tcp() {
     }
 
     // GEOSEARCH BYRADIUS
-    let resp = exec(&mut stream, &["GEOSEARCH", "cities", "FROMLONLAT", "116.4074", "39.9042", "BYRADIUS", "500", "km", "ASC"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "GEOSEARCH",
+            "cities",
+            "FROMLONLAT",
+            "116.4074",
+            "39.9042",
+            "BYRADIUS",
+            "500",
+            "km",
+            "ASC",
+        ],
+    )
+    .await;
     match resp {
         RespValue::Array(arr) => {
             assert!(!arr.is_empty());
@@ -1310,10 +1455,24 @@ async fn test_geo_commands_tcp() {
     }
 
     // GEOSEARCHSTORE
-    let resp = exec(&mut stream, &["GEOSEARCHSTORE", "near", "cities", "FROMLONLAT", "116.4074", "39.9042", "BYRADIUS", "2000", "km", "ASC"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "GEOSEARCHSTORE",
+            "near",
+            "cities",
+            "FROMLONLAT",
+            "116.4074",
+            "39.9042",
+            "BYRADIUS",
+            "2000",
+            "km",
+            "ASC",
+        ],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(2));
 }
-
 
 #[tokio::test]
 async fn test_select_db_isolation() {
@@ -1352,13 +1511,22 @@ async fn test_select_db_isolation() {
 #[tokio::test]
 async fn test_auth_required() {
     let storage = StorageEngine::new();
-    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), Some("secret".to_string()));
+    let server = Server::new(
+        "127.0.0.1:0",
+        storage,
+        None,
+        PubSubManager::new(),
+        Some("secret".to_string()),
+    );
     let (addr, _handle) = server.start().await.unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     // 未认证时 GET 应该失败
     let resp = exec(&mut stream, &["GET", "key"]).await;
-    assert_eq!(resp, RespValue::Error("NOAUTH Authentication required.".to_string()));
+    assert_eq!(
+        resp,
+        RespValue::Error("NOAUTH Authentication required.".to_string())
+    );
 
     // 未认证时 PING 应该成功
     let resp = exec(&mut stream, &["PING"]).await;
@@ -1400,7 +1568,10 @@ async fn test_client_commands() {
 
     // CLIENT GETNAME
     let resp = exec(&mut stream, &["CLIENT", "GETNAME"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("my-connection"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(Bytes::from("my-connection")))
+    );
 
     // CLIENT LIST 应该包含当前连接
     let resp = exec(&mut stream, &["CLIENT", "LIST"]).await;
@@ -1526,7 +1697,13 @@ async fn test_config_rewrite_resetstat() {
 #[tokio::test]
 async fn test_reset_command() {
     let storage = StorageEngine::new();
-    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), Some("secret".to_string()));
+    let server = Server::new(
+        "127.0.0.1:0",
+        storage,
+        None,
+        PubSubManager::new(),
+        Some("secret".to_string()),
+    );
     let (addr, _handle) = server.start().await.unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
@@ -1607,22 +1784,21 @@ async fn test_monitor_command() {
     // 使用 recv_resp 读取下一条消息（MONITOR 模式下的实时推送）
     let parser = RespParser::new();
     let mut buf = BytesMut::with_capacity(4096);
-    let resp = tokio::time::timeout(
-        Duration::from_secs(2),
-        async {
-            loop {
-                match parser.parse(&mut buf).unwrap() {
-                    Some(resp) => return resp,
-                    None => {
-                        let mut tmp = [0u8; 1024];
-                        let n = monitor_stream.read(&mut tmp).await.unwrap();
-                        assert!(n > 0, "monitor 连接已关闭");
-                        buf.extend_from_slice(&tmp[..n]);
-                    }
+    let resp = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match parser.parse(&mut buf).unwrap() {
+                Some(resp) => return resp,
+                None => {
+                    let mut tmp = [0u8; 1024];
+                    let n = monitor_stream.read(&mut tmp).await.unwrap();
+                    assert!(n > 0, "monitor 连接已关闭");
+                    buf.extend_from_slice(&tmp[..n]);
                 }
             }
         }
-    ).await.expect("monitor 等待超时");
+    })
+    .await
+    .expect("monitor 等待超时");
 
     match resp {
         RespValue::SimpleString(s) => {
@@ -1653,7 +1829,11 @@ async fn test_config_keyspace_events() {
     }
 
     // 设置配置
-    let resp = exec(&mut stream, &["CONFIG", "SET", "notify-keyspace-events", "KEA"]).await;
+    let resp = exec(
+        &mut stream,
+        &["CONFIG", "SET", "notify-keyspace-events", "KEA"],
+    )
+    .await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     // 验证配置已生效
@@ -1685,7 +1865,11 @@ async fn test_config_aof_use_rdb_preamble() {
     }
 
     // 设置为 yes
-    let resp = exec(&mut stream, &["CONFIG", "SET", "aof-use-rdb-preamble", "yes"]).await;
+    let resp = exec(
+        &mut stream,
+        &["CONFIG", "SET", "aof-use-rdb-preamble", "yes"],
+    )
+    .await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     let resp = exec(&mut stream, &["CONFIG", "GET", "aof-use-rdb-preamble"]).await;
@@ -1705,7 +1889,11 @@ async fn test_keyspace_notification_set() {
 
     // 设置 notify-keyspace-events
     let mut config_stream = TcpStream::connect(addr).await.unwrap();
-    let resp = exec(&mut config_stream, &["CONFIG", "SET", "notify-keyspace-events", "KE$"]).await;
+    let resp = exec(
+        &mut config_stream,
+        &["CONFIG", "SET", "notify-keyspace-events", "KE$"],
+    )
+    .await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     // 订阅 keyspace 频道
@@ -1713,7 +1901,10 @@ async fn test_keyspace_notification_set() {
     let resp = exec(&mut sub_stream, &["SUBSCRIBE", "__keyspace@0__:mykey"]).await;
     match resp {
         RespValue::Array(arr) => {
-            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("subscribe"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(Bytes::from("subscribe")))
+            );
         }
         other => panic!("期望 subscribe 响应，得到 {:?}", other),
     }
@@ -1726,28 +1917,30 @@ async fn test_keyspace_notification_set() {
     // 订阅客户端应收到消息
     let parser = RespParser::new();
     let mut buf = BytesMut::with_capacity(4096);
-    let resp = tokio::time::timeout(
-        Duration::from_secs(2),
-        async {
-            loop {
-                match parser.parse(&mut buf).unwrap() {
-                    Some(resp) => return resp,
-                    None => {
-                        let mut tmp = [0u8; 1024];
-                        let n = sub_stream.read(&mut tmp).await.unwrap();
-                        assert!(n > 0, "订阅连接已关闭");
-                        buf.extend_from_slice(&tmp[..n]);
-                    }
+    let resp = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match parser.parse(&mut buf).unwrap() {
+                Some(resp) => return resp,
+                None => {
+                    let mut tmp = [0u8; 1024];
+                    let n = sub_stream.read(&mut tmp).await.unwrap();
+                    assert!(n > 0, "订阅连接已关闭");
+                    buf.extend_from_slice(&tmp[..n]);
                 }
             }
         }
-    ).await.expect("等待 keyspace 通知超时");
+    })
+    .await
+    .expect("等待 keyspace 通知超时");
 
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 3);
             assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("message"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("__keyspace@0__:mykey"))));
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(Bytes::from("__keyspace@0__:mykey")))
+            );
             assert_eq!(arr[2], RespValue::BulkString(Some(Bytes::from("set"))));
         }
         other => panic!("期望 message 数组，得到 {:?}", other),
@@ -1762,7 +1955,11 @@ async fn test_keyspace_notification_keyevent() {
 
     // 设置 notify-keyspace-events（仅 keyevent）
     let mut config_stream = TcpStream::connect(addr).await.unwrap();
-    let resp = exec(&mut config_stream, &["CONFIG", "SET", "notify-keyspace-events", "E$"]).await;
+    let resp = exec(
+        &mut config_stream,
+        &["CONFIG", "SET", "notify-keyspace-events", "E$"],
+    )
+    .await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     // 订阅 keyevent 频道
@@ -1770,7 +1967,10 @@ async fn test_keyspace_notification_keyevent() {
     let resp = exec(&mut sub_stream, &["SUBSCRIBE", "__keyevent@0__:set"]).await;
     match resp {
         RespValue::Array(arr) => {
-            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("subscribe"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(Bytes::from("subscribe")))
+            );
         }
         other => panic!("期望 subscribe 响应，得到 {:?}", other),
     }
@@ -1783,28 +1983,30 @@ async fn test_keyspace_notification_keyevent() {
     // 订阅客户端应收到消息
     let parser = RespParser::new();
     let mut buf = BytesMut::with_capacity(4096);
-    let resp = tokio::time::timeout(
-        Duration::from_secs(2),
-        async {
-            loop {
-                match parser.parse(&mut buf).unwrap() {
-                    Some(resp) => return resp,
-                    None => {
-                        let mut tmp = [0u8; 1024];
-                        let n = sub_stream.read(&mut tmp).await.unwrap();
-                        assert!(n > 0, "订阅连接已关闭");
-                        buf.extend_from_slice(&tmp[..n]);
-                    }
+    let resp = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match parser.parse(&mut buf).unwrap() {
+                Some(resp) => return resp,
+                None => {
+                    let mut tmp = [0u8; 1024];
+                    let n = sub_stream.read(&mut tmp).await.unwrap();
+                    assert!(n > 0, "订阅连接已关闭");
+                    buf.extend_from_slice(&tmp[..n]);
                 }
             }
         }
-    ).await.expect("等待 keyevent 通知超时");
+    })
+    .await
+    .expect("等待 keyevent 通知超时");
 
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 3);
             assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("message"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("__keyevent@0__:set"))));
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(Bytes::from("__keyevent@0__:set")))
+            );
             assert_eq!(arr[2], RespValue::BulkString(Some(Bytes::from("testkey"))));
         }
         other => panic!("期望 message 数组，得到 {:?}", other),
@@ -1815,16 +2017,22 @@ async fn test_keyspace_notification_keyevent() {
 
 #[tokio::test]
 async fn test_aof_rdb_preamble_integration() {
+    use redis_rust::aof::{AofReplayer, AofWriter};
     use std::sync::{Arc, Mutex};
-    use redis_rust::aof::{AofWriter, AofReplayer};
 
-    let path = "/tmp/test_aof_rdb_preamble_integration.aof";
-    let _ = std::fs::remove_file(path);
+    let path = temp_test_path("aof_rdb_preamble_integration", "aof");
+    let _ = std::fs::remove_file(&path);
 
     let storage = StorageEngine::new();
-    let aof = Arc::new(Mutex::new(AofWriter::new(path).unwrap()));
-    let server = Server::new("127.0.0.1:0", storage.clone(), Some(aof.clone()), PubSubManager::new(), None)
-        .with_rdb_path(path);
+    let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+    let server = Server::new(
+        "127.0.0.1:0",
+        storage.clone(),
+        Some(aof.clone()),
+        PubSubManager::new(),
+        None,
+    )
+    .with_rdb_path(&path);
     let (addr, handle) = server.start().await.unwrap();
 
     let mut stream = TcpStream::connect(addr).await.unwrap();
@@ -1836,29 +2044,42 @@ async fn test_aof_rdb_preamble_integration() {
     assert_eq!(resp, RespValue::Integer(2));
 
     // 启用混合持久化并重写
-    let resp = exec(&mut stream, &["CONFIG", "SET", "aof-use-rdb-preamble", "yes"]).await;
+    let resp = exec(
+        &mut stream,
+        &["CONFIG", "SET", "aof-use-rdb-preamble", "yes"],
+    )
+    .await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     let resp = exec(&mut stream, &["BGREWRITEAOF"]).await;
-    assert!(matches!(resp, RespValue::SimpleString(_)), "BGREWRITEAOF 应返回 SimpleString");
+    assert!(
+        matches!(resp, RespValue::SimpleString(_)),
+        "BGREWRITEAOF 应返回 SimpleString"
+    );
 
     // 关闭服务器
     drop(stream);
     drop(handle);
 
     // 验证文件为混合格式
-    let content = std::fs::read(path).unwrap();
-    assert!(content.starts_with(b"REDIS-RUST-AOF-PREAMBLE\n"), "AOF 文件应以 RDB preamble 开头");
+    let content = std::fs::read(&path).unwrap();
+    assert!(
+        content.starts_with(b"REDIS-RUST-AOF-PREAMBLE\n"),
+        "AOF 文件应以 RDB preamble 开头"
+    );
 
     // 用新 storage 重放
     let new_storage = StorageEngine::new();
-    AofReplayer::replay(path, new_storage.clone()).unwrap();
+    AofReplayer::replay(&path, new_storage.clone()).unwrap();
 
-    assert_eq!(new_storage.get("mix_key1").unwrap(), Some(Bytes::from("val1")));
+    assert_eq!(
+        new_storage.get("mix_key1").unwrap(),
+        Some(Bytes::from("val1"))
+    );
     let list = new_storage.lrange("mix_list", 0, -1).unwrap();
     assert_eq!(list.len(), 2);
 
-    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(&path);
 }
 
 // ---------- Stream 消费者组测试 ----------
@@ -1879,27 +2100,65 @@ async fn test_xgroup_create_and_xreadgroup() {
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     // XREADGROUP 读取
-    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "grp1", "consumer1", "COUNT", "10", "STREAMS", "mystream", ">"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "XREADGROUP",
+            "GROUP",
+            "grp1",
+            "consumer1",
+            "COUNT",
+            "10",
+            "STREAMS",
+            "mystream",
+            ">",
+        ],
+    )
+    .await;
     if let RespValue::Array(streams) = &resp {
         assert_eq!(streams.len(), 1);
         if let RespValue::Array(inner) = &streams[0] {
             if let RespValue::Array(entries) = &inner[1] {
                 assert_eq!(entries.len(), 2);
-            } else { panic!("期望 entries 数组"); }
-        } else { panic!("期望 stream 数组"); }
-    } else { panic!("期望数组响应"); }
+            } else {
+                panic!("期望 entries 数组");
+            }
+        } else {
+            panic!("期望 stream 数组");
+        }
+    } else {
+        panic!("期望数组响应");
+    }
 
     // 再次读取应该没有新消息
-    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "grp1", "consumer1", "STREAMS", "mystream", ">"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "XREADGROUP",
+            "GROUP",
+            "grp1",
+            "consumer1",
+            "STREAMS",
+            "mystream",
+            ">",
+        ],
+    )
+    .await;
     if let RespValue::Array(streams) = &resp {
         if streams.is_empty() {
             // 没有新消息，返回空数组
         } else if let RespValue::Array(inner) = &streams[0] {
             if let RespValue::Array(entries) = &inner[1] {
                 assert_eq!(entries.len(), 0);
-            } else { panic!("期望 entries 数组"); }
-        } else { panic!("期望 stream 数组"); }
-    } else { panic!("期望数组响应"); }
+            } else {
+                panic!("期望 entries 数组");
+            }
+        } else {
+            panic!("期望 stream 数组");
+        }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -1911,7 +2170,11 @@ async fn test_xack() {
 
     exec(&mut stream, &["XADD", "s1", "1-0", "k", "v"]).await;
     exec(&mut stream, &["XGROUP", "CREATE", "s1", "g1", "0"]).await;
-    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s1", ">"]).await;
+    exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s1", ">"],
+    )
+    .await;
 
     // ACK
     let resp = exec(&mut stream, &["XACK", "s1", "g1", "1-0"]).await;
@@ -1932,19 +2195,27 @@ async fn test_xpending_summary() {
     exec(&mut stream, &["XADD", "s2", "1-0", "a", "1"]).await;
     exec(&mut stream, &["XADD", "s2", "2-0", "b", "2"]).await;
     exec(&mut stream, &["XGROUP", "CREATE", "s2", "g1", "0"]).await;
-    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s2", ">"]).await;
+    exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s2", ">"],
+    )
+    .await;
 
     // XPENDING 摘要模式
     let resp = exec(&mut stream, &["XPENDING", "s2", "g1"]).await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr[0], RespValue::Integer(2));
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 
     // XPENDING 详细模式
     let resp = exec(&mut stream, &["XPENDING", "s2", "g1", "-", "+", "10"]).await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 2);
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -1956,7 +2227,11 @@ async fn test_xgroup_destroy_and_delconsumer() {
 
     exec(&mut stream, &["XADD", "s3", "1-0", "k", "v"]).await;
     exec(&mut stream, &["XGROUP", "CREATE", "s3", "g1", "0"]).await;
-    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s3", ">"]).await;
+    exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s3", ">"],
+    )
+    .await;
 
     // DELCONSUMER 返回该消费者的 pending 数
     let resp = exec(&mut stream, &["XGROUP", "DELCONSUMER", "s3", "g1", "c1"]).await;
@@ -1981,11 +2256,19 @@ async fn test_xgroup_createconsumer() {
     exec(&mut stream, &["XADD", "s4", "1-0", "k", "v"]).await;
     exec(&mut stream, &["XGROUP", "CREATE", "s4", "g1", "0"]).await;
 
-    let resp = exec(&mut stream, &["XGROUP", "CREATECONSUMER", "s4", "g1", "newc"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XGROUP", "CREATECONSUMER", "s4", "g1", "newc"],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(1));
 
     // 重复创建返回 0
-    let resp = exec(&mut stream, &["XGROUP", "CREATECONSUMER", "s4", "g1", "newc"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XGROUP", "CREATECONSUMER", "s4", "g1", "newc"],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(0));
 }
 
@@ -2004,14 +2287,24 @@ async fn test_xgroup_setid() {
     let resp = exec(&mut stream, &["XGROUP", "SETID", "s5", "g1", "0"]).await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
-    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s5", ">"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s5", ">"],
+    )
+    .await;
     if let RespValue::Array(streams) = &resp {
         if let RespValue::Array(inner) = &streams[0] {
             if let RespValue::Array(entries) = &inner[1] {
                 assert_eq!(entries.len(), 2);
-            } else { panic!("期望 entries 数组"); }
-        } else { panic!("期望 stream 数组"); }
-    } else { panic!("期望数组响应"); }
+            } else {
+                panic!("期望 entries 数组");
+            }
+        } else {
+            panic!("期望 stream 数组");
+        }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -2024,22 +2317,36 @@ async fn test_xclaim() {
     exec(&mut stream, &["XADD", "s6", "1-0", "k", "v1"]).await;
     exec(&mut stream, &["XADD", "s6", "2-0", "k", "v2"]).await;
     exec(&mut stream, &["XGROUP", "CREATE", "s6", "g1", "0"]).await;
-    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s6", ">"]).await;
+    exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s6", ">"],
+    )
+    .await;
 
     // XCLAIM min-idle=0 把消息转给 c2
     let resp = exec(&mut stream, &["XCLAIM", "s6", "g1", "c2", "0", "1-0"]).await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 1);
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 
     // XCLAIM JUSTID
-    let resp = exec(&mut stream, &["XCLAIM", "s6", "g1", "c2", "0", "2-0", "JUSTID"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XCLAIM", "s6", "g1", "c2", "0", "2-0", "JUSTID"],
+    )
+    .await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 1);
         if let RespValue::BulkString(Some(id)) = &arr[0] {
             assert_eq!(id.as_ref(), b"2-0");
-        } else { panic!("期望 BulkString"); }
-    } else { panic!("期望数组响应"); }
+        } else {
+            panic!("期望 BulkString");
+        }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -2052,16 +2359,28 @@ async fn test_xautoclaim() {
     exec(&mut stream, &["XADD", "s7", "1-0", "k", "v1"]).await;
     exec(&mut stream, &["XADD", "s7", "2-0", "k", "v2"]).await;
     exec(&mut stream, &["XGROUP", "CREATE", "s7", "g1", "0"]).await;
-    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s7", ">"]).await;
+    exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s7", ">"],
+    )
+    .await;
 
     // XAUTOCLAIM min-idle=0
-    let resp = exec(&mut stream, &["XAUTOCLAIM", "s7", "g1", "c2", "0", "0-0", "COUNT", "10"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XAUTOCLAIM", "s7", "g1", "c2", "0", "0-0", "COUNT", "10"],
+    )
+    .await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 3); // next-id, entries, deleted-ids
         if let RespValue::Array(entries) = &arr[1] {
             assert_eq!(entries.len(), 2);
-        } else { panic!("期望 entries 数组"); }
-    } else { panic!("期望数组响应"); }
+        } else {
+            panic!("期望 entries 数组");
+        }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -2081,7 +2400,9 @@ async fn test_xinfo_stream() {
         assert_eq!(arr[1], RespValue::Integer(1));
         assert_eq!(arr[2], RespValue::BulkString(Some(Bytes::from("groups"))));
         assert_eq!(arr[3], RespValue::Integer(1));
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -2098,7 +2419,9 @@ async fn test_xinfo_groups() {
     let resp = exec(&mut stream, &["XINFO", "GROUPS", "s9"]).await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 2);
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -2110,13 +2433,23 @@ async fn test_xinfo_consumers() {
 
     exec(&mut stream, &["XADD", "s10", "1-0", "k", "v"]).await;
     exec(&mut stream, &["XGROUP", "CREATE", "s10", "g1", "0"]).await;
-    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s10", ">"]).await;
-    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c2", "STREAMS", "s10", ">"]).await;
+    exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s10", ">"],
+    )
+    .await;
+    exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g1", "c2", "STREAMS", "s10", ">"],
+    )
+    .await;
 
     let resp = exec(&mut stream, &["XINFO", "CONSUMERS", "s10", "g1"]).await;
     if let RespValue::Array(arr) = &resp {
         assert!(arr.len() >= 1); // 至少 c1 有 pending
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -2127,14 +2460,17 @@ async fn test_xgroup_create_mkstream() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     // 不存在的 key 使用 MKSTREAM 创建
-    let resp = exec(&mut stream, &["XGROUP", "CREATE", "newstream", "g1", "$", "MKSTREAM"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XGROUP", "CREATE", "newstream", "g1", "$", "MKSTREAM"],
+    )
+    .await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     // 验证 stream 已创建
     let resp = exec(&mut stream, &["XLEN", "newstream"]).await;
     assert_eq!(resp, RespValue::Integer(0));
 }
-
 
 // ---------- 边界和错误处理测试 ----------
 
@@ -2319,10 +2655,7 @@ async fn test_crlf_in_value() {
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     let resp = exec(&mut stream, &["GET", "crlfkey"]).await;
-    assert_eq!(
-        resp,
-        RespValue::BulkString(Some(bytes::Bytes::from(value)))
-    );
+    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from(value))));
 }
 
 #[tokio::test]
@@ -2422,7 +2755,6 @@ async fn test_type_various() {
     assert_eq!(resp, RespValue::SimpleString("none".to_string()));
 }
 
-
 // ---------- 并发压力测试 ----------
 
 #[tokio::test]
@@ -2479,10 +2811,7 @@ async fn test_concurrent_set_get() {
                         }
                     }
                 };
-                assert_eq!(
-                    resp,
-                    RespValue::BulkString(Some(bytes::Bytes::from(value)))
-                );
+                assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from(value))));
             }
         }));
     }
@@ -2648,89 +2977,84 @@ async fn test_concurrent_mixed_operations() {
     let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
     let (addr, _handle) = server.start().await.unwrap();
 
-    let result = tokio::time::timeout(
-        Duration::from_secs(5),
-        async {
-            let mut writer_handles = vec![];
-            for i in 0..5 {
-                writer_handles.push(tokio::spawn(async move {
-                    let mut stream = TcpStream::connect(addr).await.unwrap();
-                    let parser = RespParser::new();
-                    let mut buf = BytesMut::with_capacity(4096);
-                    for j in 0..20 {
-                        let key = format!("mix_{}", j);
-                        let value = format!("v_{}_{}", i, j);
-                        let cmd = format!(
-                            "*3\r\n$3\r\nSET\r\n${}\r\n{}\r\n${}\r\n{}\r\n",
-                            key.len(),
-                            key,
-                            value.len(),
-                            value
-                        );
-                        stream.write_all(cmd.as_bytes()).await.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        let mut writer_handles = vec![];
+        for i in 0..5 {
+            writer_handles.push(tokio::spawn(async move {
+                let mut stream = TcpStream::connect(addr).await.unwrap();
+                let parser = RespParser::new();
+                let mut buf = BytesMut::with_capacity(4096);
+                for j in 0..20 {
+                    let key = format!("mix_{}", j);
+                    let value = format!("v_{}_{}", i, j);
+                    let cmd = format!(
+                        "*3\r\n$3\r\nSET\r\n${}\r\n{}\r\n${}\r\n{}\r\n",
+                        key.len(),
+                        key,
+                        value.len(),
+                        value
+                    );
+                    stream.write_all(cmd.as_bytes()).await.unwrap();
 
-                        let resp = loop {
-                            match parser.parse(&mut buf).unwrap() {
-                                Some(resp) => break resp,
-                                None => {
-                                    let mut tmp = [0u8; 1024];
-                                    let n = stream.read(&mut tmp).await.unwrap();
-                                    assert!(n > 0, "连接已关闭");
-                                    buf.extend_from_slice(&tmp[..n]);
-                                }
+                    let resp = loop {
+                        match parser.parse(&mut buf).unwrap() {
+                            Some(resp) => break resp,
+                            None => {
+                                let mut tmp = [0u8; 1024];
+                                let n = stream.read(&mut tmp).await.unwrap();
+                                assert!(n > 0, "连接已关闭");
+                                buf.extend_from_slice(&tmp[..n]);
                             }
-                        };
-                        assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
-                    }
-                }));
-            }
+                        }
+                    };
+                    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+                }
+            }));
+        }
 
-            let mut reader_handles = vec![];
-            for _ in 0..5 {
-                reader_handles.push(tokio::spawn(async move {
-                    let mut stream = TcpStream::connect(addr).await.unwrap();
-                    let parser = RespParser::new();
-                    let mut buf = BytesMut::with_capacity(4096);
-                    for j in 0..20 {
-                        let key = format!("mix_{}", j);
-                        let cmd =
-                            format!("*2\r\n$3\r\nGET\r\n${}\r\n{}\r\n", key.len(), key);
-                        stream.write_all(cmd.as_bytes()).await.unwrap();
+        let mut reader_handles = vec![];
+        for _ in 0..5 {
+            reader_handles.push(tokio::spawn(async move {
+                let mut stream = TcpStream::connect(addr).await.unwrap();
+                let parser = RespParser::new();
+                let mut buf = BytesMut::with_capacity(4096);
+                for j in 0..20 {
+                    let key = format!("mix_{}", j);
+                    let cmd = format!("*2\r\n$3\r\nGET\r\n${}\r\n{}\r\n", key.len(), key);
+                    stream.write_all(cmd.as_bytes()).await.unwrap();
 
-                        let resp = loop {
-                            match parser.parse(&mut buf).unwrap() {
-                                Some(resp) => break resp,
-                                None => {
-                                    let mut tmp = [0u8; 1024];
-                                    let n = stream.read(&mut tmp).await.unwrap();
-                                    assert!(n > 0, "连接已关闭");
-                                    buf.extend_from_slice(&tmp[..n]);
-                                }
+                    let resp = loop {
+                        match parser.parse(&mut buf).unwrap() {
+                            Some(resp) => break resp,
+                            None => {
+                                let mut tmp = [0u8; 1024];
+                                let n = stream.read(&mut tmp).await.unwrap();
+                                assert!(n > 0, "连接已关闭");
+                                buf.extend_from_slice(&tmp[..n]);
                             }
-                        };
-                        // 读到的值可能是 nil（写者还未写入）或某个值，只要格式正确即可
-                        assert!(
-                            matches!(resp, RespValue::BulkString(_)),
-                            "期望 BulkString，得到 {:?}",
-                            resp
-                        );
-                    }
-                }));
-            }
+                        }
+                    };
+                    // 读到的值可能是 nil（写者还未写入）或某个值，只要格式正确即可
+                    assert!(
+                        matches!(resp, RespValue::BulkString(_)),
+                        "期望 BulkString，得到 {:?}",
+                        resp
+                    );
+                }
+            }));
+        }
 
-            for h in writer_handles {
-                h.await.unwrap();
-            }
-            for h in reader_handles {
-                h.await.unwrap();
-            }
-        },
-    )
+        for h in writer_handles {
+            h.await.unwrap();
+        }
+        for h in reader_handles {
+            h.await.unwrap();
+        }
+    })
     .await;
 
     assert!(result.is_ok(), "混合并发操作超时（超过 5 秒）");
 }
-
 
 // ---------- 高级功能测试 ----------
 
@@ -2994,16 +3318,28 @@ async fn test_replication_basic() {
     // 启动 master
     let master_storage = StorageEngine::new();
     let master_repl = Arc::new(ReplicationManager::new());
-    let master_server = Server::new("127.0.0.1:0", master_storage.clone(), None, PubSubManager::new(), None)
-        .with_replication(master_repl.clone());
+    let master_server = Server::new(
+        "127.0.0.1:0",
+        master_storage.clone(),
+        None,
+        PubSubManager::new(),
+        None,
+    )
+    .with_replication(master_repl.clone());
     let (master_addr, _master_handle) = master_server.start().await.unwrap();
     let master_port = master_addr.port();
 
     // 启动 replica
     let replica_storage = StorageEngine::new();
     let replica_repl = Arc::new(ReplicationManager::new());
-    let replica_server = Server::new("127.0.0.1:0", replica_storage.clone(), None, PubSubManager::new(), None)
-        .with_replication(replica_repl.clone());
+    let replica_server = Server::new(
+        "127.0.0.1:0",
+        replica_storage.clone(),
+        None,
+        PubSubManager::new(),
+        None,
+    )
+    .with_replication(replica_repl.clone());
     let (replica_addr, _replica_handle) = replica_server.start().await.unwrap();
 
     // 连接 master 写入数据
@@ -3013,7 +3349,11 @@ async fn test_replication_basic() {
 
     // replica 执行 REPLICAOF
     let mut replica_stream = TcpStream::connect(replica_addr).await.unwrap();
-    let resp = exec(&mut replica_stream, &["REPLICAOF", "127.0.0.1", &master_port.to_string()]).await;
+    let resp = exec(
+        &mut replica_stream,
+        &["REPLICAOF", "127.0.0.1", &master_port.to_string()],
+    )
+    .await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     // 等待同步完成：轮询 INFO replication 检查 master_link_status:up
@@ -3048,9 +3388,18 @@ async fn test_replication_basic() {
     if let RespValue::BulkString(Some(data)) = resp {
         let info = String::from_utf8_lossy(&data);
         assert!(info.contains("role:slave"), "INFO 应包含 role:slave");
-        assert!(info.contains("master_link_status:up"), "INFO 应包含 master_link_status:up");
-        assert!(info.contains("master_host:127.0.0.1"), "INFO 应包含 master_host");
-        assert!(info.contains(&format!("master_port:{}", master_port)), "INFO 应包含 master_port");
+        assert!(
+            info.contains("master_link_status:up"),
+            "INFO 应包含 master_link_status:up"
+        );
+        assert!(
+            info.contains("master_host:127.0.0.1"),
+            "INFO 应包含 master_host"
+        );
+        assert!(
+            info.contains(&format!("master_port:{}", master_port)),
+            "INFO 应包含 master_port"
+        );
     } else {
         panic!("INFO replication 应返回 BulkString");
     }
@@ -3059,8 +3408,14 @@ async fn test_replication_basic() {
     let resp = exec(&mut master_stream, &["INFO", "replication"]).await;
     if let RespValue::BulkString(Some(data)) = resp {
         let info = String::from_utf8_lossy(&data);
-        assert!(info.contains("role:master"), "master INFO 应包含 role:master");
-        assert!(info.contains("connected_slaves:1"), "master INFO 应包含 connected_slaves:1");
+        assert!(
+            info.contains("role:master"),
+            "master INFO 应包含 role:master"
+        );
+        assert!(
+            info.contains("connected_slaves:1"),
+            "master INFO 应包含 connected_slaves:1"
+        );
     } else {
         panic!("master INFO replication 应返回 BulkString");
     }
@@ -3086,8 +3441,8 @@ async fn test_cluster_slots() {
         cluster.assign_slot(slot, &my_id);
     }
 
-    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
-        .with_cluster(cluster);
+    let server =
+        Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None).with_cluster(cluster);
     let (addr, _handle) = server.start().await.unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
@@ -3133,8 +3488,8 @@ async fn test_cluster_countkeysinslot_and_getkeysinslot() {
     let storage = StorageEngine::new();
     let cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
 
-    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
-        .with_cluster(cluster);
+    let server =
+        Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None).with_cluster(cluster);
     let (addr, _handle) = server.start().await.unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
@@ -3151,7 +3506,11 @@ async fn test_cluster_countkeysinslot_and_getkeysinslot() {
     };
 
     // COUNTKEYSINSLOT
-    let resp = exec(&mut stream, &["CLUSTER", "COUNTKEYSINSLOT", &slot1.to_string()]).await;
+    let resp = exec(
+        &mut stream,
+        &["CLUSTER", "COUNTKEYSINSLOT", &slot1.to_string()],
+    )
+    .await;
     match resp {
         RespValue::Integer(n) => {
             // key1 肯定在这个 slot 里，结果至少为 1
@@ -3161,13 +3520,17 @@ async fn test_cluster_countkeysinslot_and_getkeysinslot() {
     }
 
     // GETKEYSINSLOT
-    let resp = exec(&mut stream, &["CLUSTER", "GETKEYSINSLOT", &slot1.to_string(), "10"]).await;
+    let resp = exec(
+        &mut stream,
+        &["CLUSTER", "GETKEYSINSLOT", &slot1.to_string(), "10"],
+    )
+    .await;
     match resp {
         RespValue::Array(arr) => {
             // 结果中应包含 key1
-            let has_key1 = arr.iter().any(|item| {
-                matches!(item, RespValue::BulkString(Some(b)) if &b[..] == b"key1")
-            });
+            let has_key1 = arr
+                .iter()
+                .any(|item| matches!(item, RespValue::BulkString(Some(b)) if &b[..] == b"key1"));
             assert!(has_key1, "GETKEYSINSLOT 结果应包含 key1");
         }
         _ => panic!("GETKEYSINSLOT 应返回数组, 得到 {:?}", resp),
@@ -3189,16 +3552,28 @@ async fn test_migrate_to_target() {
     // 启动源服务器（带 cluster 模式，否则 MIGRATE 命令走不到连接层处理）
     let source_storage = StorageEngine::new();
     let source_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
-    let source_server = Server::new("127.0.0.1:0", source_storage.clone(), None, PubSubManager::new(), None)
-        .with_cluster(source_cluster);
+    let source_server = Server::new(
+        "127.0.0.1:0",
+        source_storage.clone(),
+        None,
+        PubSubManager::new(),
+        None,
+    )
+    .with_cluster(source_cluster);
     let (source_addr, _source_handle) = source_server.start().await.unwrap();
     let _source_port = source_addr.port();
 
     // 启动目标服务器
     let target_storage = StorageEngine::new();
     let target_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
-    let target_server = Server::new("127.0.0.1:0", target_storage.clone(), None, PubSubManager::new(), None)
-        .with_cluster(target_cluster);
+    let target_server = Server::new(
+        "127.0.0.1:0",
+        target_storage.clone(),
+        None,
+        PubSubManager::new(),
+        None,
+    )
+    .with_cluster(target_cluster);
     let (target_addr, _target_handle) = target_server.start().await.unwrap();
     let target_port = target_addr.port();
 
@@ -3245,15 +3620,27 @@ async fn test_migrate_copy_mode() {
     // 启动源服务器
     let source_storage = StorageEngine::new();
     let source_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
-    let source_server = Server::new("127.0.0.1:0", source_storage.clone(), None, PubSubManager::new(), None)
-        .with_cluster(source_cluster);
+    let source_server = Server::new(
+        "127.0.0.1:0",
+        source_storage.clone(),
+        None,
+        PubSubManager::new(),
+        None,
+    )
+    .with_cluster(source_cluster);
     let (source_addr, _source_handle) = source_server.start().await.unwrap();
 
     // 启动目标服务器
     let target_storage = StorageEngine::new();
     let target_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
-    let target_server = Server::new("127.0.0.1:0", target_storage.clone(), None, PubSubManager::new(), None)
-        .with_cluster(target_cluster);
+    let target_server = Server::new(
+        "127.0.0.1:0",
+        target_storage.clone(),
+        None,
+        PubSubManager::new(),
+        None,
+    )
+    .with_cluster(target_cluster);
     let (target_addr, _target_handle) = target_server.start().await.unwrap();
     let target_port = target_addr.port();
 
@@ -3305,9 +3692,21 @@ async fn test_xadd_maxlen_exact() {
     let (addr, _handle) = server.start().await.unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
-    exec(&mut stream, &["XADD", "s1", "MAXLEN", "=", "2", "1-0", "f", "v1"]).await;
-    exec(&mut stream, &["XADD", "s1", "MAXLEN", "=", "2", "2-0", "f", "v2"]).await;
-    exec(&mut stream, &["XADD", "s1", "MAXLEN", "=", "2", "3-0", "f", "v3"]).await;
+    exec(
+        &mut stream,
+        &["XADD", "s1", "MAXLEN", "=", "2", "1-0", "f", "v1"],
+    )
+    .await;
+    exec(
+        &mut stream,
+        &["XADD", "s1", "MAXLEN", "=", "2", "2-0", "f", "v2"],
+    )
+    .await;
+    exec(
+        &mut stream,
+        &["XADD", "s1", "MAXLEN", "=", "2", "3-0", "f", "v3"],
+    )
+    .await;
 
     let resp = exec(&mut stream, &["XLEN", "s1"]).await;
     assert_eq!(resp, RespValue::Integer(2));
@@ -3320,9 +3719,21 @@ async fn test_xadd_maxlen_approx() {
     let (addr, _handle) = server.start().await.unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
-    exec(&mut stream, &["XADD", "s1", "MAXLEN", "~", "2", "1-0", "f", "v1"]).await;
-    exec(&mut stream, &["XADD", "s1", "MAXLEN", "~", "2", "2-0", "f", "v2"]).await;
-    exec(&mut stream, &["XADD", "s1", "MAXLEN", "~", "2", "3-0", "f", "v3"]).await;
+    exec(
+        &mut stream,
+        &["XADD", "s1", "MAXLEN", "~", "2", "1-0", "f", "v1"],
+    )
+    .await;
+    exec(
+        &mut stream,
+        &["XADD", "s1", "MAXLEN", "~", "2", "2-0", "f", "v2"],
+    )
+    .await;
+    exec(
+        &mut stream,
+        &["XADD", "s1", "MAXLEN", "~", "2", "3-0", "f", "v3"],
+    )
+    .await;
 
     let resp = exec(&mut stream, &["XLEN", "s1"]).await;
     assert_eq!(resp, RespValue::Integer(2));
@@ -3337,7 +3748,11 @@ async fn test_xadd_minid() {
 
     exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
     exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
-    exec(&mut stream, &["XADD", "s1", "MINID", "=", "2-0", "3-0", "f", "v3"]).await;
+    exec(
+        &mut stream,
+        &["XADD", "s1", "MINID", "=", "2-0", "3-0", "f", "v3"],
+    )
+    .await;
 
     let resp = exec(&mut stream, &["XLEN", "s1"]).await;
     assert_eq!(resp, RespValue::Integer(2));
@@ -3345,7 +3760,9 @@ async fn test_xadd_minid() {
     let resp = exec(&mut stream, &["XRANGE", "s1", "-", "+"]).await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 2);
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -3373,7 +3790,10 @@ async fn test_xadd_auto_and_specific_id() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["XADD", "s1", "100-0", "f", "v1"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("100-0"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("100-0")))
+    );
 
     let resp = exec(&mut stream, &["XADD", "s1", "*", "f", "v2"]).await;
     assert!(matches!(resp, RespValue::BulkString(Some(_))));
@@ -3383,7 +3803,11 @@ async fn test_xadd_auto_and_specific_id() {
     };
     let parts: Vec<&str> = auto_id.split('-').collect();
     let ms: u64 = parts[0].parse().unwrap();
-    assert!(ms >= 100, "自动生成的 ID 时间部分应 >= 100, 得到 {}", auto_id);
+    assert!(
+        ms >= 100,
+        "自动生成的 ID 时间部分应 >= 100, 得到 {}",
+        auto_id
+    );
 
     let resp = exec(&mut stream, &["XLEN", "s1"]).await;
     assert_eq!(resp, RespValue::Integer(2));
@@ -3400,15 +3824,25 @@ async fn test_xread_count() {
     exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
     exec(&mut stream, &["XADD", "s1", "3-0", "f", "v3"]).await;
 
-    let resp = exec(&mut stream, &["XREAD", "COUNT", "2", "STREAMS", "s1", "0-0"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XREAD", "COUNT", "2", "STREAMS", "s1", "0-0"],
+    )
+    .await;
     if let RespValue::Array(streams) = &resp {
         assert_eq!(streams.len(), 1);
         if let RespValue::Array(inner) = &streams[0] {
             if let RespValue::Array(entries) = &inner[1] {
                 assert_eq!(entries.len(), 2);
-            } else { panic!("期望 entries 数组"); }
-        } else { panic!("期望 stream 数组"); }
-    } else { panic!("期望数组响应"); }
+            } else {
+                panic!("期望 entries 数组");
+            }
+        } else {
+            panic!("期望 stream 数组");
+        }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -3424,7 +3858,9 @@ async fn test_xread_multiple_streams() {
     let resp = exec(&mut stream, &["XREAD", "STREAMS", "s1", "s2", "0-0", "0-0"]).await;
     if let RespValue::Array(streams) = &resp {
         assert_eq!(streams.len(), 2);
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -3460,7 +3896,9 @@ async fn test_xrange_special_ids() {
     let resp = exec(&mut stream, &["XRANGE", "s1", "-", "+"]).await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 3);
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -3477,7 +3915,9 @@ async fn test_xrange_count() {
     let resp = exec(&mut stream, &["XRANGE", "s1", "-", "+", "COUNT", "2"]).await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 2);
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -3506,14 +3946,23 @@ async fn test_xrevrange_special_ids() {
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 3);
         if let RespValue::Array(entry) = &arr[0] {
-            assert_eq!(entry[0], RespValue::BulkString(Some(bytes::Bytes::from("3-0"))));
-        } else { panic!("期望 entry 数组"); }
-    } else { panic!("期望数组响应"); }
+            assert_eq!(
+                entry[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("3-0")))
+            );
+        } else {
+            panic!("期望 entry 数组");
+        }
+    } else {
+        panic!("期望数组响应");
+    }
 
     let resp = exec(&mut stream, &["XREVRANGE", "s1", "+", "-", "COUNT", "2"]).await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 2);
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -3596,20 +4045,41 @@ async fn test_xreadgroup_noack() {
     exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
     exec(&mut stream, &["XGROUP", "CREATE", "s1", "g1", "0"]).await;
 
-    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "NOACK", "STREAMS", "s1", ">"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "XREADGROUP",
+            "GROUP",
+            "g1",
+            "c1",
+            "NOACK",
+            "STREAMS",
+            "s1",
+            ">",
+        ],
+    )
+    .await;
     if let RespValue::Array(streams) = &resp {
         assert_eq!(streams.len(), 1);
         if let RespValue::Array(inner) = &streams[0] {
             if let RespValue::Array(entries) = &inner[1] {
                 assert_eq!(entries.len(), 2);
-            } else { panic!("期望 entries 数组"); }
-        } else { panic!("期望 stream 数组"); }
-    } else { panic!("期望数组响应"); }
+            } else {
+                panic!("期望 entries 数组");
+            }
+        } else {
+            panic!("期望 stream 数组");
+        }
+    } else {
+        panic!("期望数组响应");
+    }
 
     let resp = exec(&mut stream, &["XPENDING", "s1", "g1"]).await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr[0], RespValue::Integer(0));
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -3622,17 +4092,25 @@ async fn test_xpending_consumer_filter() {
     exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
     exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
     exec(&mut stream, &["XGROUP", "CREATE", "s1", "g1", "0"]).await;
-    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s1", ">"]).await;
+    exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s1", ">"],
+    )
+    .await;
 
     let resp = exec(&mut stream, &["XPENDING", "s1", "g1", "-", "+", "10", "c1"]).await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 2);
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 
     let resp = exec(&mut stream, &["XPENDING", "s1", "g1", "-", "+", "10", "c2"]).await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 0);
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -3646,17 +4124,29 @@ async fn test_xclaim_multiple_ids() {
     exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
     exec(&mut stream, &["XADD", "s1", "3-0", "f", "v3"]).await;
     exec(&mut stream, &["XGROUP", "CREATE", "s1", "g1", "0"]).await;
-    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s1", ">"]).await;
+    exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s1", ">"],
+    )
+    .await;
 
-    let resp = exec(&mut stream, &["XCLAIM", "s1", "g1", "c2", "0", "1-0", "2-0"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XCLAIM", "s1", "g1", "c2", "0", "1-0", "2-0"],
+    )
+    .await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 2);
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 
     let resp = exec(&mut stream, &["XPENDING", "s1", "g1", "-", "+", "10", "c2"]).await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 2);
-    } else { panic!("期望数组响应"); }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 #[tokio::test]
@@ -3669,17 +4159,39 @@ async fn test_xautoclaim_justid() {
     exec(&mut stream, &["XADD", "s1", "1-0", "f", "v1"]).await;
     exec(&mut stream, &["XADD", "s1", "2-0", "f", "v2"]).await;
     exec(&mut stream, &["XGROUP", "CREATE", "s1", "g1", "0"]).await;
-    exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s1", ">"]).await;
+    exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "s1", ">"],
+    )
+    .await;
 
-    let resp = exec(&mut stream, &["XAUTOCLAIM", "s1", "g1", "c2", "0", "0-0", "COUNT", "10", "JUSTID"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "XAUTOCLAIM",
+            "s1",
+            "g1",
+            "c2",
+            "0",
+            "0-0",
+            "COUNT",
+            "10",
+            "JUSTID",
+        ],
+    )
+    .await;
     if let RespValue::Array(arr) = &resp {
         assert_eq!(arr.len(), 3);
         if let RespValue::Array(entries) = &arr[1] {
             assert_eq!(entries.len(), 2);
             assert!(matches!(entries[0], RespValue::BulkString(Some(_))));
             assert!(matches!(entries[1], RespValue::BulkString(Some(_))));
-        } else { panic!("期望 entries 数组"); }
-    } else { panic!("期望数组响应"); }
+        } else {
+            panic!("期望 entries 数组");
+        }
+    } else {
+        panic!("期望数组响应");
+    }
 }
 
 // ---------- ACL 命令测试 ----------
@@ -3693,7 +4205,13 @@ async fn test_acl_setuser_getuser() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     // SETUSER 创建用户
-    let resp = exec(&mut stream, &["ACL", "SETUSER", "alice", "on", ">secret", "+get", "+set", "allkeys"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "ACL", "SETUSER", "alice", "on", ">secret", "+get", "+set", "allkeys",
+        ],
+    )
+    .await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     // GETUSER 查询用户
@@ -3701,7 +4219,9 @@ async fn test_acl_setuser_getuser() {
     match resp {
         RespValue::Array(arr) => {
             assert!(!arr.is_empty());
-            let has_on = arr.iter().any(|v| matches!(v, RespValue::BulkString(Some(b)) if &b[..] == b"on"));
+            let has_on = arr
+                .iter()
+                .any(|v| matches!(v, RespValue::BulkString(Some(b)) if &b[..] == b"on"));
             assert!(has_on, "ACL GETUSER 应包含 on 规则");
         }
         _ => panic!("期望 ACL GETUSER 返回数组, 得到 {:?}", resp),
@@ -3783,7 +4303,20 @@ async fn test_acl_auth() {
 
     // 创建带密码的用户
     let mut stream = TcpStream::connect(addr).await.unwrap();
-    let resp = exec(&mut stream, &["ACL", "SETUSER", "carol", "on", ">mypassword", "+@read", "+auth", "allkeys"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "ACL",
+            "SETUSER",
+            "carol",
+            "on",
+            ">mypassword",
+            "+@read",
+            "+auth",
+            "allkeys",
+        ],
+    )
+    .await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     // 连接 1：正确密码认证
@@ -3837,12 +4370,19 @@ async fn test_watch_optimistic_lock() {
 
     send_cmd(&mut stream_a, &["EXEC"]).await;
     let resp = recv_resp(&mut stream_a).await;
-    assert_eq!(resp, RespValue::BulkString(None), "WATCH 被修改后 EXEC 应返回 nil");
+    assert_eq!(
+        resp,
+        RespValue::BulkString(None),
+        "WATCH 被修改后 EXEC 应返回 nil"
+    );
 
     // 验证值是连接 B 修改的
     send_cmd(&mut stream_a, &["GET", "w"]).await;
     let resp = recv_resp(&mut stream_a).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("modified"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("modified")))
+    );
 }
 
 #[tokio::test]
@@ -3905,8 +4445,14 @@ async fn test_subscribe_publish_receive() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 3);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("subscribe"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("mychannel"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("subscribe")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(bytes::Bytes::from("mychannel")))
+            );
             assert_eq!(arr[2], RespValue::Integer(1));
         }
         _ => panic!("期望 subscribe 确认数组, 得到 {:?}", resp),
@@ -3923,9 +4469,18 @@ async fn test_subscribe_publish_receive() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 3);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("message"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("mychannel"))));
-            assert_eq!(arr[2], RespValue::BulkString(Some(bytes::Bytes::from("hello"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("message")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(bytes::Bytes::from("mychannel")))
+            );
+            assert_eq!(
+                arr[2],
+                RespValue::BulkString(Some(bytes::Bytes::from("hello")))
+            );
         }
         _ => panic!("期望 message 推送数组, 得到 {:?}", resp),
     }
@@ -3944,8 +4499,14 @@ async fn test_psubscribe_pattern() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 3);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("psubscribe"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("events.*"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("psubscribe")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(bytes::Bytes::from("events.*")))
+            );
             assert_eq!(arr[2], RespValue::Integer(1));
         }
         _ => panic!("期望 psubscribe 确认数组, 得到 {:?}", resp),
@@ -3962,10 +4523,22 @@ async fn test_psubscribe_pattern() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 4);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("pmessage"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("events.*"))));
-            assert_eq!(arr[2], RespValue::BulkString(Some(bytes::Bytes::from("events.login"))));
-            assert_eq!(arr[3], RespValue::BulkString(Some(bytes::Bytes::from("user1"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("pmessage")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(bytes::Bytes::from("events.*")))
+            );
+            assert_eq!(
+                arr[2],
+                RespValue::BulkString(Some(bytes::Bytes::from("events.login")))
+            );
+            assert_eq!(
+                arr[3],
+                RespValue::BulkString(Some(bytes::Bytes::from("user1")))
+            );
         }
         _ => panic!("期望 pmessage 推送数组, 得到 {:?}", resp),
     }
@@ -4003,13 +4576,16 @@ async fn test_pubsub_channels() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 2);
-            let names: Vec<String> = arr.iter().filter_map(|v| {
-                if let RespValue::BulkString(Some(b)) = v {
-                    Some(String::from_utf8_lossy(b).to_string())
-                } else {
-                    None
-                }
-            }).collect();
+            let names: Vec<String> = arr
+                .iter()
+                .filter_map(|v| {
+                    if let RespValue::BulkString(Some(b)) = v {
+                        Some(String::from_utf8_lossy(b).to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             assert!(names.contains(&"ch1".to_string()));
             assert!(names.contains(&"ch2".to_string()));
         }
@@ -4043,9 +4619,15 @@ async fn test_pubsub_numsub() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 4);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("ch1"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("ch1")))
+            );
             assert_eq!(arr[1], RespValue::Integer(0));
-            assert_eq!(arr[2], RespValue::BulkString(Some(bytes::Bytes::from("ch2"))));
+            assert_eq!(
+                arr[2],
+                RespValue::BulkString(Some(bytes::Bytes::from("ch2")))
+            );
             assert_eq!(arr[3], RespValue::Integer(0));
         }
         _ => panic!("期望 PUBSUB NUMSUB 返回数组, 得到 {:?}", resp),
@@ -4061,15 +4643,20 @@ async fn test_pubsub_numsub() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 4);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("ch1"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("ch1")))
+            );
             assert_eq!(arr[1], RespValue::Integer(1));
-            assert_eq!(arr[2], RespValue::BulkString(Some(bytes::Bytes::from("ch2"))));
+            assert_eq!(
+                arr[2],
+                RespValue::BulkString(Some(bytes::Bytes::from("ch2")))
+            );
             assert_eq!(arr[3], RespValue::Integer(0));
         }
         _ => panic!("期望 PUBSUB NUMSUB 返回数组, 得到 {:?}", resp),
     }
 }
-
 
 // ---------- Lua Scripting 测试 ----------
 
@@ -4092,7 +4679,10 @@ async fn test_eval_string_return() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["EVAL", "return 'hello'", "0"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("hello"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("hello")))
+    );
 }
 
 #[tokio::test]
@@ -4127,7 +4717,10 @@ async fn test_eval_redis_call() {
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("OK"))));
 
     let resp = exec(&mut stream, &["GET", "mykey"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("myval"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("myval")))
+    );
 }
 
 #[tokio::test]
@@ -4143,7 +4736,11 @@ async fn test_eval_redis_pcall_error() {
     match resp {
         RespValue::BulkString(Some(b)) => {
             let s = String::from_utf8_lossy(&b);
-            assert!(s.contains("ERR") || s.contains("unknown command"), "应包含错误信息: {}", s);
+            assert!(
+                s.contains("ERR") || s.contains("unknown command"),
+                "应包含错误信息: {}",
+                s
+            );
         }
         _ => panic!("期望 BulkString(Some(...))，得到 {:?}", resp),
     }
@@ -4161,8 +4758,14 @@ async fn test_eval_keys_argv() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 2);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("v1"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from("v2"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("v1")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(bytes::Bytes::from("v2")))
+            );
         }
         _ => panic!("期望 Array，得到 {:?}", resp),
     }
@@ -4233,7 +4836,15 @@ async fn test_script_exists() {
         _ => panic!("期望 Array，得到 {:?}", resp),
     }
 
-    let resp = exec(&mut stream, &["SCRIPT", "EXISTS", "0000000000000000000000000000000000000000"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "SCRIPT",
+            "EXISTS",
+            "0000000000000000000000000000000000000000",
+        ],
+    )
+    .await;
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 1);
@@ -4287,7 +4898,10 @@ async fn test_eval_multi_keys() {
 
     let script = r#"redis.call("SET", KEYS[1], "v1"); redis.call("SET", KEYS[2], "v2"); return redis.call("GET", KEYS[1])..redis.call("GET", KEYS[2])"#;
     let resp = exec(&mut stream, &["EVAL", script, "2", "a", "b"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v1v2"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("v1v2")))
+    );
 }
 
 #[tokio::test]
@@ -4300,7 +4914,14 @@ async fn test_eval_error() {
     let resp = exec(&mut stream, &["EVAL", "return 1 + +", "0"]).await;
     match resp {
         RespValue::Error(e) => {
-            assert!(e.contains("ERR") || e.contains("syntax") || e.contains("eval") || e.contains("script"), "错误信息应包含脚本错误提示: {}", e);
+            assert!(
+                e.contains("ERR")
+                    || e.contains("syntax")
+                    || e.contains("eval")
+                    || e.contains("script"),
+                "错误信息应包含脚本错误提示: {}",
+                e
+            );
         }
         _ => panic!("期望 Error，得到 {:?}", resp),
     }
@@ -4311,17 +4932,20 @@ async fn test_eval_error() {
 #[tokio::test]
 async fn test_bgsave() {
     let storage = StorageEngine::new();
-    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
-        .with_rdb_path("/tmp/test_bgsave.rdb");
+    let path = temp_test_path("bgsave", "rdb");
+    let _ = std::fs::remove_file(&path);
+    let server =
+        Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None).with_rdb_path(&path);
     let (addr, _handle) = server.start().await.unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["BGSAVE"]).await;
     assert!(
         matches!(resp, RespValue::SimpleString(ref s) if s == "Background saving started" || s == "OK"),
-        "BGSAVE 应返回 Background saving started 或 OK，得到 {:?}", resp
+        "BGSAVE 应返回 Background saving started 或 OK，得到 {:?}",
+        resp
     );
-    let _ = std::fs::remove_file("/tmp/test_bgsave.rdb");
+    let _ = std::fs::remove_file(&path);
 }
 
 #[tokio::test]
@@ -4369,7 +4993,10 @@ async fn test_dump_restore() {
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     let resp = exec(&mut stream, &["GET", "dst"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("hello"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("hello")))
+    );
 }
 
 #[tokio::test]
@@ -4398,22 +5025,29 @@ async fn test_bgrewriteaof() {
     use redis_rust::aof::AofWriter;
     use std::sync::{Arc, Mutex};
 
-    let path = "/tmp/test_bgrewriteaof_integration.aof";
-    let _ = std::fs::remove_file(path);
+    let path = temp_test_path("bgrewriteaof_integration", "aof");
+    let _ = std::fs::remove_file(&path);
 
     let storage = StorageEngine::new();
-    let aof = Arc::new(Mutex::new(AofWriter::new(path).unwrap()));
-    let server = Server::new("127.0.0.1:0", storage, Some(aof.clone()), PubSubManager::new(), None);
+    let aof = Arc::new(Mutex::new(AofWriter::new(&path).unwrap()));
+    let server = Server::new(
+        "127.0.0.1:0",
+        storage,
+        Some(aof.clone()),
+        PubSubManager::new(),
+        None,
+    );
     let (addr, _handle) = server.start().await.unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["BGREWRITEAOF"]).await;
     assert!(
         matches!(resp, RespValue::SimpleString(ref s) if s.contains("Background") || s == "OK"),
-        "BGREWRITEAOF 应返回 SimpleString，得到 {:?}", resp
+        "BGREWRITEAOF 应返回 SimpleString，得到 {:?}",
+        resp
     );
 
-    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(&path);
 }
 
 #[tokio::test]
@@ -4427,7 +5061,10 @@ async fn test_config_aof_settings() {
     match resp {
         RespValue::Array(arr) => {
             // 当前实现未显式处理 appendonly，返回空数组或包含配置项的数组均可
-            assert!(arr.is_empty() || arr.len() == 2, "CONFIG GET appendonly 应返回空数组或 2 元素数组");
+            assert!(
+                arr.is_empty() || arr.len() == 2,
+                "CONFIG GET appendonly 应返回空数组或 2 元素数组"
+            );
         }
         _ => panic!("期望 Array，得到 {:?}", resp),
     }
@@ -4477,7 +5114,11 @@ async fn test_randomkey() {
     match resp {
         RespValue::BulkString(Some(b)) => {
             let s = String::from_utf8_lossy(&b);
-            assert!(s == "a" || s == "b" || s == "c", "RANDOMKEY 应返回 a/b/c 之一: {}", s);
+            assert!(
+                s == "a" || s == "b" || s == "c",
+                "RANDOMKEY 应返回 a/b/c 之一: {}",
+                s
+            );
         }
         _ => panic!("期望 BulkString(Some(...))，得到 {:?}", resp),
     }
@@ -4496,7 +5137,11 @@ async fn test_object_encoding() {
     match resp {
         RespValue::BulkString(Some(b)) => {
             let s = String::from_utf8_lossy(&b);
-            assert!(s == "embstr" || s == "raw" || s == "string", "OBJECT ENCODING 应返回 embstr/raw/string: {}", s);
+            assert!(
+                s == "embstr" || s == "raw" || s == "string",
+                "OBJECT ENCODING 应返回 embstr/raw/string: {}",
+                s
+            );
         }
         _ => panic!("期望 BulkString(Some(...))，得到 {:?}", resp),
     }
@@ -4561,7 +5206,9 @@ async fn test_client_tracking_and_caching() {
     let resp = exec(&mut stream, &["CLIENT", "TRACKINGINFO"]).await;
     match resp {
         RespValue::Array(arr) => {
-            let flags = arr.iter().find(|v| matches!(v, RespValue::BulkString(Some(b)) if b.as_ref() == b"flags"));
+            let flags = arr
+                .iter()
+                .find(|v| matches!(v, RespValue::BulkString(Some(b)) if b.as_ref() == b"flags"));
             assert!(flags.is_some());
         }
         _ => panic!("期望 Array，得到 {:?}", resp),
@@ -4579,7 +5226,6 @@ async fn test_client_tracking_and_caching() {
     let resp = exec(&mut stream, &["CLIENT", "TRACKING", "OFF"]).await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 }
-
 
 // ---------- String 命令边界条件测试 ----------
 
@@ -4610,9 +5256,15 @@ async fn test_set_nx_xx_get() {
 
     // SET GET on existing key → returns old value, sets new value
     let resp = exec(&mut stream, &["SET", "nxkey", "final", "GET"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("updated"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("updated")))
+    );
     let resp = exec(&mut stream, &["GET", "nxkey"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("final"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("final")))
+    );
 
     // SET GET on non-existent key → nil, sets value
     let resp = exec(&mut stream, &["SET", "getkey", "v", "GET"]).await;
@@ -4621,13 +5273,27 @@ async fn test_set_nx_xx_get() {
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v"))));
 
     // SET NX GET on existing key → returns old value, does not set
-    let resp = exec(&mut stream, &["SET", "nxkey", "should_not_set", "NX", "GET"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("final"))));
+    let resp = exec(
+        &mut stream,
+        &["SET", "nxkey", "should_not_set", "NX", "GET"],
+    )
+    .await;
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("final")))
+    );
     let resp = exec(&mut stream, &["GET", "nxkey"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("final"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("final")))
+    );
 
     // SET XX GET on non-existent key → nil, does not set
-    let resp = exec(&mut stream, &["SET", "xxnew", "should_not_set", "XX", "GET"]).await;
+    let resp = exec(
+        &mut stream,
+        &["SET", "xxnew", "should_not_set", "XX", "GET"],
+    )
+    .await;
     assert_eq!(resp, RespValue::BulkString(None));
     let resp = exec(&mut stream, &["GET", "xxnew"]).await;
     assert_eq!(resp, RespValue::BulkString(None));
@@ -4656,7 +5322,11 @@ async fn test_set_ex_px_exat_pxat() {
 
     // SET EXAT with future timestamp → key exists
     let future_ts = 2000000000u64; // ~2033
-    let resp = exec(&mut stream, &["SET", "exatkey", "v3", "EXAT", &future_ts.to_string()]).await;
+    let resp = exec(
+        &mut stream,
+        &["SET", "exatkey", "v3", "EXAT", &future_ts.to_string()],
+    )
+    .await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
     let resp = exec(&mut stream, &["GET", "exatkey"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v3"))));
@@ -4716,7 +5386,10 @@ async fn test_getex_options() {
 
     // GETEX EX 10
     let resp = exec(&mut stream, &["GETEX", "gex", "EX", "10"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("value"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("value")))
+    );
     let resp = exec(&mut stream, &["TTL", "gex"]).await;
     match resp {
         RespValue::Integer(n) => assert!(n > 8 && n <= 10, "TTL 应在 8~10 之间, 得到 {}", n),
@@ -4725,17 +5398,31 @@ async fn test_getex_options() {
 
     // GETEX PX 5000
     let resp = exec(&mut stream, &["GETEX", "gex", "PX", "5000"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("value"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("value")))
+    );
     let resp = exec(&mut stream, &["PTTL", "gex"]).await;
     match resp {
-        RespValue::Integer(n) => assert!(n > 3000 && n <= 5000, "PTTL 应在 3000~5000 之间, 得到 {}", n),
+        RespValue::Integer(n) => assert!(
+            n > 3000 && n <= 5000,
+            "PTTL 应在 3000~5000 之间, 得到 {}",
+            n
+        ),
         _ => panic!("期望 Integer PTTL, 得到 {:?}", resp),
     }
 
     // GETEX EXAT future
     let future_ts = 2000000000u64;
-    let resp = exec(&mut stream, &["GETEX", "gex", "EXAT", &future_ts.to_string()]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("value"))));
+    let resp = exec(
+        &mut stream,
+        &["GETEX", "gex", "EXAT", &future_ts.to_string()],
+    )
+    .await;
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("value")))
+    );
     let resp = exec(&mut stream, &["TTL", "gex"]).await;
     match resp {
         RespValue::Integer(n) => assert!(n > 1000000, "TTL 应非常大, 得到 {}", n),
@@ -4744,14 +5431,20 @@ async fn test_getex_options() {
 
     // GETEX PXAT past → key expired on next access
     let resp = exec(&mut stream, &["GETEX", "gex", "PXAT", "1"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("value"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("value")))
+    );
     let resp = exec(&mut stream, &["GET", "gex"]).await;
     assert_eq!(resp, RespValue::BulkString(None));
 
     // GETEX PERSIST
     exec(&mut stream, &["SET", "gex2", "value2", "EX", "100"]).await;
     let resp = exec(&mut stream, &["GETEX", "gex2", "PERSIST"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("value2"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("value2")))
+    );
     let resp = exec(&mut stream, &["TTL", "gex2"]).await;
     assert_eq!(resp, RespValue::Integer(-1));
 }
@@ -4798,10 +5491,16 @@ async fn test_incrbyfloat_precision() {
 
     // Multiple small increments
     let resp = exec(&mut stream, &["INCRBYFLOAT", "fp2", "1.23456789"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("1.23456789"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("1.23456789")))
+    );
 
     let resp = exec(&mut stream, &["INCRBYFLOAT", "fp2", "0.00000001"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("1.2345679"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("1.2345679")))
+    );
 }
 
 #[tokio::test]
@@ -4816,14 +5515,20 @@ async fn test_append_nonexistent() {
     assert_eq!(resp, RespValue::Integer(5));
 
     let resp = exec(&mut stream, &["GET", "newapp"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("hello"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("hello")))
+    );
 
     // Another APPEND
     let resp = exec(&mut stream, &["APPEND", "newapp", "world"]).await;
     assert_eq!(resp, RespValue::Integer(10));
 
     let resp = exec(&mut stream, &["GET", "newapp"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("helloworld"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("helloworld")))
+    );
 }
 
 #[tokio::test]
@@ -4839,7 +5544,10 @@ async fn test_setrange_extend() {
     let resp = exec(&mut stream, &["SETRANGE", "sr", "1", "a"]).await;
     assert_eq!(resp, RespValue::Integer(5));
     let resp = exec(&mut stream, &["GET", "sr"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("hallo"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("hallo")))
+    );
 
     // SETRANGE beyond current length should fill with \x00
     let resp = exec(&mut stream, &["SETRANGE", "sr", "10", "end"]).await;
@@ -4880,15 +5588,24 @@ async fn test_getrange_negative() {
 
     // GETRANGE with negative start
     let resp = exec(&mut stream, &["GETRANGE", "gr", "-5", "-1"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("world"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("world")))
+    );
 
     // GETRANGE with negative end
     let resp = exec(&mut stream, &["GETRANGE", "gr", "0", "-7"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("hello"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("hello")))
+    );
 
     // GETRANGE with both negative
     let resp = exec(&mut stream, &["GETRANGE", "gr", "-11", "-6"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("hello "))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("hello ")))
+    );
 
     // GETRANGE out of bounds
     let resp = exec(&mut stream, &["GETRANGE", "gr", "100", "200"]).await;
@@ -4928,7 +5645,10 @@ async fn test_mset_mget_large() {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 50);
             for i in 0..50 {
-                assert_eq!(arr[i], RespValue::BulkString(Some(bytes::Bytes::from(values[i].clone()))));
+                assert_eq!(
+                    arr[i],
+                    RespValue::BulkString(Some(bytes::Bytes::from(values[i].clone())))
+                );
             }
         }
         _ => panic!("期望 Array, 得到 {:?}", resp),
@@ -4946,7 +5666,11 @@ async fn test_msetnx_partial() {
     exec(&mut stream, &["SET", "existing", "old"]).await;
 
     // MSETNX with one existing and one new → should fail (return 0)
-    let resp = exec(&mut stream, &["MSETNX", "existing", "new", "brandnew", "val"]).await;
+    let resp = exec(
+        &mut stream,
+        &["MSETNX", "existing", "new", "brandnew", "val"],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(0));
 
     // existing should remain unchanged
@@ -5060,7 +5784,6 @@ async fn test_module_list() {
     assert_eq!(resp, RespValue::Array(vec![]));
 }
 
-
 // ---------- Set/ZSet 边界条件测试 ----------
 
 #[tokio::test]
@@ -5152,13 +5875,16 @@ async fn test_srandmember_count() {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 2);
             // 确保两个元素不同
-            let vals: std::collections::HashSet<String> = arr.iter().filter_map(|v| {
-                if let RespValue::BulkString(Some(b)) = v {
-                    Some(String::from_utf8_lossy(b).to_string())
-                } else {
-                    None
-                }
-            }).collect();
+            let vals: std::collections::HashSet<String> = arr
+                .iter()
+                .filter_map(|v| {
+                    if let RespValue::BulkString(Some(b)) = v {
+                        Some(String::from_utf8_lossy(b).to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             assert_eq!(vals.len(), 2, "SRANDMEMBER 正数 count 应返回不重复元素");
         }
         _ => panic!("期望 Array, 得到 {:?}", resp),
@@ -5214,7 +5940,11 @@ async fn test_zpopmin_zpopmax_count() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     // 准备数据: z={a:1, b:2, c:3, d:4}
-    let resp = exec(&mut stream, &["ZADD", "z", "1", "a", "2", "b", "3", "c", "4", "d"]).await;
+    let resp = exec(
+        &mut stream,
+        &["ZADD", "z", "1", "a", "2", "b", "3", "c", "4", "d"],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(4));
 
     // ZPOPMIN z 2 → 返回最小的 2 个: a(1), b(2)
@@ -5292,7 +6022,13 @@ async fn test_zrangebylex_zlexcount() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     // 所有元素 score 相同才能按字典序比较
-    let resp = exec(&mut stream, &["ZADD", "z", "0", "a", "0", "b", "0", "c", "0", "d", "0", "e"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "ZADD", "z", "0", "a", "0", "b", "0", "c", "0", "d", "0", "e",
+        ],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(5));
 
     // ZRANGEBYLEX z [a [z
@@ -5317,7 +6053,6 @@ async fn test_zrangebylex_zlexcount() {
     let resp = exec(&mut stream, &["ZLEXCOUNT", "z", "[b", "[d"]).await;
     assert_eq!(resp, RespValue::Integer(3));
 }
-
 
 // ---------- Bitmap / HLL / Geo 边界条件测试 ----------
 
@@ -5361,7 +6096,6 @@ async fn test_bitcount_range() {
     assert_eq!(resp, RespValue::Integer(4));
 }
 
-
 #[tokio::test]
 async fn test_linsert_before_after() {
     let storage = StorageEngine::new();
@@ -5397,7 +6131,11 @@ async fn test_lrem_positive_negative_zero() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     // count > 0：从头删 2 个
-    let resp = exec(&mut stream, &["RPUSH", "list1", "a", "b", "a", "c", "a", "d"]).await;
+    let resp = exec(
+        &mut stream,
+        &["RPUSH", "list1", "a", "b", "a", "c", "a", "d"],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(6));
     let resp = exec(&mut stream, &["LREM", "list1", "2", "a"]).await;
     assert_eq!(resp, RespValue::Integer(2));
@@ -5412,7 +6150,11 @@ async fn test_lrem_positive_negative_zero() {
     }
 
     // count < 0：从尾删 2 个
-    let resp = exec(&mut stream, &["RPUSH", "list2", "a", "b", "a", "c", "a", "d"]).await;
+    let resp = exec(
+        &mut stream,
+        &["RPUSH", "list2", "a", "b", "a", "c", "a", "d"],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(6));
     let resp = exec(&mut stream, &["LREM", "list2", "-2", "a"]).await;
     assert_eq!(resp, RespValue::Integer(2));
@@ -5539,7 +6281,11 @@ async fn test_hrandfield_count() {
     let (addr, _handle) = server.start().await.unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
-    let resp = exec(&mut stream, &["HSET", "h", "f1", "v1", "f2", "v2", "f3", "v3"]).await;
+    let resp = exec(
+        &mut stream,
+        &["HSET", "h", "f1", "v1", "f2", "v2", "f3", "v3"],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(3));
 
     // count > 0：不重复，返回 2 个字段
@@ -5630,10 +6376,16 @@ async fn test_bitop_and_or_xor_not() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     // 准备两个 key（直接写入 RESP 以支持二进制值）
-    stream.write_all(b"*3\r\n$3\r\nSET\r\n$1\r\na\r\n$2\r\n\xFF\x00\r\n").await.unwrap();
+    stream
+        .write_all(b"*3\r\n$3\r\nSET\r\n$1\r\na\r\n$2\r\n\xFF\x00\r\n")
+        .await
+        .unwrap();
     let resp = recv_resp(&mut stream).await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
-    stream.write_all(b"*3\r\n$3\r\nSET\r\n$1\r\nb\r\n$2\r\n\x0F\xF0\r\n").await.unwrap();
+    stream
+        .write_all(b"*3\r\n$3\r\nSET\r\n$1\r\nb\r\n$2\r\n\x0F\xF0\r\n")
+        .await
+        .unwrap();
     let resp = recv_resp(&mut stream).await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
@@ -5641,27 +6393,38 @@ async fn test_bitop_and_or_xor_not() {
     let resp = exec(&mut stream, &["BITOP", "AND", "dest", "a", "b"]).await;
     assert_eq!(resp, RespValue::Integer(2));
     let resp = exec(&mut stream, &["GET", "dest"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(Bytes::from_static(b"\x0F\x00"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(Bytes::from_static(b"\x0F\x00")))
+    );
 
     // BITOP OR dest2 a b
     let resp = exec(&mut stream, &["BITOP", "OR", "dest2", "a", "b"]).await;
     assert_eq!(resp, RespValue::Integer(2));
     let resp = exec(&mut stream, &["GET", "dest2"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(Bytes::from_static(b"\xFF\xF0"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(Bytes::from_static(b"\xFF\xF0")))
+    );
 
     // BITOP XOR dest3 a b
     let resp = exec(&mut stream, &["BITOP", "XOR", "dest3", "a", "b"]).await;
     assert_eq!(resp, RespValue::Integer(2));
     let resp = exec(&mut stream, &["GET", "dest3"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(Bytes::from_static(b"\xF0\xF0"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(Bytes::from_static(b"\xF0\xF0")))
+    );
 
     // BITOP NOT dest4 a
     let resp = exec(&mut stream, &["BITOP", "NOT", "dest4", "a"]).await;
     assert_eq!(resp, RespValue::Integer(2));
     let resp = exec(&mut stream, &["GET", "dest4"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(Bytes::from_static(b"\x00\xFF"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(Bytes::from_static(b"\x00\xFF")))
+    );
 }
-
 
 #[tokio::test]
 async fn test_rename_nonexistent() {
@@ -5780,13 +6543,22 @@ async fn test_xadd_xlen_xrange_basic() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["XADD", "mystream", "*", "f", "v1"]).await;
-    assert!(matches!(resp, RespValue::BulkString(Some(_))), "XADD 应返回 ID");
+    assert!(
+        matches!(resp, RespValue::BulkString(Some(_))),
+        "XADD 应返回 ID"
+    );
 
     let resp = exec(&mut stream, &["XADD", "mystream", "*", "f", "v2"]).await;
-    assert!(matches!(resp, RespValue::BulkString(Some(_))), "XADD 应返回 ID");
+    assert!(
+        matches!(resp, RespValue::BulkString(Some(_))),
+        "XADD 应返回 ID"
+    );
 
     let resp = exec(&mut stream, &["XADD", "mystream", "*", "f", "v3"]).await;
-    assert!(matches!(resp, RespValue::BulkString(Some(_))), "XADD 应返回 ID");
+    assert!(
+        matches!(resp, RespValue::BulkString(Some(_))),
+        "XADD 应返回 ID"
+    );
 
     let resp = exec(&mut stream, &["XLEN", "mystream"]).await;
     assert_eq!(resp, RespValue::Integer(3));
@@ -5856,7 +6628,13 @@ async fn test_geoadd_geodist_geopos() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     // GEOADD key 13.361 38.115 "Palermo" 116.397 39.916 "Beijing"
-    let resp = exec(&mut stream, &["GEOADD", "key", "13.361", "38.115", "Palermo", "116.397", "39.916", "Beijing"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "GEOADD", "key", "13.361", "38.115", "Palermo", "116.397", "39.916", "Beijing",
+        ],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(2));
 
     // GEODIST key Palermo Beijing km
@@ -5864,7 +6642,11 @@ async fn test_geoadd_geodist_geopos() {
     match resp {
         RespValue::BulkString(Some(s)) => {
             let dist: f64 = std::str::from_utf8(&s).unwrap().parse().unwrap();
-            assert!(dist > 8000.0 && dist < 9000.0, "距离应在 8000~9000 km 之间，得到 {}", dist);
+            assert!(
+                dist > 8000.0 && dist < 9000.0,
+                "距离应在 8000~9000 km 之间，得到 {}",
+                dist
+            );
         }
         _ => panic!("期望 BulkString(Some(...)), 得到 {:?}", resp),
     }
@@ -5878,11 +6660,15 @@ async fn test_geoadd_geodist_geopos() {
                 RespValue::Array(coords) => {
                     assert_eq!(coords.len(), 2);
                     let lon_str = match &coords[0] {
-                        RespValue::BulkString(Some(b)) => std::str::from_utf8(b).unwrap().parse::<f64>().unwrap(),
+                        RespValue::BulkString(Some(b)) => {
+                            std::str::from_utf8(b).unwrap().parse::<f64>().unwrap()
+                        }
                         _ => panic!("期望 lon 为 BulkString"),
                     };
                     let lat_str = match &coords[1] {
-                        RespValue::BulkString(Some(b)) => std::str::from_utf8(b).unwrap().parse::<f64>().unwrap(),
+                        RespValue::BulkString(Some(b)) => {
+                            std::str::from_utf8(b).unwrap().parse::<f64>().unwrap()
+                        }
                         _ => panic!("期望 lat 为 BulkString"),
                     };
                     assert!((lon_str - 13.361).abs() < 0.001, "lon 应接近 13.361");
@@ -5903,11 +6689,31 @@ async fn test_geosearch_basic() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     // GEOADD 多个点
-    let resp = exec(&mut stream, &["GEOADD", " Sicily", "13.361", "38.115", "Palermo", "15.087", "37.502", "Catania"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "GEOADD", " Sicily", "13.361", "38.115", "Palermo", "15.087", "37.502", "Catania",
+        ],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(2));
 
     // GEOSEARCH Sicily FROMLONLAT 15 37 BYRADIUS 200 km ASC
-    let resp = exec(&mut stream, &["GEOSEARCH", " Sicily", "FROMLONLAT", "15", "37", "BYRADIUS", "200", "km", "ASC"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "GEOSEARCH",
+            " Sicily",
+            "FROMLONLAT",
+            "15",
+            "37",
+            "BYRADIUS",
+            "200",
+            "km",
+            "ASC",
+        ],
+    )
+    .await;
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 2);
@@ -6012,7 +6818,9 @@ async fn test_hexpire_httl() {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 1);
             match arr[0] {
-                RespValue::Integer(n) => assert!(n > 0 && n <= 100, "HTTL 应返回 >0 且 <=100, 得到 {}", n),
+                RespValue::Integer(n) => {
+                    assert!(n > 0 && n <= 100, "HTTL 应返回 >0 且 <=100, 得到 {}", n)
+                }
                 _ => panic!("期望 Integer, 得到 {:?}", arr[0]),
             }
         }
@@ -6038,7 +6846,11 @@ async fn test_hpexpire_hpttl() {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 1);
             match arr[0] {
-                RespValue::Integer(n) => assert!(n > 0 && n <= 100000, "HPTTL 应返回 >0 且 <=100000, 得到 {}", n),
+                RespValue::Integer(n) => assert!(
+                    n > 0 && n <= 100000,
+                    "HPTTL 应返回 >0 且 <=100000, 得到 {}",
+                    n
+                ),
                 _ => panic!("期望 Integer, 得到 {:?}", arr[0]),
             }
         }
@@ -6080,7 +6892,10 @@ async fn test_hgetdel_basic() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 1);
-            assert_eq!(arr[0], RespValue::BulkString(Some(bytes::Bytes::from("v1"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(bytes::Bytes::from("v1")))
+            );
         }
         _ => panic!("期望 Array, 得到 {:?}", resp),
     }
@@ -6113,7 +6928,9 @@ async fn test_hsetex_basic() {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 1);
             match arr[0] {
-                RespValue::Integer(n) => assert!(n > 0 && n <= 100, "HTTL 应返回 >0 且 <=100, 得到 {}", n),
+                RespValue::Integer(n) => {
+                    assert!(n > 0 && n <= 100, "HTTL 应返回 >0 且 <=100, 得到 {}", n)
+                }
                 _ => panic!("期望 Integer, 得到 {:?}", arr[0]),
             }
         }
@@ -6164,7 +6981,11 @@ async fn test_zremrangebylex() {
     let (addr, _handle) = server.start().await.unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
-    let resp = exec(&mut stream, &["ZADD", "key", "0", "a", "0", "b", "0", "c", "0", "d"]).await;
+    let resp = exec(
+        &mut stream,
+        &["ZADD", "key", "0", "a", "0", "b", "0", "c", "0", "d"],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(4));
 
     let resp = exec(&mut stream, &["ZREMRANGEBYLEX", "key", "[b", "[c"]).await;
@@ -6232,10 +7053,31 @@ async fn test_geosearchstore_basic() {
     let (addr, _handle) = server.start().await.unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
-    let resp = exec(&mut stream, &["GEOADD", "src", "13.361", "38.115", "Palermo", "15.087", "37.502", "Catania"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "GEOADD", "src", "13.361", "38.115", "Palermo", "15.087", "37.502", "Catania",
+        ],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(2));
 
-    let resp = exec(&mut stream, &["GEOSEARCHSTORE", "dst", "src", "FROMLONLAT", "15", "37", "BYRADIUS", "200", "km", "ASC"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "GEOSEARCHSTORE",
+            "dst",
+            "src",
+            "FROMLONLAT",
+            "15",
+            "37",
+            "BYRADIUS",
+            "200",
+            "km",
+            "ASC",
+        ],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(2));
 }
 
@@ -6286,7 +7128,10 @@ async fn test_xgroup_lifecycle() {
 
     // 先添加一条消息确保 stream 存在
     let resp = exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
-    assert!(matches!(resp, RespValue::BulkString(Some(_))), "XADD 应返回 ID");
+    assert!(
+        matches!(resp, RespValue::BulkString(Some(_))),
+        "XADD 应返回 ID"
+    );
 
     let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
@@ -6294,7 +7139,6 @@ async fn test_xgroup_lifecycle() {
     let resp = exec(&mut stream, &["XGROUP", "DESTROY", "s", "g"]).await;
     assert_eq!(resp, RespValue::Integer(1));
 }
-
 
 #[tokio::test]
 async fn test_getset_basic() {
@@ -6305,10 +7149,16 @@ async fn test_getset_basic() {
 
     exec(&mut stream, &["SET", "key", "oldval"]).await;
     let resp = exec(&mut stream, &["GETSET", "key", "newval"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("oldval"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("oldval")))
+    );
 
     let resp = exec(&mut stream, &["GET", "key"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("newval"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("newval")))
+    );
 }
 
 #[tokio::test]
@@ -6321,7 +7171,10 @@ async fn test_lcs_basic() {
     exec(&mut stream, &["SET", "key1", "ohmytext"]).await;
     exec(&mut stream, &["SET", "key2", "mynewtext"]).await;
     let resp = exec(&mut stream, &["LCS", "key1", "key2"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("text"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("text")))
+    );
 }
 
 #[tokio::test]
@@ -6411,13 +7264,21 @@ async fn test_expiretime_pexpiretime() {
 
     let resp = exec(&mut stream, &["EXPIRETIME", "key"]).await;
     match resp {
-        RespValue::Integer(ts) => assert!(ts > 1_700_000_000, "EXPIRETIME 应返回未来时间戳, 得到 {}", ts),
+        RespValue::Integer(ts) => assert!(
+            ts > 1_700_000_000,
+            "EXPIRETIME 应返回未来时间戳, 得到 {}",
+            ts
+        ),
         other => panic!("期望 Integer, 得到 {:?}", other),
     }
 
     let resp = exec(&mut stream, &["PEXPIRETIME", "key"]).await;
     match resp {
-        RespValue::Integer(ts) => assert!(ts > 1_700_000_000_000i64, "PEXPIRETIME 应返回未来毫秒时间戳, 得到 {}", ts),
+        RespValue::Integer(ts) => assert!(
+            ts > 1_700_000_000_000i64,
+            "PEXPIRETIME 应返回未来毫秒时间戳, 得到 {}",
+            ts
+        ),
         other => panic!("期望 Integer, 得到 {:?}", other),
     }
 }
@@ -6446,9 +7307,11 @@ async fn test_object_encoding_types() {
 
     exec(&mut stream, &["SET", "key", "val"]).await;
     let resp = exec(&mut stream, &["OBJECT", "ENCODING", "key"]).await;
-    assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("embstr"))));
+    assert_eq!(
+        resp,
+        RespValue::BulkString(Some(bytes::Bytes::from("embstr")))
+    );
 }
-
 
 #[tokio::test]
 async fn test_function_load_list() {
@@ -6483,7 +7346,10 @@ async fn test_acl_cat() {
         RespValue::Array(arr) => {
             assert!(!arr.is_empty(), "ACL CAT 应返回非空分类列表");
             for item in &arr {
-                assert!(matches!(item, RespValue::BulkString(Some(_))), "ACL CAT 每项应为 BulkString");
+                assert!(
+                    matches!(item, RespValue::BulkString(Some(_))),
+                    "ACL CAT 每项应为 BulkString"
+                );
             }
         }
         other => panic!("期望 Array，得到 {:?}", other),
@@ -6568,7 +7434,11 @@ async fn test_module_load_unload() {
     let resp = exec(&mut stream, &["MODULE", "LOAD", "/fake"]).await;
     match resp {
         RespValue::Error(msg) => {
-            assert!(msg.contains("Module loading is not supported"), "MODULE LOAD 错误信息不符: {}", msg);
+            assert!(
+                msg.contains("Module loading is not supported"),
+                "MODULE LOAD 错误信息不符: {}",
+                msg
+            );
         }
         other => panic!("期望 Error，得到 {:?}", other),
     }
@@ -6576,7 +7446,11 @@ async fn test_module_load_unload() {
     let resp = exec(&mut stream, &["MODULE", "UNLOAD", "fake"]).await;
     match resp {
         RespValue::Error(msg) => {
-            assert!(msg.contains("No such module"), "MODULE UNLOAD 错误信息不符: {}", msg);
+            assert!(
+                msg.contains("No such module"),
+                "MODULE UNLOAD 错误信息不符: {}",
+                msg
+            );
         }
         other => panic!("期望 Error，得到 {:?}", other),
     }
@@ -6672,7 +7546,6 @@ async fn test_reset_command_basic() {
     let resp = exec(&mut stream, &["RESET"]).await;
     assert_eq!(resp, RespValue::SimpleString("RESET".to_string()));
 }
-
 
 // ---------- Sorted Set 高级命令测试 ----------
 
@@ -6977,8 +7850,14 @@ async fn test_config_get_set_maxmemory() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 2);
-            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("maxmemory"))));
-            assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("104857600"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(Bytes::from("maxmemory")))
+            );
+            assert_eq!(
+                arr[1],
+                RespValue::BulkString(Some(Bytes::from("104857600")))
+            );
         }
         other => panic!("期望 Array，得到 {:?}", other),
     }
@@ -7095,7 +7974,10 @@ async fn test_xtrim_basic() {
     // XADD 三次
     for _ in 0..3 {
         let resp = exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
-        assert!(matches!(resp, RespValue::BulkString(Some(_))), "XADD 应返回 ID");
+        assert!(
+            matches!(resp, RespValue::BulkString(Some(_))),
+            "XADD 应返回 ID"
+        );
     }
 
     // XTRIM 保留 2 条
@@ -7163,7 +8045,21 @@ async fn test_xreadgroup_basic() {
     let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
-    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g", "c", "COUNT", "1", "STREAMS", "s", ">"]).await;
+    let resp = exec(
+        &mut stream,
+        &[
+            "XREADGROUP",
+            "GROUP",
+            "g",
+            "c",
+            "COUNT",
+            "1",
+            "STREAMS",
+            "s",
+            ">",
+        ],
+    )
+    .await;
     match resp {
         RespValue::Array(streams) => {
             assert_eq!(streams.len(), 1);
@@ -7192,7 +8088,11 @@ async fn test_xack_basic() {
     let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
-    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g", "c", "STREAMS", "s", ">"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g", "c", "STREAMS", "s", ">"],
+    )
+    .await;
     let id = match &resp {
         RespValue::Array(streams) => {
             assert_eq!(streams.len(), 1);
@@ -7233,7 +8133,11 @@ async fn test_xclaim_basic() {
     let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
-    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g", "c1", "STREAMS", "s", ">"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g", "c1", "STREAMS", "s", ">"],
+    )
+    .await;
     let id = match &resp {
         RespValue::Array(streams) => {
             assert_eq!(streams.len(), 1);
@@ -7264,7 +8168,10 @@ async fn test_xclaim_basic() {
         RespValue::Array(arr) => {
             assert!(!arr.is_empty(), "XCLAIM 应返回非空数组");
             if let RespValue::Array(entry) = &arr[0] {
-                assert_eq!(entry[0], RespValue::BulkString(Some(Bytes::from(id.clone()))));
+                assert_eq!(
+                    entry[0],
+                    RespValue::BulkString(Some(Bytes::from(id.clone())))
+                );
             } else {
                 panic!("期望 XCLAIM 返回 entry 数组");
             }
@@ -7284,7 +8191,11 @@ async fn test_xpending_basic() {
     let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
-    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g", "c", "STREAMS", "s", ">"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g", "c", "STREAMS", "s", ">"],
+    )
+    .await;
     let id = match &resp {
         RespValue::Array(streams) => {
             assert_eq!(streams.len(), 1);
@@ -7505,7 +8416,6 @@ async fn test_script_exists_basic() {
     }
 }
 
-
 // ---------- List/Hash/Geo 阻塞和高级命令补全测试 ----------
 
 #[tokio::test]
@@ -7619,7 +8529,8 @@ async fn test_hexpireat_basic() {
     let future_ts = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() + 100)
+        .as_secs()
+        + 100)
         .to_string();
 
     let resp = exec(&mut stream, &["HEXPIREAT", "key", "f", &future_ts]).await;
@@ -7639,7 +8550,8 @@ async fn test_hpexpireat_basic() {
     let future_ms = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_millis() as u64 + 100000)
+        .as_millis() as u64
+        + 100000)
         .to_string();
 
     let resp = exec(&mut stream, &["HPEXPIREAT", "key", "f", &future_ms]).await;
@@ -7664,7 +8576,11 @@ async fn test_hexpiretime_hpexpiretime() {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 1);
             match arr[0] {
-                RespValue::Integer(ts) => assert!(ts > 1_700_000_000, "HEXPIRETIME 应返回未来秒级时间戳, 得到 {}", ts),
+                RespValue::Integer(ts) => assert!(
+                    ts > 1_700_000_000,
+                    "HEXPIRETIME 应返回未来秒级时间戳, 得到 {}",
+                    ts
+                ),
                 _ => panic!("期望 Integer, 得到 {:?}", arr[0]),
             }
         }
@@ -7676,7 +8592,11 @@ async fn test_hexpiretime_hpexpiretime() {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 1);
             match arr[0] {
-                RespValue::Integer(ts) => assert!(ts > 1_700_000_000_000i64, "HPEXPIRETIME 应返回未来毫秒级时间戳, 得到 {}", ts),
+                RespValue::Integer(ts) => assert!(
+                    ts > 1_700_000_000_000i64,
+                    "HPEXPIRETIME 应返回未来毫秒级时间戳, 得到 {}",
+                    ts
+                ),
                 _ => panic!("期望 Integer, 得到 {:?}", arr[0]),
             }
         }
@@ -7709,7 +8629,9 @@ async fn test_hgetex_basic() {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 1);
             match arr[0] {
-                RespValue::Integer(n) => assert!(n > 0 && n <= 100, "HTTL 应返回 >0 且 <=100, 得到 {}", n),
+                RespValue::Integer(n) => {
+                    assert!(n > 0 && n <= 100, "HTTL 应返回 >0 且 <=100, 得到 {}", n)
+                }
                 _ => panic!("期望 Integer, 得到 {:?}", arr[0]),
             }
         }
@@ -7724,7 +8646,11 @@ async fn test_geohash_basic() {
     let (addr, _handle) = server.start().await.unwrap();
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
-    let resp = exec(&mut stream, &["GEOADD", "key", "13.361", "38.115", "Palermo"]).await;
+    let resp = exec(
+        &mut stream,
+        &["GEOADD", "key", "13.361", "38.115", "Palermo"],
+    )
+    .await;
     assert_eq!(resp, RespValue::Integer(1));
 
     let resp = exec(&mut stream, &["GEOHASH", "key", "Palermo"]).await;
@@ -7743,7 +8669,6 @@ async fn test_geohash_basic() {
     }
 }
 
-
 #[tokio::test]
 async fn test_ssubscribe_spublish() {
     let storage = StorageEngine::new();
@@ -7759,7 +8684,10 @@ async fn test_ssubscribe_spublish() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 3);
-            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("ssubscribe"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(Bytes::from("ssubscribe")))
+            );
             assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("ch"))));
             assert_eq!(arr[2], RespValue::Integer(1));
         }
@@ -7790,7 +8718,10 @@ async fn test_ssubscribe_spublish() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 3);
-            assert_eq!(arr[0], RespValue::BulkString(Some(Bytes::from("sunsubscribe"))));
+            assert_eq!(
+                arr[0],
+                RespValue::BulkString(Some(Bytes::from("sunsubscribe")))
+            );
             assert_eq!(arr[1], RespValue::BulkString(Some(Bytes::from("ch"))));
             assert_eq!(arr[2], RespValue::Integer(0));
         }
@@ -7808,8 +8739,9 @@ async fn test_pubsub_shardchannels() {
 
     // 先让一个连接订阅分片频道
     let mut sub = TcpStream::connect(addr).await.unwrap();
-    send_cmd(&mut sub, &["SSUBSCRIBE", "sh1", "sh2"]).await;
+    send_cmd(&mut sub, &["SSUBSCRIBE", "sh1"]).await;
     let _ = recv_resp(&mut sub).await;
+    send_cmd(&mut sub, &["SSUBSCRIBE", "sh2"]).await;
     let _ = recv_resp(&mut sub).await;
 
     // PUBSUB SHARDCHANNELS
@@ -7903,7 +8835,8 @@ async fn test_expireat_basic() {
     let future_ts = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs() + 100)
+        .as_secs()
+        + 100)
         .to_string();
 
     let resp = exec(&mut stream, &["EXPIREAT", "key", &future_ts]).await;
@@ -7929,7 +8862,8 @@ async fn test_pexpireat_basic() {
     let future_ms = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_millis() as u64 + 100000)
+        .as_millis() as u64
+        + 100000)
         .to_string();
 
     let resp = exec(&mut stream, &["PEXPIREAT", "key", &future_ms]).await;
@@ -7999,11 +8933,19 @@ async fn test_xautoclaim_basic() {
     };
 
     // XGROUP CREATE
-    let resp = exec(&mut stream, &["XGROUP", "CREATE", "stream", "g1", "$", "MKSTREAM"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XGROUP", "CREATE", "stream", "g1", "0", "MKSTREAM"],
+    )
+    .await;
     assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
 
     // XREADGROUP (c1 读取，消息进入 pending)
-    let resp = exec(&mut stream, &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "stream", ">"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XREADGROUP", "GROUP", "g1", "c1", "STREAMS", "stream", ">"],
+    )
+    .await;
     match resp {
         RespValue::Array(arr) => {
             assert!(!arr.is_empty(), "XREADGROUP 应返回至少一个流");
@@ -8012,7 +8954,11 @@ async fn test_xautoclaim_basic() {
     }
 
     // XAUTOCLAIM (c2 自动认领)
-    let resp = exec(&mut stream, &["XAUTOCLAIM", "stream", "g1", "c2", "0", "0-0", "COUNT", "1"]).await;
+    let resp = exec(
+        &mut stream,
+        &["XAUTOCLAIM", "stream", "g1", "c2", "0", "0-0", "COUNT", "1"],
+    )
+    .await;
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 3); // next_id, claimed, deleted

@@ -1,9 +1,9 @@
 //! 内存使用统计模块（MEMORY USAGE/MEMORY DOCTOR）
 
-use bytes::Bytes;
-use ordered_float::OrderedFloat;
 use crate::error::{AppError, Result};
 use crate::storage::{StorageEngine, StorageValue, StreamId};
+use bytes::Bytes;
+use ordered_float::OrderedFloat;
 
 impl StorageEngine {
     /// 估算所有数据库的内存使用量（字节）
@@ -12,9 +12,9 @@ impl StorageEngine {
         const ENTRY_OVERHEAD: usize = 64;
         for db in self.dbs.iter() {
             for shard in db.inner.all_shards() {
-                let map = shard.read().map_err(|e| {
-                    AppError::Storage(format!("锁中毒: {}", e))
-                })?;
+                let map = shard
+                    .read()
+                    .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
                 for (key, value) in map.iter() {
                     total += ENTRY_OVERHEAD;
                     total += key.len();
@@ -28,9 +28,11 @@ impl StorageEngine {
     /// 估算单个 key 的内存使用量（字节）
     pub fn memory_key_usage(&self, key: &str, _samples: Option<usize>) -> Result<Option<usize>> {
         let db = self.db();
-        let map = db.inner.get_shard(key).read().map_err(|e| {
-            AppError::Storage(format!("锁中毒: {}", e))
-        })?;
+        let map = db
+            .inner
+            .get_shard(key)
+            .read()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         match map.get(key) {
             Some(v) => {
                 if Self::is_key_expired(&db, key) {
@@ -55,7 +57,11 @@ impl StorageEngine {
         lines.push("redis-rust 内存诊断报告".to_string());
         lines.push("========================".to_string());
         lines.push(format!("总 key 数量: {}", total_keys));
-        lines.push(format!("估算内存使用: {} bytes ({:.2} MB)", total_memory, total_memory as f64 / 1024.0 / 1024.0));
+        lines.push(format!(
+            "估算内存使用: {} bytes ({:.2} MB)",
+            total_memory,
+            total_memory as f64 / 1024.0 / 1024.0
+        ));
         lines.push(format!("内存上限: {} bytes", maxmemory));
         lines.push(format!("淘汰策略: {}", policy_str));
 
@@ -75,24 +81,32 @@ impl StorageEngine {
         match value {
             StorageValue::String(b) => b.len(),
             StorageValue::List(list) => {
-                list.iter().map(|b| b.len()).sum::<usize>() + list.len() * std::mem::size_of::<Bytes>()
+                list.iter().map(|b| b.len()).sum::<usize>()
+                    + list.len() * std::mem::size_of::<Bytes>()
             }
             StorageValue::Hash(hash) => {
-                hash.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>() + hash.len() * std::mem::size_of::<(String, Bytes)>()
+                hash.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>()
+                    + hash.len() * std::mem::size_of::<(String, Bytes)>()
             }
             StorageValue::Set(set) => {
-                set.iter().map(|b| b.len()).sum::<usize>() + set.len() * std::mem::size_of::<Bytes>()
+                set.iter().map(|b| b.len()).sum::<usize>()
+                    + set.len() * std::mem::size_of::<Bytes>()
             }
             StorageValue::ZSet(zset) => {
                 zset.member_to_score.keys().map(|m| m.len()).sum::<usize>()
                     + zset.member_to_score.len() * std::mem::size_of::<(String, f64)>()
-                    + zset.score_to_member.len() * std::mem::size_of::<((OrderedFloat<f64>, String), ())>()
+                    + zset.score_to_member.len()
+                        * std::mem::size_of::<((OrderedFloat<f64>, String), ())>()
             }
             StorageValue::HyperLogLog(_) => 16384,
             StorageValue::Stream(stream) => {
-                stream.entries.values().map(|fields| fields.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>())
+                stream
+                    .entries
+                    .values()
+                    .map(|fields| fields.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>())
                     .sum::<usize>()
-                    + stream.entries.len() * std::mem::size_of::<(StreamId, Vec<(String, String)>)>()
+                    + stream.entries.len()
+                        * std::mem::size_of::<(StreamId, Vec<(String, String)>)>()
             }
         }
     }

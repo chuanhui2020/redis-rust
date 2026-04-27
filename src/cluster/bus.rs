@@ -8,11 +8,16 @@ use super::ClusterState;
 
 /// 启动集群总线监听
 pub async fn start_cluster_bus(addr: &str, cluster: Arc<ClusterState>) -> crate::error::Result<()> {
-    let listener = TcpListener::bind(addr).await.map_err(crate::error::AppError::Io)?;
+    let listener = TcpListener::bind(addr)
+        .await
+        .map_err(crate::error::AppError::Io)?;
     log::info!("集群总线已启动: {}", addr);
-    
+
     loop {
-        let (stream, peer_addr) = listener.accept().await.map_err(crate::error::AppError::Io)?;
+        let (stream, peer_addr) = listener
+            .accept()
+            .await
+            .map_err(crate::error::AppError::Io)?;
         let cluster = cluster.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_bus_connection(stream, cluster).await {
@@ -72,7 +77,7 @@ async fn handle_bus_connection(
         if n == 0 {
             return Ok(());
         }
-        
+
         let msg = String::from_utf8_lossy(&buf[..n]);
         for line in msg.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
@@ -101,13 +106,16 @@ async fn handle_bus_connection(
 
                     // 如果是未知节点，自动添加到集群状态
                     if cluster.get_node(remote_id).is_none() && remote_port > 0 {
-                        let existing_id = cluster.get_nodes().iter()
+                        let existing_id = cluster
+                            .get_nodes()
+                            .iter()
                             .find(|n| n.ip == remote_ip && n.port == remote_port)
                             .map(|n| n.id.clone());
                         if let Some(old_id) = existing_id
-                            && old_id != remote_id {
-                                cluster.remove_node(&old_id);
-                            }
+                            && old_id != remote_id
+                        {
+                            cluster.remove_node(&old_id);
+                        }
                         let new_node = super::ClusterNode::new(
                             remote_id.to_string(),
                             remote_ip.to_string(),
@@ -118,8 +126,18 @@ async fn handle_bus_connection(
 
                     // 更新远程节点的拓扑信息
                     let remote_flags = super::state::parse_node_flags(remote_flags_str);
-                    let remote_master_id = if remote_master_id_str == "-" { None } else { Some(remote_master_id_str.to_string()) };
-                    cluster.update_node_topology(remote_id, remote_flags, remote_master_id, remote_epoch, remote_slots.clone());
+                    let remote_master_id = if remote_master_id_str == "-" {
+                        None
+                    } else {
+                        Some(remote_master_id_str.to_string())
+                    };
+                    cluster.update_node_topology(
+                        remote_id,
+                        remote_flags,
+                        remote_master_id,
+                        remote_epoch,
+                        remote_slots.clone(),
+                    );
                     for slot in &remote_slots {
                         cluster.assign_slot(*slot, remote_id);
                     }
@@ -136,7 +154,16 @@ async fn handle_bus_connection(
                         let slot_ranges = super::gossip::format_slot_ranges(&my_slots);
                         let flags = node.flags_string();
                         let master_id = node.master_id.clone().unwrap_or_else(|| "-".to_string());
-                        let response = format!("PONG {} {} {} {} {} {} {}\n", node.id, node.ip, node.port, cluster.get_current_epoch(), flags, master_id, slot_ranges);
+                        let response = format!(
+                            "PONG {} {} {} {} {} {} {}\n",
+                            node.id,
+                            node.ip,
+                            node.port,
+                            cluster.get_current_epoch(),
+                            flags,
+                            master_id,
+                            slot_ranges
+                        );
                         stream.write_all(response.as_bytes()).await?;
                     }
                 }
@@ -175,7 +202,13 @@ async fn handle_bus_connection(
                         });
                     }
 
-                    cluster.update_node_topology(remote_id, flags, master_id, remote_epoch, slots.clone());
+                    cluster.update_node_topology(
+                        remote_id,
+                        flags,
+                        master_id,
+                        remote_epoch,
+                        slots.clone(),
+                    );
 
                     // 更新 slot 分配表
                     for slot in slots {

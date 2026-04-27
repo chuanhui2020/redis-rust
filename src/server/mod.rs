@@ -21,7 +21,6 @@ use crate::scripting::ScriptEngine;
 use crate::slowlog::SlowLog;
 use crate::storage::StorageEngine;
 
-
 pub mod connection;
 pub mod handler;
 pub mod pubsub;
@@ -38,7 +37,6 @@ pub(crate) fn bulk_bytes(b: &Bytes) -> RespValue {
 }
 
 pub use handler::ConnectionHandler;
-
 
 /// 客户端消息（从订阅频道转发而来）
 #[derive(Debug, Clone)]
@@ -190,7 +188,10 @@ impl Server {
     }
 
     /// 设置复制管理器
-    pub fn with_replication(mut self, replication: Arc<crate::replication::ReplicationManager>) -> Self {
+    pub fn with_replication(
+        mut self,
+        replication: Arc<crate::replication::ReplicationManager>,
+    ) -> Self {
         self.replication = Some(replication);
         self
     }
@@ -233,9 +234,10 @@ impl Server {
         log::info!("服务器已启动，等待客户端连接...");
 
         if let Some(ref repl) = self.replication
-            && let Ok(addr) = listener.local_addr() {
-                repl.set_listening_port(addr.port());
-            }
+            && let Ok(addr) = listener.local_addr()
+        {
+            repl.set_listening_port(addr.port());
+        }
 
         loop {
             let (stream, peer_addr) = listener.accept().await?;
@@ -262,11 +264,29 @@ impl Server {
             let keyspace_notifier = self.keyspace_notifier.clone();
             tokio::spawn(async move {
                 if let Err(e) = connection::handle_connection(
-                    stream, peer_addr.to_string(), storage, aof, pubsub,
-                    password, clients, next_client_id, script_engine, rdb_path, slowlog, acl,
-                    replication, sentinel, cluster, client_pause, client_kill_flags, monitor_tx, latency,
+                    stream,
+                    peer_addr.to_string(),
+                    storage,
+                    aof,
+                    pubsub,
+                    password,
+                    clients,
+                    next_client_id,
+                    script_engine,
+                    rdb_path,
+                    slowlog,
+                    acl,
+                    replication,
+                    sentinel,
+                    cluster,
+                    client_pause,
+                    client_kill_flags,
+                    monitor_tx,
+                    latency,
                     keyspace_notifier,
-                ).await {
+                )
+                .await
+                {
                     log::error!("处理连接 {} 时出错: {}", peer_addr, e);
                 }
                 log::info!("客户端已断开: {}", peer_addr);
@@ -274,4 +294,3 @@ impl Server {
         }
     }
 }
-

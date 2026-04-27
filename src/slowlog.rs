@@ -127,7 +127,9 @@ impl SlowLog {
         parts.push(RespValue::Integer(entry.duration_us as i64));
 
         let mut cmd_parts = Vec::new();
-        cmd_parts.push(RespValue::BulkString(Some(Bytes::from(entry.cmd_name.clone()))));
+        cmd_parts.push(RespValue::BulkString(Some(Bytes::from(
+            entry.cmd_name.clone(),
+        ))));
         for arg in &entry.args {
             cmd_parts.push(RespValue::BulkString(Some(Bytes::from(arg.clone()))));
         }

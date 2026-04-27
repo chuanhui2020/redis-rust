@@ -11,35 +11,44 @@ use super::ClusterState;
 pub fn start_gossip(cluster: Arc<ClusterState>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
-        
+
         loop {
             interval.tick().await;
-            
+
             let nodes = cluster.get_nodes();
             let my_id = cluster.myself_id();
             let my_node = cluster.myself();
-            
+
             // 获取自己的 IP 和端口
             let (my_ip, my_port) = if let Some(ref node) = my_node {
                 (node.ip.clone(), node.port)
             } else {
                 continue;
             };
-            
+
             // 向所有非自身节点发送 PING
             for node in &nodes {
                 if node.id == my_id {
                     continue;
                 }
-                
+
                 let node_ip = node.ip.clone();
                 let node_bus_port = node.bus_port;
                 let cluster_clone = cluster.clone();
                 let my_id_clone = my_id.clone();
                 let my_ip_clone = my_ip.clone();
-                
+
                 tokio::spawn(async move {
-                    match send_cluster_ping(&node_ip, node_bus_port, &my_id_clone, &my_ip_clone, my_port, &cluster_clone).await {
+                    match send_cluster_ping(
+                        &node_ip,
+                        node_bus_port,
+                        &my_id_clone,
+                        &my_ip_clone,
+                        my_port,
+                        &cluster_clone,
+                    )
+                    .await
+                    {
                         Ok(()) => {
                             // 更新 pong_recv 时间
                             let now = std::time::SystemTime::now()
@@ -79,7 +88,10 @@ pub async fn send_cluster_ping(
     let master_id = my_node.master_id.clone().unwrap_or_else(|| "-".to_string());
     let slot_ranges = format_slot_ranges(&my_node.get_slots());
 
-    let msg = format!("PING {} {} {} {} {} {} {}\n", my_id, my_ip, my_port, epoch, flags, master_id, slot_ranges);
+    let msg = format!(
+        "PING {} {} {} {} {} {} {}\n",
+        my_id, my_ip, my_port, epoch, flags, master_id, slot_ranges
+    );
     stream.write_all(msg.as_bytes()).await?;
 
     let mut buf = [0u8; 1024];
@@ -97,7 +109,11 @@ pub async fn send_cluster_ping(
             let remote_master_id_str = parts[6];
 
             let remote_flags = super::state::parse_node_flags(remote_flags_str);
-            let remote_master_id = if remote_master_id_str == "-" { None } else { Some(remote_master_id_str.to_string()) };
+            let remote_master_id = if remote_master_id_str == "-" {
+                None
+            } else {
+                Some(remote_master_id_str.to_string())
+            };
 
             // 解析 slot 范围
             let mut remote_slots = Vec::new();
@@ -111,19 +127,32 @@ pub async fn send_cluster_ping(
 
             // 添加或更新远程节点
             if cluster.get_node(remote_id).is_none() && remote_port > 0 {
-                let existing_id = cluster.get_nodes().iter()
+                let existing_id = cluster
+                    .get_nodes()
+                    .iter()
                     .find(|n| n.ip == remote_ip && n.port == remote_port)
                     .map(|n| n.id.clone());
                 if let Some(old_id) = existing_id
-                    && old_id != remote_id {
-                        cluster.remove_node(&old_id);
-                    }
-                let new_node = super::ClusterNode::new(remote_id.to_string(), remote_ip.to_string(), remote_port);
+                    && old_id != remote_id
+                {
+                    cluster.remove_node(&old_id);
+                }
+                let new_node = super::ClusterNode::new(
+                    remote_id.to_string(),
+                    remote_ip.to_string(),
+                    remote_port,
+                );
                 cluster.add_node(new_node);
             }
 
             // 更新节点拓扑（flags、master_id、slots）
-            cluster.update_node_topology(remote_id, remote_flags, remote_master_id, remote_epoch, remote_slots.clone());
+            cluster.update_node_topology(
+                remote_id,
+                remote_flags,
+                remote_master_id,
+                remote_epoch,
+                remote_slots.clone(),
+            );
             for slot in &remote_slots {
                 cluster.assign_slot(*slot, remote_id);
             }
@@ -216,8 +245,11 @@ pub async fn broadcast_topology_update(cluster: Arc<ClusterState>) {
         tokio::spawn(async move {
             let addr = format!("{}:{}", node_ip, node_bus_port);
             let timeout = Duration::from_millis(500);
-            if let Ok(Ok(mut stream)) = tokio::time::timeout(timeout, TcpStream::connect(&addr)).await {
-                let _ = tokio::time::timeout(timeout, stream.write_all(update_msg.as_bytes())).await;
+            if let Ok(Ok(mut stream)) =
+                tokio::time::timeout(timeout, TcpStream::connect(&addr)).await
+            {
+                let _ =
+                    tokio::time::timeout(timeout, stream.write_all(update_msg.as_bytes())).await;
             }
         });
     }

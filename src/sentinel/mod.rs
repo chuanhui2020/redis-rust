@@ -1,12 +1,12 @@
 //! Sentinel 管理器模块，维护被监控 master 的状态和故障转移逻辑
 
-pub mod monitor;
 pub mod discovery;
 pub mod failover;
+pub mod monitor;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 /// 被监控的 Redis 实例信息
@@ -123,7 +123,12 @@ impl SentinelManager {
     pub fn update_epoch(&self, epoch: u64) {
         let current = self.current_epoch.load(Ordering::Relaxed);
         if epoch > current {
-            let _ = self.current_epoch.compare_exchange(current, epoch, Ordering::Relaxed, Ordering::Relaxed);
+            let _ = self.current_epoch.compare_exchange(
+                current,
+                epoch,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            );
         }
     }
 
@@ -139,7 +144,12 @@ impl SentinelManager {
         // 更新全局 current_epoch
         let current = self.current_epoch.load(Ordering::Relaxed);
         if epoch > current {
-            let _ = self.current_epoch.compare_exchange(current, epoch, Ordering::Relaxed, Ordering::Relaxed);
+            let _ = self.current_epoch.compare_exchange(
+                current,
+                epoch,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            );
         }
 
         // 同一 epoch 只投一票
@@ -159,7 +169,9 @@ impl SentinelManager {
         master.failover_epoch = epoch;
         log::info!(
             "Sentinel: 为 master {} 的 epoch {} 投票给 {}",
-            master_name, epoch, runid
+            master_name,
+            epoch,
+            runid
         );
         (true, runid.to_string())
     }
@@ -261,10 +273,9 @@ impl SentinelManager {
         let mut masters = self.masters.write().unwrap();
         let removed = masters.remove(name).is_some();
         drop(masters);
-        if removed
-            && let Err(e) = self.save_config() {
-                log::warn!("Sentinel 配置自动保存失败: {}", e);
-            }
+        if removed && let Err(e) = self.save_config() {
+            log::warn!("Sentinel 配置自动保存失败: {}", e);
+        }
         removed
     }
 
@@ -314,7 +325,11 @@ impl SentinelManager {
             master.replicas.clear();
             log::info!(
                 "master {} 地址已更新: {}:{} -> {}:{}",
-                name, old_ip, old_port, new_ip, new_port
+                name,
+                old_ip,
+                old_port,
+                new_ip,
+                new_port
             );
         }
     }
@@ -336,9 +351,19 @@ impl SentinelManager {
                 }
             }
             if master.sdown && !was_sdown {
-                log::warn!("Sentinel: master {} ({}:{}) 进入主观下线 (SDOWN)", master.name, master.ip, master.port);
+                log::warn!(
+                    "Sentinel: master {} ({}:{}) 进入主观下线 (SDOWN)",
+                    master.name,
+                    master.ip,
+                    master.port
+                );
             } else if !master.sdown && was_sdown {
-                log::info!("Sentinel: master {} ({}:{}) 退出主观下线", master.name, master.ip, master.port);
+                log::info!(
+                    "Sentinel: master {} ({}:{}) 退出主观下线",
+                    master.name,
+                    master.ip,
+                    master.port
+                );
             }
         }
     }
@@ -388,7 +413,12 @@ impl SentinelManager {
                 existing.port = peer.port;
                 existing.last_hello_time = peer.last_hello_time;
             } else {
-                log::info!("发现新 Sentinel: {}:{} (runid={})", peer.ip, peer.port, peer.runid);
+                log::info!(
+                    "发现新 Sentinel: {}:{} (runid={})",
+                    peer.ip,
+                    peer.port,
+                    peer.runid
+                );
                 master.sentinels.push(peer);
             }
         }
@@ -398,7 +428,9 @@ impl SentinelManager {
     fn generate_runid() -> String {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        (0..40).map(|_| format!("{:x}", rng.gen_range(0..16))).collect()
+        (0..40)
+            .map(|_| format!("{:x}", rng.gen_range(0..16)))
+            .collect()
     }
 }
 
@@ -411,40 +443,41 @@ impl Default for SentinelManager {
 /// 检查命令是否在 Sentinel 模式下允许
 pub fn is_sentinel_allowed_command(cmd: &crate::command::Command) -> bool {
     use crate::command::Command;
-    matches!(cmd,
+    matches!(
+        cmd,
         Command::Ping(_)
-        | Command::Info(_)
-        | Command::Subscribe(_)
-        | Command::Unsubscribe(_)
-        | Command::PSubscribe(_)
-        | Command::PUnsubscribe(_)
-        | Command::Publish(_, _)
-        | Command::Quit
-        | Command::Reset
-        | Command::Auth(_, _)
-        | Command::Hello(_, _, _)
-        | Command::ClientSetName(_)
-        | Command::ClientGetName
-        | Command::ClientList
-        | Command::ClientId
-        | Command::ClientInfo
-        | Command::CommandInfo
-        | Command::CommandCount
-        | Command::CommandList(_)
-        | Command::CommandDocs(_)
-        | Command::Shutdown(_)
-        | Command::SentinelMasters
-        | Command::SentinelMaster(_)
-        | Command::SentinelReplicas(_)
-        | Command::SentinelSentinels(_)
-        | Command::SentinelGetMasterAddrByName(_)
-        | Command::SentinelMonitor { .. }
-        | Command::SentinelRemove(_)
-        | Command::SentinelSet { .. }
-        | Command::SentinelFailover(_)
-        | Command::SentinelReset(_)
-        | Command::SentinelCkquorum(_)
-        | Command::SentinelMyId
-        | Command::SentinelIsMasterDownByAddr { .. }
+            | Command::Info(_)
+            | Command::Subscribe(_)
+            | Command::Unsubscribe(_)
+            | Command::PSubscribe(_)
+            | Command::PUnsubscribe(_)
+            | Command::Publish(_, _)
+            | Command::Quit
+            | Command::Reset
+            | Command::Auth(_, _)
+            | Command::Hello(_, _, _)
+            | Command::ClientSetName(_)
+            | Command::ClientGetName
+            | Command::ClientList
+            | Command::ClientId
+            | Command::ClientInfo
+            | Command::CommandInfo
+            | Command::CommandCount
+            | Command::CommandList(_)
+            | Command::CommandDocs(_)
+            | Command::Shutdown(_)
+            | Command::SentinelMasters
+            | Command::SentinelMaster(_)
+            | Command::SentinelReplicas(_)
+            | Command::SentinelSentinels(_)
+            | Command::SentinelGetMasterAddrByName(_)
+            | Command::SentinelMonitor { .. }
+            | Command::SentinelRemove(_)
+            | Command::SentinelSet { .. }
+            | Command::SentinelFailover(_)
+            | Command::SentinelReset(_)
+            | Command::SentinelCkquorum(_)
+            | Command::SentinelMyId
+            | Command::SentinelIsMasterDownByAddr { .. }
     )
 }

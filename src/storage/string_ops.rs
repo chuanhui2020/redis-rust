@@ -34,17 +34,22 @@ impl StorageEngine {
                     // 键存在且未过期，直接返回值
                     let result = match value {
                         StorageValue::String(v) => Ok(Some(v.clone())),
-                        _ => {
-                            Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
-                        }
+                        _ => Err(AppError::Storage(
+                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
+                        )),
                     };
                     drop(map);
                     // 内联 touch，只在 maxmemory > 0 时执行
                     if result.is_ok() && self.maxmemory.load(Ordering::Relaxed) > 0 {
-                        db.access_times.write().unwrap().insert(key.to_string(), Instant::now());
-                        *db.access_counts.write().unwrap().entry(key.to_string()).or_insert(0) += 1;
+                        db.access_times
+                            .write()
+                            .unwrap()
+                            .insert(key.to_string(), Instant::now());
+                        *db.access_counts
+                            .write()
+                            .unwrap()
+                            .entry(key.to_string())
+                            .or_insert(0) += 1;
                     }
                     return result;
                 }
@@ -61,7 +66,9 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         // 双重检查：在获取写锁期间可能已被其他线程删除或更新
         if Self::is_key_expired(db, key) {
-            map.remove(key);
+            if map.remove(key).is_some() {
+                self.bump_version_in_db(db, key);
+            }
             let mut expires = db.expires.get_shard(key).write().unwrap();
             expires.remove(key);
             if let Some(ref notifier) = self.keyspace_notifier {
@@ -101,13 +108,19 @@ impl StorageEngine {
             let mut expires = db.expires.get_shard(&key).write().unwrap();
             expires.remove(&key);
             // version bump 合并到同一个 shard 锁作用域内减少锁竞争
-            let new_ver = self.version_counter.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+            let new_ver = self
+                .version_counter
+                .fetch_add(1, Ordering::Relaxed)
+                .wrapping_add(1);
             if let Ok(mut versions) = db.versions.get_shard(&key).write() {
                 versions.insert(key.clone(), new_ver);
             }
         }
         if has_maxmem {
-            db.access_times.write().unwrap().insert(key.clone(), Instant::now());
+            db.access_times
+                .write()
+                .unwrap()
+                .insert(key.clone(), Instant::now());
             *db.access_counts.write().unwrap().entry(key).or_insert(0) += 1;
             self.evict_if_needed()?;
         }
@@ -212,9 +225,11 @@ impl StorageEngine {
             match map.get(&key) {
                 Some(v) if !Self::is_key_expired(&db, &key) => Some(match v {
                     StorageValue::String(b) => b.clone(),
-                    _ => return Err(AppError::Storage(
-                        "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                    )),
+                    _ => {
+                        return Err(AppError::Storage(
+                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
+                        ));
+                    }
                 }),
                 _ => {
                     map.remove(&key);
@@ -268,8 +283,12 @@ impl StorageEngine {
         {
             let mut expires = db.expires.get_shard(&key).write().unwrap();
             match expire_at {
-                Some(at) => { expires.insert(key.clone(), at); }
-                None => { expires.remove(&key); }
+                Some(at) => {
+                    expires.insert(key.clone(), at);
+                }
+                None => {
+                    expires.remove(&key);
+                }
             }
         }
         self.bump_version(&key);
@@ -296,18 +315,22 @@ impl StorageEngine {
         let v1 = match self.get(key1)? {
             Some(b) => match std::str::from_utf8(&b) {
                 Ok(s) => s.to_string(),
-                Err(_) => return Err(AppError::Storage(
-                    "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                )),
+                Err(_) => {
+                    return Err(AppError::Storage(
+                        "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
+                    ));
+                }
             },
             None => return Ok(None),
         };
         let v2 = match self.get(key2)? {
             Some(b) => match std::str::from_utf8(&b) {
                 Ok(s) => s.to_string(),
-                Err(_) => return Err(AppError::Storage(
-                    "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                )),
+                Err(_) => {
+                    return Err(AppError::Storage(
+                        "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
+                    ));
+                }
             },
             None => return Ok(None),
         };
@@ -366,7 +389,9 @@ impl StorageEngine {
         match map.get(key) {
             Some(_) => {
                 if Self::is_key_expired(&db, key) {
-                    map.remove(key);
+                    if map.remove(key).is_some() {
+                        self.bump_version_in_db(&db, key);
+                    }
                     let mut expires = db.expires.get_shard(key).write().unwrap();
                     expires.remove(key);
                     Ok(false)
@@ -408,7 +433,9 @@ impl StorageEngine {
         match map.get(key) {
             Some(_) => {
                 if Self::is_key_expired(&db, key) {
-                    map.remove(key);
+                    if map.remove(key).is_some() {
+                        self.bump_version_in_db(&db, key);
+                    }
                     let mut expires = db.expires.get_shard(key).write().unwrap();
                     expires.remove(key);
                     Ok(-2)
@@ -457,7 +484,9 @@ impl StorageEngine {
 
         if !exists_and_not_expired {
             // 若已过期则一并清理
-            map.remove(key);
+            if map.remove(key).is_some() {
+                self.bump_version_in_db(&db, key);
+            }
             let mut expires = db.expires.get_shard(key).write().unwrap();
             expires.remove(key);
             return Ok(false);
@@ -504,7 +533,9 @@ impl StorageEngine {
         match map.get(key) {
             Some(_) => {
                 if Self::is_key_expired(&db, key) {
-                    map.remove(key);
+                    if map.remove(key).is_some() {
+                        self.bump_version_in_db(&db, key);
+                    }
                     let mut expires = db.expires.get_shard(key).write().unwrap();
                     expires.remove(key);
                     Ok(false)
@@ -527,15 +558,21 @@ impl StorageEngine {
     pub fn flush(&self) -> Result<()> {
         for db in self.dbs.iter() {
             for shard in db.inner.all_shards() {
-                let mut map = shard.write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                let mut map = shard
+                    .write()
+                    .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
                 map.clear();
             }
             for shard in db.versions.all_shards() {
-                let mut v = shard.write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                let mut v = shard
+                    .write()
+                    .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
                 v.clear();
             }
             for shard in db.expires.all_shards() {
-                let mut e = shard.write().map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                let mut e = shard
+                    .write()
+                    .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
                 e.clear();
             }
             let mut times = db.access_times.write().unwrap();
@@ -569,7 +606,9 @@ impl StorageEngine {
             match map.get(key.as_str()) {
                 Some(value) => {
                     if Self::is_key_expired(&db, key) {
-                        map.remove(key);
+                        if map.remove(key).is_some() {
+                            self.bump_version_in_db(&db, key);
+                        }
                         let mut expires = db.expires.get_shard(key).write().unwrap();
                         expires.remove(key);
                         results.push(None);
@@ -577,9 +616,12 @@ impl StorageEngine {
                         match value {
                             StorageValue::String(v) => results.push(Some(v.clone())),
 
-                            StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::Set(_) | StorageValue::ZSet(_) | StorageValue::HyperLogLog(_) | StorageValue::Stream(_) => {
-                                results.push(None)
-                            }
+                            StorageValue::List(_)
+                            | StorageValue::Hash(_)
+                            | StorageValue::Set(_)
+                            | StorageValue::ZSet(_)
+                            | StorageValue::HyperLogLog(_)
+                            | StorageValue::Stream(_) => results.push(None),
                         }
                     }
                 }
@@ -626,24 +668,18 @@ impl StorageEngine {
     /// - `Err(AppError::Storage)` - 值不是有效的整数字符串或类型错误
     fn parse_int_value(value: Option<&StorageValue>) -> Result<i64> {
         match value {
-            Some(StorageValue::String(v)) => {
-                String::from_utf8_lossy(v)
-                    .parse()
-                    .map_err(|_| {
-                        AppError::Storage("值不是有效的整数字符串".to_string())
-                    })
-            }
+            Some(StorageValue::String(v)) => String::from_utf8_lossy(v)
+                .parse()
+                .map_err(|_| AppError::Storage("值不是有效的整数字符串".to_string())),
 
             Some(StorageValue::List(_))
             | Some(StorageValue::Hash(_))
             | Some(StorageValue::Set(_))
             | Some(StorageValue::ZSet(_))
             | Some(StorageValue::HyperLogLog(_))
-            | Some(StorageValue::Stream(_)) => {
-                Err(AppError::Storage(
-                    "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                ))
-            }
+            | Some(StorageValue::Stream(_)) => Err(AppError::Storage(
+                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
+            )),
             None => Ok(0),
         }
     }
@@ -702,7 +738,9 @@ impl StorageEngine {
         let current = match map.get(key) {
             Some(value) => {
                 if Self::is_key_expired(&db, key) {
-                    map.remove(key);
+                    if map.remove(key).is_some() {
+                        self.bump_version_in_db(&db, key);
+                    }
                     let mut expires = db.expires.get_shard(key).write().unwrap();
                     expires.remove(key);
                     0i64
@@ -711,7 +749,7 @@ impl StorageEngine {
                         StorageValue::List(_) => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
+                            ));
                         }
                         _ => Self::parse_int_value(Some(value))?,
                     }
@@ -774,7 +812,9 @@ impl StorageEngine {
         let existing = match map.get(key) {
             Some(v) => {
                 if Self::is_key_expired(&db, key) {
-                    map.remove(key);
+                    if map.remove(key).is_some() {
+                        self.bump_version_in_db(&db, key);
+                    }
                     let mut expires = db.expires.get_shard(key).write().unwrap();
                     expires.remove(key);
                     Bytes::new()
@@ -782,10 +822,15 @@ impl StorageEngine {
                     match v {
                         StorageValue::String(b) => b.clone(),
 
-                        StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::Set(_) | StorageValue::ZSet(_) | StorageValue::HyperLogLog(_) | StorageValue::Stream(_) => {
+                        StorageValue::List(_)
+                        | StorageValue::Hash(_)
+                        | StorageValue::Set(_)
+                        | StorageValue::ZSet(_)
+                        | StorageValue::HyperLogLog(_)
+                        | StorageValue::Stream(_) => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -915,19 +960,19 @@ impl StorageEngine {
         let old = match map.get(key) {
             Some(v) => {
                 if Self::is_key_expired(&db, key) {
-                    map.remove(key);
+                    if map.remove(key).is_some() {
+                        self.bump_version_in_db(&db, key);
+                    }
                     let mut expires = db.expires.get_shard(key).write().unwrap();
                     expires.remove(key);
                     None
                 } else {
                     match v {
-                        StorageValue::String(b) => {
-                            Some(b.clone())
-                        }
+                        StorageValue::String(b) => Some(b.clone()),
                         _ => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -969,19 +1014,19 @@ impl StorageEngine {
         let result = match map.get(key) {
             Some(v) => {
                 if Self::is_key_expired(&db, key) {
-                    map.remove(key);
+                    if map.remove(key).is_some() {
+                        self.bump_version_in_db(&db, key);
+                    }
                     let mut expires = db.expires.get_shard(key).write().unwrap();
                     expires.remove(key);
                     None
                 } else {
                     match v {
-                        StorageValue::String(b) => {
-                            Some(b.clone())
-                        }
+                        StorageValue::String(b) => Some(b.clone()),
                         _ => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -1023,19 +1068,19 @@ impl StorageEngine {
         let result = match map.get(key) {
             Some(v) => {
                 if Self::is_key_expired(&db, key) {
-                    map.remove(key);
+                    if map.remove(key).is_some() {
+                        self.bump_version_in_db(&db, key);
+                    }
                     let mut expires = db.expires.get_shard(key).write().unwrap();
                     expires.remove(key);
                     None
                 } else {
                     match v {
-                        StorageValue::String(b) => {
-                            Some(b.clone())
-                        }
+                        StorageValue::String(b) => Some(b.clone()),
                         _ => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -1094,10 +1139,9 @@ impl StorageEngine {
                 .get_shard(key)
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            if map.get(key).is_some()
-                && !Self::is_key_expired(&db, key) {
-                    return Ok(0);
-                }
+            if map.get(key).is_some() && !Self::is_key_expired(&db, key) {
+                return Ok(0);
+            }
         }
 
         // 全部设置
@@ -1140,23 +1184,23 @@ impl StorageEngine {
         let current = match map.get(key) {
             Some(value) => {
                 if Self::is_key_expired(&db, key) {
-                    map.remove(key);
+                    if map.remove(key).is_some() {
+                        self.bump_version_in_db(&db, key);
+                    }
                     let mut expires = db.expires.get_shard(key).write().unwrap();
                     expires.remove(key);
                     0.0
                 } else {
                     match value {
                         StorageValue::String(b) => {
-                            String::from_utf8_lossy(b)
-                                .parse::<f64>()
-                                .map_err(|_| {
-                                    AppError::Storage("值不是有效的浮点数字符串".to_string())
-                                })?
+                            String::from_utf8_lossy(b).parse::<f64>().map_err(|_| {
+                                AppError::Storage("值不是有效的浮点数字符串".to_string())
+                            })?
                         }
                         _ => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -1204,19 +1248,19 @@ impl StorageEngine {
         let mut existing = match map.get(key) {
             Some(v) => {
                 if Self::is_key_expired(&db, key) {
-                    map.remove(key);
+                    if map.remove(key).is_some() {
+                        self.bump_version_in_db(&db, key);
+                    }
                     let mut expires = db.expires.get_shard(key).write().unwrap();
                     expires.remove(key);
                     Vec::new()
                 } else {
                     match v {
-                        StorageValue::String(b) => {
-                            b.to_vec()
-                        }
+                        StorageValue::String(b) => b.to_vec(),
                         _ => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
+                            ));
                         }
                     }
                 }
@@ -1234,10 +1278,7 @@ impl StorageEngine {
         existing[offset..end].copy_from_slice(&value);
 
         let new_len = existing.len();
-        map.insert(
-            key.to_string(),
-            StorageValue::String(Bytes::from(existing)),
-        );
+        map.insert(key.to_string(), StorageValue::String(Bytes::from(existing)));
         let mut expires = db.expires.get_shard(key).write().unwrap();
         expires.remove(key);
         self.bump_version(key);
@@ -1271,17 +1312,24 @@ impl StorageEngine {
         let bytes = match map.get(key) {
             Some(v) => {
                 if Self::is_key_expired(&db, key) {
-                    map.remove(key);
+                    if map.remove(key).is_some() {
+                        self.bump_version_in_db(&db, key);
+                    }
                     let mut expires = db.expires.get_shard(key).write().unwrap();
                     expires.remove(key);
                     return Ok(None);
                 }
                 match v {
                     StorageValue::String(b) => b.clone(),
-                    StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::Set(_) | StorageValue::ZSet(_) | StorageValue::HyperLogLog(_) | StorageValue::Stream(_) => {
+                    StorageValue::List(_)
+                    | StorageValue::Hash(_)
+                    | StorageValue::Set(_)
+                    | StorageValue::ZSet(_)
+                    | StorageValue::HyperLogLog(_)
+                    | StorageValue::Stream(_) => {
                         return Err(AppError::Storage(
                             "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                        ))
+                        ));
                     }
                 }
             }
@@ -1308,9 +1356,7 @@ impl StorageEngine {
 
         let start_idx = s as usize;
         let end_idx = e as usize;
-        Ok(Some(Bytes::copy_from_slice(
-            &bytes[start_idx..=end_idx],
-        )))
+        Ok(Some(Bytes::copy_from_slice(&bytes[start_idx..=end_idx])))
     }
 
     /// 返回字符串值的长度（对标 Redis STRLEN 命令）
@@ -1335,18 +1381,23 @@ impl StorageEngine {
         match map.get(key) {
             Some(v) => {
                 if Self::is_key_expired(&db, key) {
-                    map.remove(key);
+                    if map.remove(key).is_some() {
+                        self.bump_version_in_db(&db, key);
+                    }
                     let mut expires = db.expires.get_shard(key).write().unwrap();
                     expires.remove(key);
                     Ok(0)
                 } else {
                     match v {
                         StorageValue::String(b) => Ok(b.len()),
-                        StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::Set(_) | StorageValue::ZSet(_) | StorageValue::HyperLogLog(_) | StorageValue::Stream(_) => {
-                            Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
-                        }
+                        StorageValue::List(_)
+                        | StorageValue::Hash(_)
+                        | StorageValue::Set(_)
+                        | StorageValue::ZSet(_)
+                        | StorageValue::HyperLogLog(_)
+                        | StorageValue::Stream(_) => Err(AppError::Storage(
+                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
+                        )),
                     }
                 }
             }

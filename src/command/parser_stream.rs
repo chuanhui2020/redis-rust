@@ -1,17 +1,15 @@
 //! Stream 命令解析器
 use super::*;
 
+use super::parser::CommandParser;
 use crate::error::{AppError, Result};
 use crate::protocol::RespValue;
-use super::parser::CommandParser;
 
 impl CommandParser {
     /// 解析 XADD 命令：XADD key [NOMKSTREAM] [MAXLEN|MINID [=|~] threshold] *|id field value [field value ...]
     pub(crate) fn parse_xadd(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 5 {
-            return Err(AppError::Command(
-                "XADD 命令需要至少 4 个参数".to_string(),
-            ));
+            return Err(AppError::Command("XADD 命令需要至少 4 个参数".to_string()));
         }
         let key = self.extract_string(&arr[1])?;
         let mut i = 2;
@@ -36,18 +34,25 @@ impl CommandParser {
                         }
                         if i < arr.len() {
                             if next == "~" || next == "=" {
-                                max_len = Some(self.extract_string(&arr[i])?.parse().map_err(|_| {
-                                    AppError::Command("XADD MAXLEN threshold 必须是整数".to_string())
-                                })?);
+                                max_len =
+                                    Some(self.extract_string(&arr[i])?.parse().map_err(|_| {
+                                        AppError::Command(
+                                            "XADD MAXLEN threshold 必须是整数".to_string(),
+                                        )
+                                    })?);
                                 i += 1;
                             } else {
                                 max_len = Some(next.parse().map_err(|_| {
-                                    AppError::Command("XADD MAXLEN threshold 必须是整数".to_string())
+                                    AppError::Command(
+                                        "XADD MAXLEN threshold 必须是整数".to_string(),
+                                    )
                                 })?);
                                 i += 1;
                             }
                         } else {
-                            return Err(AppError::Command("XADD MAXLEN 需要 threshold".to_string()));
+                            return Err(AppError::Command(
+                                "XADD MAXLEN 需要 threshold".to_string(),
+                            ));
                         }
                     } else {
                         return Err(AppError::Command("XADD MAXLEN 需要 threshold".to_string()));
@@ -81,7 +86,9 @@ impl CommandParser {
         i += 1;
 
         if !(arr.len() - i).is_multiple_of(2) {
-            return Err(AppError::Command("XADD 字段必须是 field-value 对".to_string()));
+            return Err(AppError::Command(
+                "XADD 字段必须是 field-value 对".to_string(),
+            ));
         }
 
         let mut fields = Vec::new();
@@ -95,7 +102,6 @@ impl CommandParser {
         Ok(Command::XAdd(key, id, fields, nomkstream, max_len, min_id))
     }
 
-
     /// 解析 XLEN 命令：XLEN key
     pub(crate) fn parse_xlen(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
@@ -105,11 +111,12 @@ impl CommandParser {
         Ok(Command::XLen(key))
     }
 
-
     /// 解析 XRANGE 命令：XRANGE key start end [COUNT count]
     pub(crate) fn parse_xrange(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 4 {
-            return Err(AppError::Command("XRANGE 命令需要至少 3 个参数".to_string()));
+            return Err(AppError::Command(
+                "XRANGE 命令需要至少 3 个参数".to_string(),
+            ));
         }
         let key = self.extract_string(&arr[1])?;
         let start = self.extract_string(&arr[2])?;
@@ -118,19 +125,22 @@ impl CommandParser {
         if arr.len() >= 6 {
             let opt = self.extract_string(&arr[4])?.to_ascii_uppercase();
             if opt == "COUNT" {
-                count = Some(self.extract_string(&arr[5])?.parse().map_err(|_| {
-                    AppError::Command("XRANGE COUNT 必须是整数".to_string())
-                })?);
+                count = Some(
+                    self.extract_string(&arr[5])?
+                        .parse()
+                        .map_err(|_| AppError::Command("XRANGE COUNT 必须是整数".to_string()))?,
+                );
             }
         }
         Ok(Command::XRange(key, start, end, count))
     }
 
-
     /// 解析 XREVRANGE 命令：XREVRANGE key end start [COUNT count]
     pub(crate) fn parse_xrevrange(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 4 {
-            return Err(AppError::Command("XREVRANGE 命令需要至少 3 个参数".to_string()));
+            return Err(AppError::Command(
+                "XREVRANGE 命令需要至少 3 个参数".to_string(),
+            ));
         }
         let key = self.extract_string(&arr[1])?;
         let end = self.extract_string(&arr[2])?;
@@ -139,14 +149,14 @@ impl CommandParser {
         if arr.len() >= 6 {
             let opt = self.extract_string(&arr[4])?.to_ascii_uppercase();
             if opt == "COUNT" {
-                count = Some(self.extract_string(&arr[5])?.parse().map_err(|_| {
-                    AppError::Command("XREVRANGE COUNT 必须是整数".to_string())
-                })?);
+                count =
+                    Some(self.extract_string(&arr[5])?.parse().map_err(|_| {
+                        AppError::Command("XREVRANGE COUNT 必须是整数".to_string())
+                    })?);
             }
         }
         Ok(Command::XRevRange(key, end, start, count))
     }
-
 
     /// 解析 XTRIM 命令：XTRIM key MAXLEN|MINID [=|~] threshold
     pub(crate) fn parse_xtrim(&self, arr: &[RespValue]) -> Result<Command> {
@@ -164,7 +174,6 @@ impl CommandParser {
         Ok(Command::XTrim(key, strategy, threshold))
     }
 
-
     /// 解析 XDEL 命令：XDEL key id [id ...]
     pub(crate) fn parse_xdel(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 3 {
@@ -177,7 +186,6 @@ impl CommandParser {
             .collect::<Result<Vec<_>>>()?;
         Ok(Command::XDel(key, ids))
     }
-
 
     /// 解析 XREAD 命令：XREAD [COUNT count] [BLOCK milliseconds] STREAMS key [key ...] id [id ...]
     pub(crate) fn parse_xread(&self, arr: &[RespValue]) -> Result<Command> {
@@ -193,9 +201,10 @@ impl CommandParser {
                     if i + 1 >= arr.len() {
                         return Err(AppError::Command("XREAD COUNT 需要参数".to_string()));
                     }
-                    count = Some(self.extract_string(&arr[i + 1])?.parse().map_err(|_| {
-                        AppError::Command("XREAD COUNT 必须是整数".to_string())
-                    })?);
+                    count =
+                        Some(self.extract_string(&arr[i + 1])?.parse().map_err(|_| {
+                            AppError::Command("XREAD COUNT 必须是整数".to_string())
+                        })?);
                     i += 2;
                 }
                 "BLOCK" => {
@@ -210,13 +219,19 @@ impl CommandParser {
                 }
             }
         }
-        if i >= arr.len() || !self.extract_string(&arr[i])?.eq_ignore_ascii_case("STREAMS") {
+        if i >= arr.len()
+            || !self
+                .extract_string(&arr[i])?
+                .eq_ignore_ascii_case("STREAMS")
+        {
             return Err(AppError::Command("XREAD 需要 STREAMS 关键字".to_string()));
         }
         i += 1;
         let remaining = arr.len() - i;
         if !remaining.is_multiple_of(2) {
-            return Err(AppError::Command("XREAD STREAMS 后面需要成对的 key 和 id".to_string()));
+            return Err(AppError::Command(
+                "XREAD STREAMS 后面需要成对的 key 和 id".to_string(),
+            ));
         }
         let num_streams = remaining / 2;
         let keys: Vec<String> = arr[i..i + num_streams]
@@ -230,7 +245,6 @@ impl CommandParser {
         Ok(Command::XRead(keys, ids, count))
     }
 
-
     /// 解析 XSETID 命令：XSETID key id
     pub(crate) fn parse_xsetid(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
@@ -241,10 +255,9 @@ impl CommandParser {
         Ok(Command::XSetId(key, id))
     }
 
-
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -260,7 +273,9 @@ impl CommandParser {
         match sub.as_str() {
             "CREATE" => {
                 if arr.len() < 5 {
-                    return Err(AppError::Command("XGROUP CREATE 需要 key groupname id".to_string()));
+                    return Err(AppError::Command(
+                        "XGROUP CREATE 需要 key groupname id".to_string(),
+                    ));
                 }
                 let key = self.extract_string(&arr[2])?;
                 let group = self.extract_string(&arr[3])?;
@@ -275,7 +290,9 @@ impl CommandParser {
             }
             "DESTROY" => {
                 if arr.len() < 4 {
-                    return Err(AppError::Command("XGROUP DESTROY 需要 key groupname".to_string()));
+                    return Err(AppError::Command(
+                        "XGROUP DESTROY 需要 key groupname".to_string(),
+                    ));
                 }
                 let key = self.extract_string(&arr[2])?;
                 let group = self.extract_string(&arr[3])?;
@@ -283,7 +300,9 @@ impl CommandParser {
             }
             "SETID" => {
                 if arr.len() < 5 {
-                    return Err(AppError::Command("XGROUP SETID 需要 key groupname id".to_string()));
+                    return Err(AppError::Command(
+                        "XGROUP SETID 需要 key groupname id".to_string(),
+                    ));
                 }
                 let key = self.extract_string(&arr[2])?;
                 let group = self.extract_string(&arr[3])?;
@@ -292,7 +311,9 @@ impl CommandParser {
             }
             "DELCONSUMER" => {
                 if arr.len() < 5 {
-                    return Err(AppError::Command("XGROUP DELCONSUMER 需要 key groupname consumername".to_string()));
+                    return Err(AppError::Command(
+                        "XGROUP DELCONSUMER 需要 key groupname consumername".to_string(),
+                    ));
                 }
                 let key = self.extract_string(&arr[2])?;
                 let group = self.extract_string(&arr[3])?;
@@ -301,7 +322,9 @@ impl CommandParser {
             }
             "CREATECONSUMER" => {
                 if arr.len() < 5 {
-                    return Err(AppError::Command("XGROUP CREATECONSUMER 需要 key groupname consumername".to_string()));
+                    return Err(AppError::Command(
+                        "XGROUP CREATECONSUMER 需要 key groupname consumername".to_string(),
+                    ));
                 }
                 let key = self.extract_string(&arr[2])?;
                 let group = self.extract_string(&arr[3])?;
@@ -312,10 +335,9 @@ impl CommandParser {
         }
     }
 
-
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -329,7 +351,9 @@ impl CommandParser {
         }
         let g = self.extract_string(&arr[1])?.to_ascii_uppercase();
         if g != "GROUP" {
-            return Err(AppError::Command("XREADGROUP 需要 GROUP 关键字".to_string()));
+            return Err(AppError::Command(
+                "XREADGROUP 需要 GROUP 关键字".to_string(),
+            ));
         }
         let group = self.extract_string(&arr[2])?;
         let consumer = self.extract_string(&arr[3])?;
@@ -341,19 +365,28 @@ impl CommandParser {
             match opt.as_str() {
                 "COUNT" => {
                     i += 1;
-                    count = Some(self.extract_string(&arr[i])?.parse::<usize>().map_err(|_| {
-                        AppError::Command("COUNT 必须是整数".to_string())
-                    })?);
+                    count = Some(
+                        self.extract_string(&arr[i])?
+                            .parse::<usize>()
+                            .map_err(|_| AppError::Command("COUNT 必须是整数".to_string()))?,
+                    );
                 }
-                "NOACK" => { noack = true; }
-                "STREAMS" => { i += 1; break; }
+                "NOACK" => {
+                    noack = true;
+                }
+                "STREAMS" => {
+                    i += 1;
+                    break;
+                }
                 _ => {}
             }
             i += 1;
         }
         let remaining = arr.len() - i;
         if remaining == 0 || !remaining.is_multiple_of(2) {
-            return Err(AppError::Command("XREADGROUP STREAMS 参数不匹配".to_string()));
+            return Err(AppError::Command(
+                "XREADGROUP STREAMS 参数不匹配".to_string(),
+            ));
         }
         let num_streams = remaining / 2;
         let keys: Vec<String> = arr[i..i + num_streams]
@@ -364,13 +397,14 @@ impl CommandParser {
             .iter()
             .map(|v| self.extract_string(v))
             .collect::<Result<Vec<_>>>()?;
-        Ok(Command::XReadGroup(group, consumer, keys, ids, count, noack))
+        Ok(Command::XReadGroup(
+            group, consumer, keys, ids, count, noack,
+        ))
     }
-
 
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -391,10 +425,9 @@ impl CommandParser {
         Ok(Command::XAck(key, group, ids))
     }
 
-
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -409,9 +442,10 @@ impl CommandParser {
         let key = self.extract_string(&arr[1])?;
         let group = self.extract_string(&arr[2])?;
         let consumer = self.extract_string(&arr[3])?;
-        let min_idle: u64 = self.extract_string(&arr[4])?.parse().map_err(|_| {
-            AppError::Command("min-idle-time 必须是整数".to_string())
-        })?;
+        let min_idle: u64 = self
+            .extract_string(&arr[4])?
+            .parse()
+            .map_err(|_| AppError::Command("min-idle-time 必须是整数".to_string()))?;
         let mut ids = Vec::new();
         let mut justid = false;
         for item in arr.iter().skip(5) {
@@ -425,10 +459,9 @@ impl CommandParser {
         Ok(Command::XClaim(key, group, consumer, min_idle, ids, justid))
     }
 
-
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -443,9 +476,10 @@ impl CommandParser {
         let key = self.extract_string(&arr[1])?;
         let group = self.extract_string(&arr[2])?;
         let consumer = self.extract_string(&arr[3])?;
-        let min_idle: u64 = self.extract_string(&arr[4])?.parse().map_err(|_| {
-            AppError::Command("min-idle-time 必须是整数".to_string())
-        })?;
+        let min_idle: u64 = self
+            .extract_string(&arr[4])?
+            .parse()
+            .map_err(|_| AppError::Command("min-idle-time 必须是整数".to_string()))?;
         let start = self.extract_string(&arr[5])?;
         let mut count = 100usize;
         let mut justid = false;
@@ -455,22 +489,26 @@ impl CommandParser {
             match opt.as_str() {
                 "COUNT" => {
                     i += 1;
-                    count = self.extract_string(&arr[i])?.parse().map_err(|_| {
-                        AppError::Command("COUNT 必须是整数".to_string())
-                    })?;
+                    count = self
+                        .extract_string(&arr[i])?
+                        .parse()
+                        .map_err(|_| AppError::Command("COUNT 必须是整数".to_string()))?;
                 }
-                "JUSTID" => { justid = true; }
+                "JUSTID" => {
+                    justid = true;
+                }
                 _ => {}
             }
             i += 1;
         }
-        Ok(Command::XAutoClaim(key, group, consumer, min_idle, start, count, justid))
+        Ok(Command::XAutoClaim(
+            key, group, consumer, min_idle, start, count, justid,
+        ))
     }
-
 
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -490,24 +528,31 @@ impl CommandParser {
         if arr.len() >= 6 {
             let start = self.extract_string(&arr[3])?;
             let end = self.extract_string(&arr[4])?;
-            let count: usize = self.extract_string(&arr[5])?.parse().map_err(|_| {
-                AppError::Command("COUNT 必须是整数".to_string())
-            })?;
+            let count: usize = self
+                .extract_string(&arr[5])?
+                .parse()
+                .map_err(|_| AppError::Command("COUNT 必须是整数".to_string()))?;
             let consumer = if arr.len() >= 7 {
                 Some(self.extract_string(&arr[6])?)
             } else {
                 None
             };
-            Ok(Command::XPending(key, group, Some(start), Some(end), Some(count), consumer))
+            Ok(Command::XPending(
+                key,
+                group,
+                Some(start),
+                Some(end),
+                Some(count),
+                consumer,
+            ))
         } else {
             Err(AppError::Command("XPENDING 参数不足".to_string()))
         }
     }
 
-
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -523,7 +568,8 @@ impl CommandParser {
         match sub.as_str() {
             "STREAM" => {
                 let key = self.extract_string(&arr[2])?;
-                let full = arr.len() > 3 && self.extract_string(&arr[3])?.eq_ignore_ascii_case("FULL");
+                let full =
+                    arr.len() > 3 && self.extract_string(&arr[3])?.eq_ignore_ascii_case("FULL");
                 Ok(Command::XInfoStream(key, full))
             }
             "GROUPS" => {
@@ -532,7 +578,9 @@ impl CommandParser {
             }
             "CONSUMERS" => {
                 if arr.len() < 4 {
-                    return Err(AppError::Command("XINFO CONSUMERS 需要 key groupname".to_string()));
+                    return Err(AppError::Command(
+                        "XINFO CONSUMERS 需要 key groupname".to_string(),
+                    ));
                 }
                 let key = self.extract_string(&arr[2])?;
                 let group = self.extract_string(&arr[3])?;
@@ -541,6 +589,4 @@ impl CommandParser {
             _ => Err(AppError::Command(format!("XINFO 不支持的子命令: {}", sub))),
         }
     }
-
-
 }

@@ -1,4 +1,3 @@
-
 #[allow(unused_imports)]
 use super::*;
 
@@ -26,9 +25,7 @@ mod tests {
     #[test]
     fn test_del() {
         let engine = StorageEngine::new();
-        engine
-            .set("key".to_string(), Bytes::from("value"))
-            .unwrap();
+        engine.set("key".to_string(), Bytes::from("value")).unwrap();
         assert!(engine.exists("key").unwrap());
         assert!(engine.del("key").unwrap());
         assert!(!engine.exists("key").unwrap());
@@ -45,21 +42,15 @@ mod tests {
     fn test_exists() {
         let engine = StorageEngine::new();
         assert!(!engine.exists("key").unwrap());
-        engine
-            .set("key".to_string(), Bytes::from("value"))
-            .unwrap();
+        engine.set("key".to_string(), Bytes::from("value")).unwrap();
         assert!(engine.exists("key").unwrap());
     }
 
     #[test]
     fn test_flush() {
         let engine = StorageEngine::new();
-        engine
-            .set("a".to_string(), Bytes::from("1"))
-            .unwrap();
-        engine
-            .set("b".to_string(), Bytes::from("2"))
-            .unwrap();
+        engine.set("a".to_string(), Bytes::from("1")).unwrap();
+        engine.set("b".to_string(), Bytes::from("2")).unwrap();
         engine.flush().unwrap();
         assert_eq!(engine.get("a").unwrap(), None);
         assert_eq!(engine.get("b").unwrap(), None);
@@ -91,21 +82,15 @@ mod tests {
     #[test]
     fn test_overwrite() {
         let engine = StorageEngine::new();
-        engine
-            .set("key".to_string(), Bytes::from("old"))
-            .unwrap();
-        engine
-            .set("key".to_string(), Bytes::from("new"))
-            .unwrap();
+        engine.set("key".to_string(), Bytes::from("old")).unwrap();
+        engine.set("key".to_string(), Bytes::from("new")).unwrap();
         assert_eq!(engine.get("key").unwrap(), Some(Bytes::from("new")));
     }
 
     #[test]
     fn test_set_with_ttl_overwrites_plain() {
         let engine = StorageEngine::new();
-        engine
-            .set("key".to_string(), Bytes::from("plain"))
-            .unwrap();
+        engine.set("key".to_string(), Bytes::from("plain")).unwrap();
         engine
             .set_with_ttl("key".to_string(), Bytes::from("ttl"), 10_000)
             .unwrap();
@@ -115,9 +100,7 @@ mod tests {
     #[test]
     fn test_expire() {
         let engine = StorageEngine::new();
-        engine
-            .set("key".to_string(), Bytes::from("value"))
-            .unwrap();
+        engine.set("key".to_string(), Bytes::from("value")).unwrap();
         assert!(engine.expire("key", 10).unwrap());
         let ttl = engine.ttl("key").unwrap();
         assert!(ttl > 9000 && ttl <= 10000);
@@ -133,9 +116,7 @@ mod tests {
     #[test]
     fn test_ttl_no_expire() {
         let engine = StorageEngine::new();
-        engine
-            .set("key".to_string(), Bytes::from("value"))
-            .unwrap();
+        engine.set("key".to_string(), Bytes::from("value")).unwrap();
         assert_eq!(engine.ttl("key").unwrap(), -1);
     }
 
@@ -197,11 +178,8 @@ mod tests {
         for i in 0..100 {
             let e = engine.clone();
             handles.push(std::thread::spawn(move || {
-                e.set(
-                    "shared".to_string(),
-                    Bytes::from(format!("val{}", i)),
-                )
-                .unwrap();
+                e.set("shared".to_string(), Bytes::from(format!("val{}", i)))
+                    .unwrap();
             }));
         }
 
@@ -226,12 +204,13 @@ mod tests {
             ])
             .unwrap();
 
-        let results = engine.mget(&["a".to_string(), "b".to_string(), "c".to_string()]).unwrap();
-        assert_eq!(results, vec![
-            Some(Bytes::from("1")),
-            Some(Bytes::from("2")),
-            None,
-        ]);
+        let results = engine
+            .mget(&["a".to_string(), "b".to_string(), "c".to_string()])
+            .unwrap();
+        assert_eq!(
+            results,
+            vec![Some(Bytes::from("1")), Some(Bytes::from("2")), None,]
+        );
     }
 
     #[test]
@@ -276,19 +255,41 @@ mod tests {
     #[test]
     fn test_setnx() {
         let engine = StorageEngine::new();
-        assert!(engine.setnx("key".to_string(), Bytes::from("first")).unwrap());
-        assert!(!engine.setnx("key".to_string(), Bytes::from("second")).unwrap());
+        assert!(
+            engine
+                .setnx("key".to_string(), Bytes::from("first"))
+                .unwrap()
+        );
+        assert!(
+            !engine
+                .setnx("key".to_string(), Bytes::from("second"))
+                .unwrap()
+        );
         assert_eq!(engine.get("key").unwrap(), Some(Bytes::from("first")));
     }
 
     #[test]
     fn test_getrange() {
         let engine = StorageEngine::new();
-        engine.set("s".to_string(), Bytes::from("hello world")).unwrap();
-        assert_eq!(engine.getrange("s", 0, 4).unwrap(), Some(Bytes::from("hello")));
-        assert_eq!(engine.getrange("s", 6, 10).unwrap(), Some(Bytes::from("world")));
-        assert_eq!(engine.getrange("s", -5, -1).unwrap(), Some(Bytes::from("world")));
-        assert_eq!(engine.getrange("s", 0, -1).unwrap(), Some(Bytes::from("hello world")));
+        engine
+            .set("s".to_string(), Bytes::from("hello world"))
+            .unwrap();
+        assert_eq!(
+            engine.getrange("s", 0, 4).unwrap(),
+            Some(Bytes::from("hello"))
+        );
+        assert_eq!(
+            engine.getrange("s", 6, 10).unwrap(),
+            Some(Bytes::from("world"))
+        );
+        assert_eq!(
+            engine.getrange("s", -5, -1).unwrap(),
+            Some(Bytes::from("world"))
+        );
+        assert_eq!(
+            engine.getrange("s", 0, -1).unwrap(),
+            Some(Bytes::from("hello world"))
+        );
         assert_eq!(engine.getrange("s", 3, 0).unwrap(), Some(Bytes::new()));
     }
 
@@ -311,10 +312,7 @@ mod tests {
                 .unwrap(),
             2
         );
-        assert_eq!(
-            engine.rpush("list", vec![Bytes::from("c")]).unwrap(),
-            3
-        );
+        assert_eq!(engine.rpush("list", vec![Bytes::from("c")]).unwrap(), 3);
         assert_eq!(engine.llen("list").unwrap(), 3);
     }
 
@@ -325,21 +323,17 @@ mod tests {
             .lpush("list", vec![Bytes::from("a"), Bytes::from("b")])
             .unwrap();
         let vals = engine.lrange("list", 0, -1).unwrap();
-        assert_eq!(
-            vals,
-            vec![Bytes::from("b"), Bytes::from("a")]
-        );
+        assert_eq!(vals, vec![Bytes::from("b"), Bytes::from("a")]);
     }
 
     #[test]
     fn test_lpop_rpop() {
         let engine = StorageEngine::new();
         engine
-            .rpush("list", vec![
-                Bytes::from("a"),
-                Bytes::from("b"),
-                Bytes::from("c"),
-            ])
+            .rpush(
+                "list",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
             .unwrap();
 
         assert_eq!(engine.lpop("list").unwrap(), Some(Bytes::from("a")));
@@ -353,12 +347,15 @@ mod tests {
     fn test_lrange() {
         let engine = StorageEngine::new();
         engine
-            .rpush("list", vec![
-                Bytes::from("a"),
-                Bytes::from("b"),
-                Bytes::from("c"),
-                Bytes::from("d"),
-            ])
+            .rpush(
+                "list",
+                vec![
+                    Bytes::from("a"),
+                    Bytes::from("b"),
+                    Bytes::from("c"),
+                    Bytes::from("d"),
+                ],
+            )
             .unwrap();
 
         assert_eq!(
@@ -385,19 +382,15 @@ mod tests {
     fn test_lindex() {
         let engine = StorageEngine::new();
         engine
-            .rpush("list", vec![
-                Bytes::from("a"),
-                Bytes::from("b"),
-                Bytes::from("c"),
-            ])
+            .rpush(
+                "list",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
             .unwrap();
 
         assert_eq!(engine.lindex("list", 0).unwrap(), Some(Bytes::from("a")));
         assert_eq!(engine.lindex("list", 2).unwrap(), Some(Bytes::from("c")));
-        assert_eq!(
-            engine.lindex("list", -1).unwrap(),
-            Some(Bytes::from("c"))
-        );
+        assert_eq!(engine.lindex("list", -1).unwrap(), Some(Bytes::from("c")));
         assert_eq!(engine.lindex("list", 5).unwrap(), None);
     }
 
@@ -412,9 +405,7 @@ mod tests {
     #[test]
     fn test_string_op_on_list() {
         let engine = StorageEngine::new();
-        engine
-            .lpush("list", vec![Bytes::from("a")])
-            .unwrap();
+        engine.lpush("list", vec![Bytes::from("a")]).unwrap();
         assert!(engine.get("list").is_err());
         assert!(engine.incr("list").is_err());
         assert!(engine.append("list", Bytes::from("x")).is_err());
@@ -426,12 +417,14 @@ mod tests {
     fn test_hset_hget() {
         let engine = StorageEngine::new();
         assert_eq!(
-            engine.hset("hash", "name".to_string(), Bytes::from("redis"))
+            engine
+                .hset("hash", "name".to_string(), Bytes::from("redis"))
                 .unwrap(),
             1
         );
         assert_eq!(
-            engine.hset("hash", "name".to_string(), Bytes::from("redis2"))
+            engine
+                .hset("hash", "name".to_string(), Bytes::from("redis2"))
                 .unwrap(),
             0
         );
@@ -456,12 +449,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            engine.hdel("hash", &["a".to_string(), "missing".to_string()])
+            engine
+                .hdel("hash", &["a".to_string(), "missing".to_string()])
                 .unwrap(),
             1
         );
         assert_eq!(
-            engine.hdel("hash", &["b".to_string(), "c".to_string()])
+            engine
+                .hdel("hash", &["b".to_string(), "c".to_string()])
                 .unwrap(),
             2
         );
@@ -523,15 +518,14 @@ mod tests {
             .unwrap();
 
         let results = engine
-            .hmget("hash", &["a".to_string(), "missing".to_string(), "b".to_string()])
+            .hmget(
+                "hash",
+                &["a".to_string(), "missing".to_string(), "b".to_string()],
+            )
             .unwrap();
         assert_eq!(
             results,
-            vec![
-                Some(Bytes::from("1")),
-                None,
-                Some(Bytes::from("2")),
-            ]
+            vec![Some(Bytes::from("1")), None, Some(Bytes::from("2")),]
         );
     }
 
@@ -540,7 +534,11 @@ mod tests {
         let engine = StorageEngine::new();
         engine.set("s".to_string(), Bytes::from("hello")).unwrap();
         assert!(engine.hget("s", "field").is_err());
-        assert!(engine.hset("s", "field".to_string(), Bytes::from("val")).is_err());
+        assert!(
+            engine
+                .hset("s", "field".to_string(), Bytes::from("val"))
+                .is_err()
+        );
     }
 
     // ---------- Set 测试 ----------
@@ -549,17 +547,20 @@ mod tests {
     fn test_sadd_srem() {
         let engine = StorageEngine::new();
         assert_eq!(
-            engine.sadd("set", vec![Bytes::from("a"), Bytes::from("b")])
+            engine
+                .sadd("set", vec![Bytes::from("a"), Bytes::from("b")])
                 .unwrap(),
             2
         );
         assert_eq!(
-            engine.sadd("set", vec![Bytes::from("a"), Bytes::from("c")])
+            engine
+                .sadd("set", vec![Bytes::from("a"), Bytes::from("c")])
                 .unwrap(),
             1
         );
         assert_eq!(
-            engine.srem("set", &[Bytes::from("a"), Bytes::from("missing")])
+            engine
+                .srem("set", &[Bytes::from("a"), Bytes::from("missing")])
                 .unwrap(),
             1
         );
@@ -585,13 +586,22 @@ mod tests {
     fn test_set_ops() {
         let engine = StorageEngine::new();
         engine
-            .sadd("a", vec![Bytes::from("1"), Bytes::from("2"), Bytes::from("3")])
+            .sadd(
+                "a",
+                vec![Bytes::from("1"), Bytes::from("2"), Bytes::from("3")],
+            )
             .unwrap();
         engine
-            .sadd("b", vec![Bytes::from("2"), Bytes::from("3"), Bytes::from("4")])
+            .sadd(
+                "b",
+                vec![Bytes::from("2"), Bytes::from("3"), Bytes::from("4")],
+            )
             .unwrap();
         engine
-            .sadd("c", vec![Bytes::from("3"), Bytes::from("4"), Bytes::from("5")])
+            .sadd(
+                "c",
+                vec![Bytes::from("3"), Bytes::from("4"), Bytes::from("5")],
+            )
             .unwrap();
 
         let mut inter = engine.sinter(&["a".to_string(), "b".to_string()]).unwrap();
@@ -602,7 +612,12 @@ mod tests {
         union.sort();
         assert_eq!(
             union,
-            vec![Bytes::from("1"), Bytes::from("2"), Bytes::from("3"), Bytes::from("4")]
+            vec![
+                Bytes::from("1"),
+                Bytes::from("2"),
+                Bytes::from("3"),
+                Bytes::from("4")
+            ]
         );
 
         let mut diff = engine.sdiff(&["a".to_string(), "b".to_string()]).unwrap();
@@ -636,7 +651,9 @@ mod tests {
             1
         );
         assert_eq!(
-            engine.zrem("zset", &["a".to_string(), "missing".to_string()]).unwrap(),
+            engine
+                .zrem("zset", &["a".to_string(), "missing".to_string()])
+                .unwrap(),
             1
         );
         assert_eq!(engine.zcard("zset").unwrap(), 2);
@@ -646,11 +663,14 @@ mod tests {
     fn test_zscore_zrank() {
         let engine = StorageEngine::new();
         engine
-            .zadd("zset", vec![
-                (10.0, "a".to_string()),
-                (20.0, "b".to_string()),
-                (30.0, "c".to_string()),
-            ])
+            .zadd(
+                "zset",
+                vec![
+                    (10.0, "a".to_string()),
+                    (20.0, "b".to_string()),
+                    (30.0, "c".to_string()),
+                ],
+            )
             .unwrap();
 
         assert_eq!(engine.zscore("zset", "b").unwrap(), Some(20.0));
@@ -666,15 +686,21 @@ mod tests {
     fn test_zrange() {
         let engine = StorageEngine::new();
         engine
-            .zadd("zset", vec![
-                (30.0, "c".to_string()),
-                (10.0, "a".to_string()),
-                (20.0, "b".to_string()),
-            ])
+            .zadd(
+                "zset",
+                vec![
+                    (30.0, "c".to_string()),
+                    (10.0, "a".to_string()),
+                    (20.0, "b".to_string()),
+                ],
+            )
             .unwrap();
 
         let range = engine.zrange("zset", 0, 1, false).unwrap();
-        assert_eq!(range, vec![("a".to_string(), 10.0), ("b".to_string(), 20.0)]);
+        assert_eq!(
+            range,
+            vec![("a".to_string(), 10.0), ("b".to_string(), 20.0)]
+        );
 
         let range = engine.zrange("zset", 0, -1, false).unwrap();
         assert_eq!(
@@ -687,34 +713,39 @@ mod tests {
         );
 
         let range = engine.zrange("zset", -2, -1, false).unwrap();
-        assert_eq!(range, vec![("b".to_string(), 20.0), ("c".to_string(), 30.0)]);
+        assert_eq!(
+            range,
+            vec![("b".to_string(), 20.0), ("c".to_string(), 30.0)]
+        );
     }
 
     #[test]
     fn test_zrangebyscore() {
         let engine = StorageEngine::new();
         engine
-            .zadd("zset", vec![
-                (10.0, "a".to_string()),
-                (20.0, "b".to_string()),
-                (30.0, "c".to_string()),
-                (40.0, "d".to_string()),
-            ])
+            .zadd(
+                "zset",
+                vec![
+                    (10.0, "a".to_string()),
+                    (20.0, "b".to_string()),
+                    (30.0, "c".to_string()),
+                    (40.0, "d".to_string()),
+                ],
+            )
             .unwrap();
 
         let range = engine.zrangebyscore("zset", 15.0, 35.0, false).unwrap();
-        assert_eq!(range, vec![("b".to_string(), 20.0), ("c".to_string(), 30.0)]);
+        assert_eq!(
+            range,
+            vec![("b".to_string(), 20.0), ("c".to_string(), 30.0)]
+        );
     }
 
     #[test]
     fn test_zadd_update_score() {
         let engine = StorageEngine::new();
-        engine
-            .zadd("zset", vec![(1.0, "a".to_string())])
-            .unwrap();
-        engine
-            .zadd("zset", vec![(5.0, "a".to_string())])
-            .unwrap();
+        engine.zadd("zset", vec![(1.0, "a".to_string())]).unwrap();
+        engine.zadd("zset", vec![(5.0, "a".to_string())]).unwrap();
         assert_eq!(engine.zscore("zset", "a").unwrap(), Some(5.0));
         assert_eq!(engine.zrank("zset", "a").unwrap(), Some(0));
     }
@@ -731,26 +762,35 @@ mod tests {
     fn test_zrevrange() {
         let engine = StorageEngine::new();
         engine
-            .zadd("zset", vec![
-                (10.0, "a".to_string()),
-                (20.0, "b".to_string()),
-                (30.0, "c".to_string()),
-            ])
+            .zadd(
+                "zset",
+                vec![
+                    (10.0, "a".to_string()),
+                    (20.0, "b".to_string()),
+                    (30.0, "c".to_string()),
+                ],
+            )
             .unwrap();
 
         let range = engine.zrevrange("zset", 0, 1, false).unwrap();
-        assert_eq!(range, vec![("c".to_string(), 30.0), ("b".to_string(), 20.0)]);
+        assert_eq!(
+            range,
+            vec![("c".to_string(), 30.0), ("b".to_string(), 20.0)]
+        );
     }
 
     #[test]
     fn test_zrevrank() {
         let engine = StorageEngine::new();
         engine
-            .zadd("zset", vec![
-                (10.0, "a".to_string()),
-                (20.0, "b".to_string()),
-                (30.0, "c".to_string()),
-            ])
+            .zadd(
+                "zset",
+                vec![
+                    (10.0, "a".to_string()),
+                    (20.0, "b".to_string()),
+                    (30.0, "c".to_string()),
+                ],
+            )
             .unwrap();
 
         assert_eq!(engine.zrevrank("zset", "a").unwrap(), Some(2));
@@ -761,9 +801,7 @@ mod tests {
     #[test]
     fn test_zincrby() {
         let engine = StorageEngine::new();
-        engine
-            .zadd("zset", vec![(10.0, "a".to_string())])
-            .unwrap();
+        engine.zadd("zset", vec![(10.0, "a".to_string())]).unwrap();
 
         let score = engine.zincrby("zset", 5.5, "a".to_string()).unwrap();
         assert_eq!(score, "15.5");
@@ -778,11 +816,14 @@ mod tests {
     fn test_zcount() {
         let engine = StorageEngine::new();
         engine
-            .zadd("zset", vec![
-                (10.0, "a".to_string()),
-                (20.0, "b".to_string()),
-                (30.0, "c".to_string()),
-            ])
+            .zadd(
+                "zset",
+                vec![
+                    (10.0, "a".to_string()),
+                    (20.0, "b".to_string()),
+                    (30.0, "c".to_string()),
+                ],
+            )
             .unwrap();
 
         assert_eq!(engine.zcount("zset", 15.0, 25.0).unwrap(), 1);
@@ -794,15 +835,21 @@ mod tests {
     fn test_zpopmin() {
         let engine = StorageEngine::new();
         engine
-            .zadd("zset", vec![
-                (30.0, "c".to_string()),
-                (10.0, "a".to_string()),
-                (20.0, "b".to_string()),
-            ])
+            .zadd(
+                "zset",
+                vec![
+                    (30.0, "c".to_string()),
+                    (10.0, "a".to_string()),
+                    (20.0, "b".to_string()),
+                ],
+            )
             .unwrap();
 
         let popped = engine.zpopmin("zset", 2).unwrap();
-        assert_eq!(popped, vec![("a".to_string(), 10.0), ("b".to_string(), 20.0)]);
+        assert_eq!(
+            popped,
+            vec![("a".to_string(), 10.0), ("b".to_string(), 20.0)]
+        );
         assert_eq!(engine.zcard("zset").unwrap(), 1);
     }
 
@@ -810,11 +857,14 @@ mod tests {
     fn test_zpopmax() {
         let engine = StorageEngine::new();
         engine
-            .zadd("zset", vec![
-                (30.0, "c".to_string()),
-                (10.0, "a".to_string()),
-                (20.0, "b".to_string()),
-            ])
+            .zadd(
+                "zset",
+                vec![
+                    (30.0, "c".to_string()),
+                    (10.0, "a".to_string()),
+                    (20.0, "b".to_string()),
+                ],
+            )
             .unwrap();
 
         let popped = engine.zpopmax("zset", 1).unwrap();
@@ -826,19 +876,15 @@ mod tests {
     fn test_zunionstore() {
         let engine = StorageEngine::new();
         engine
-            .zadd("z1", vec![
-                (1.0, "a".to_string()),
-                (2.0, "b".to_string()),
-            ])
+            .zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string())])
             .unwrap();
         engine
-            .zadd("z2", vec![
-                (2.0, "b".to_string()),
-                (3.0, "c".to_string()),
-            ])
+            .zadd("z2", vec![(2.0, "b".to_string()), (3.0, "c".to_string())])
             .unwrap();
 
-        let count = engine.zunionstore("z3", &["z1".to_string(), "z2".to_string()], None, "SUM").unwrap();
+        let count = engine
+            .zunionstore("z3", &["z1".to_string(), "z2".to_string()], None, "SUM")
+            .unwrap();
         assert_eq!(count, 3);
         assert_eq!(engine.zscore("z3", "a").unwrap(), Some(1.0));
         assert_eq!(engine.zscore("z3", "b").unwrap(), Some(4.0));
@@ -849,19 +895,15 @@ mod tests {
     fn test_zinterstore() {
         let engine = StorageEngine::new();
         engine
-            .zadd("z1", vec![
-                (1.0, "a".to_string()),
-                (2.0, "b".to_string()),
-            ])
+            .zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string())])
             .unwrap();
         engine
-            .zadd("z2", vec![
-                (2.0, "b".to_string()),
-                (3.0, "c".to_string()),
-            ])
+            .zadd("z2", vec![(2.0, "b".to_string()), (3.0, "c".to_string())])
             .unwrap();
 
-        let count = engine.zinterstore("z3", &["z1".to_string(), "z2".to_string()], None, "SUM").unwrap();
+        let count = engine
+            .zinterstore("z3", &["z1".to_string(), "z2".to_string()], None, "SUM")
+            .unwrap();
         assert_eq!(count, 1);
         assert_eq!(engine.zscore("z3", "b").unwrap(), Some(4.0));
     }
@@ -870,10 +912,10 @@ mod tests {
     fn test_zscan() {
         let engine = StorageEngine::new();
         engine
-            .zadd("zset", vec![
-                (1.0, "alpha".to_string()),
-                (2.0, "beta".to_string()),
-            ])
+            .zadd(
+                "zset",
+                vec![(1.0, "alpha".to_string()), (2.0, "beta".to_string())],
+            )
             .unwrap();
 
         let (cursor, items) = engine.zscan("zset", 0, "a*", 10).unwrap();
@@ -886,12 +928,15 @@ mod tests {
     fn test_zrangebylex() {
         let engine = StorageEngine::new();
         engine
-            .zadd("zset", vec![
-                (0.0, "a".to_string()),
-                (0.0, "b".to_string()),
-                (0.0, "c".to_string()),
-                (0.0, "d".to_string()),
-            ])
+            .zadd(
+                "zset",
+                vec![
+                    (0.0, "a".to_string()),
+                    (0.0, "b".to_string()),
+                    (0.0, "c".to_string()),
+                    (0.0, "d".to_string()),
+                ],
+            )
             .unwrap();
 
         let members = engine.zrangebylex("zset", "[b", "[c").unwrap();
@@ -978,7 +1023,9 @@ mod tests {
     #[test]
     fn test_persist() {
         let engine = StorageEngine::new();
-        engine.set_with_ttl("k".to_string(), Bytes::from("v"), 10000).unwrap();
+        engine
+            .set_with_ttl("k".to_string(), Bytes::from("v"), 10000)
+            .unwrap();
         assert!(engine.persist("k").unwrap());
         assert_eq!(engine.ttl("k").unwrap(), -1);
 
@@ -1004,7 +1051,9 @@ mod tests {
         engine.set("k".to_string(), Bytes::from("v")).unwrap();
         assert_eq!(engine.pttl("k").unwrap(), -1);
 
-        engine.set_with_ttl("k2".to_string(), Bytes::from("v"), 10000).unwrap();
+        engine
+            .set_with_ttl("k2".to_string(), Bytes::from("v"), 10000)
+            .unwrap();
         let ttl = engine.pttl("k2").unwrap();
         assert!(ttl > 0 && ttl <= 10000);
     }
@@ -1083,12 +1132,32 @@ mod tests {
     }
 
     #[test]
+    fn test_watch_check_fails_after_lazy_expire() {
+        let engine = StorageEngine::new();
+        engine
+            .set_with_ttl("k".to_string(), Bytes::from("v"), 5)
+            .unwrap();
+
+        let mut watched = HashMap::new();
+        watched.insert("k".to_string(), engine.get_version("k").unwrap());
+        engine.watch_count.fetch_add(1, Ordering::Relaxed);
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert_eq!(engine.get("k").unwrap(), None);
+        assert!(!engine.watch_check(&watched).unwrap());
+
+        engine.watch_count.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    #[test]
     fn test_memory_usage() {
         let engine = StorageEngine::new();
         let usage0 = engine.memory_usage().unwrap();
         assert_eq!(usage0, 0);
 
-        engine.set("hello".to_string(), Bytes::from("world")).unwrap();
+        engine
+            .set("hello".to_string(), Bytes::from("world"))
+            .unwrap();
         let usage1 = engine.memory_usage().unwrap();
         assert!(usage1 > 0);
 
@@ -1113,6 +1182,23 @@ mod tests {
     }
 
     #[test]
+    fn test_watch_check_fails_after_eviction() {
+        let engine = StorageEngine::new();
+        engine.set_maxmemory(70);
+        engine.set("a".to_string(), Bytes::from("1")).unwrap();
+
+        let mut watched = HashMap::new();
+        watched.insert("a".to_string(), engine.get_version("a").unwrap());
+        engine.watch_count.fetch_add(1, Ordering::Relaxed);
+
+        engine.set("b".to_string(), Bytes::from("2")).unwrap();
+        assert!(engine.get("a").unwrap().is_none());
+        assert!(!engine.watch_check(&watched).unwrap());
+
+        engine.watch_count.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    #[test]
     fn test_lru_eviction_order() {
         let engine = StorageEngine::new();
         // 先设置一个较大的上限，确保 touch() 会记录访问时间
@@ -1134,7 +1220,10 @@ mod tests {
         engine.set("d".to_string(), Bytes::from("vd")).unwrap();
 
         // a 因为最近被访问，不应被淘汰；b 最久未访问，应被淘汰
-        assert!(engine.get("a").unwrap().is_some(), "a 最近被访问，不应被淘汰");
+        assert!(
+            engine.get("a").unwrap().is_some(),
+            "a 最近被访问，不应被淘汰"
+        );
         assert!(engine.get("b").unwrap().is_none(), "b 最久未访问，应被淘汰");
     }
 
@@ -1151,7 +1240,9 @@ mod tests {
     #[test]
     fn test_psetex() {
         let engine = StorageEngine::new();
-        engine.psetex("k".to_string(), 10, Bytes::from("v")).unwrap();
+        engine
+            .psetex("k".to_string(), 10, Bytes::from("v"))
+            .unwrap();
         assert_eq!(engine.get("k").unwrap(), Some(Bytes::from("v")));
         std::thread::sleep(std::time::Duration::from_millis(50));
         assert_eq!(engine.get("k").unwrap(), None);
@@ -1185,7 +1276,9 @@ mod tests {
     #[test]
     fn test_getex_persist() {
         let engine = StorageEngine::new();
-        engine.set_with_ttl("k".to_string(), Bytes::from("v"), 10_000).unwrap();
+        engine
+            .set_with_ttl("k".to_string(), Bytes::from("v"), 10_000)
+            .unwrap();
         let val = engine.getex("k", GetExOption::Persist).unwrap();
         assert_eq!(val, Some(Bytes::from("v")));
         // 持久化后 ttl 应该为 -1
@@ -1222,29 +1315,41 @@ mod tests {
         let engine = StorageEngine::new();
 
         // 添加北京和上海的位置
-        let count = engine.geoadd("cities", vec![
-            (116.4074, 39.9042, "北京".to_string()),
-            (121.4737, 31.2304, "上海".to_string()),
-        ]).unwrap();
+        let count = engine
+            .geoadd(
+                "cities",
+                vec![
+                    (116.4074, 39.9042, "北京".to_string()),
+                    (121.4737, 31.2304, "上海".to_string()),
+                ],
+            )
+            .unwrap();
         assert_eq!(count, 2);
 
         // 计算距离（约 1067 km）
         let dist = engine.geodist("cities", "北京", "上海", "km").unwrap();
         assert!(dist.is_some());
         let dist_km = dist.unwrap();
-        assert!((dist_km - 1067.0).abs() < 20.0, "距离误差过大: {} km", dist_km);
+        assert!(
+            (dist_km - 1067.0).abs() < 20.0,
+            "距离误差过大: {} km",
+            dist_km
+        );
 
         // 测试不同单位
-        let dist_m = engine.geodist("cities", "北京", "上海", "m").unwrap().unwrap();
+        let dist_m = engine
+            .geodist("cities", "北京", "上海", "m")
+            .unwrap()
+            .unwrap();
         assert!((dist_m - 1067000.0).abs() < 20000.0);
     }
 
     #[test]
     fn test_geohash() {
         let engine = StorageEngine::new();
-        engine.geoadd("cities", vec![
-            (116.4074, 39.9042, "北京".to_string()),
-        ]).unwrap();
+        engine
+            .geoadd("cities", vec![(116.4074, 39.9042, "北京".to_string())])
+            .unwrap();
 
         let hashes = engine.geohash("cities", &["北京".to_string()]).unwrap();
         assert_eq!(hashes.len(), 1);
@@ -1255,9 +1360,9 @@ mod tests {
     #[test]
     fn test_geopos() {
         let engine = StorageEngine::new();
-        engine.geoadd("cities", vec![
-            (116.4074, 39.9042, "北京".to_string()),
-        ]).unwrap();
+        engine
+            .geoadd("cities", vec![(116.4074, 39.9042, "北京".to_string())])
+            .unwrap();
 
         let positions = engine.geopos("cities", &["北京".to_string()]).unwrap();
         assert_eq!(positions.len(), 1);
@@ -1270,15 +1375,30 @@ mod tests {
     #[test]
     fn test_geosearch_byradius() {
         let engine = StorageEngine::new();
-        engine.geoadd("cities", vec![
-            (116.4074, 39.9042, "北京".to_string()),
-            (121.4737, 31.2304, "上海".to_string()),
-            (113.2644, 23.1291, "广州".to_string()),
-            (114.0579, 22.5431, "深圳".to_string()),
-        ]).unwrap();
+        engine
+            .geoadd(
+                "cities",
+                vec![
+                    (116.4074, 39.9042, "北京".to_string()),
+                    (121.4737, 31.2304, "上海".to_string()),
+                    (113.2644, 23.1291, "广州".to_string()),
+                    (114.0579, 22.5431, "深圳".to_string()),
+                ],
+            )
+            .unwrap();
 
         // 以北京为中心，500km 范围内
-        let results = engine.geosearch("cities", 116.4074, 39.9042, Some(500000.0), None, Some("ASC"), 0).unwrap();
+        let results = engine
+            .geosearch(
+                "cities",
+                116.4074,
+                39.9042,
+                Some(500000.0),
+                None,
+                Some("ASC"),
+                0,
+            )
+            .unwrap();
         assert!(!results.is_empty());
         // 北京自己应该在范围内
         assert_eq!(results[0].0, "北京");
@@ -1287,43 +1407,100 @@ mod tests {
     #[test]
     fn test_geosearch_bybox() {
         let engine = StorageEngine::new();
-        engine.geoadd("cities", vec![
-            (116.4074, 39.9042, "北京".to_string()),
-            (121.4737, 31.2304, "上海".to_string()),
-        ]).unwrap();
+        engine
+            .geoadd(
+                "cities",
+                vec![
+                    (116.4074, 39.9042, "北京".to_string()),
+                    (121.4737, 31.2304, "上海".to_string()),
+                ],
+            )
+            .unwrap();
 
         // 以北京为中心，2000km x 2000km 矩形
-        let results = engine.geosearch("cities", 116.4074, 39.9042, None, Some((2000000.0, 2000000.0)), Some("ASC"), 0).unwrap();
+        let results = engine
+            .geosearch(
+                "cities",
+                116.4074,
+                39.9042,
+                None,
+                Some((2000000.0, 2000000.0)),
+                Some("ASC"),
+                0,
+            )
+            .unwrap();
         assert_eq!(results.len(), 2);
     }
 
     #[test]
     fn test_geosearch_asc_desc() {
         let engine = StorageEngine::new();
-        engine.geoadd("cities", vec![
-            (116.4074, 39.9042, "北京".to_string()),
-            (121.4737, 31.2304, "上海".to_string()),
-            (113.2644, 23.1291, "广州".to_string()),
-        ]).unwrap();
+        engine
+            .geoadd(
+                "cities",
+                vec![
+                    (116.4074, 39.9042, "北京".to_string()),
+                    (121.4737, 31.2304, "上海".to_string()),
+                    (113.2644, 23.1291, "广州".to_string()),
+                ],
+            )
+            .unwrap();
 
         // ASC 排序
-        let asc = engine.geosearch("cities", 116.4074, 39.9042, Some(2000000.0), None, Some("ASC"), 0).unwrap();
+        let asc = engine
+            .geosearch(
+                "cities",
+                116.4074,
+                39.9042,
+                Some(2000000.0),
+                None,
+                Some("ASC"),
+                0,
+            )
+            .unwrap();
         assert_eq!(asc[0].0, "北京");
 
         // DESC 排序
-        let desc = engine.geosearch("cities", 116.4074, 39.9042, Some(2000000.0), None, Some("DESC"), 0).unwrap();
+        let desc = engine
+            .geosearch(
+                "cities",
+                116.4074,
+                39.9042,
+                Some(2000000.0),
+                None,
+                Some("DESC"),
+                0,
+            )
+            .unwrap();
         assert_eq!(desc[0].0, "广州");
     }
 
     #[test]
     fn test_geosearchstore() {
         let engine = StorageEngine::new();
-        engine.geoadd("cities", vec![
-            (116.4074, 39.9042, "北京".to_string()),
-            (121.4737, 31.2304, "上海".to_string()),
-        ]).unwrap();
+        engine
+            .geoadd(
+                "cities",
+                vec![
+                    (116.4074, 39.9042, "北京".to_string()),
+                    (121.4737, 31.2304, "上海".to_string()),
+                ],
+            )
+            .unwrap();
 
-        let count = engine.geosearchstore("near", "cities", 116.4074, 39.9042, Some(500000.0), None, Some("ASC"), 0, false).unwrap();
+        let count = engine
+            .geosearchstore(
+                "near",
+                "cities",
+                116.4074,
+                39.9042,
+                Some(500000.0),
+                None,
+                Some("ASC"),
+                0,
+                false,
+            )
+            .unwrap();
         assert_eq!(count, 1);
 
         let near_pos = engine.geopos("near", &["北京".to_string()]).unwrap();
@@ -1341,19 +1518,23 @@ mod tests {
     #[test]
     fn test_msetnx() {
         let engine = StorageEngine::new();
-        let result = engine.msetnx(&[
-            ("a".to_string(), Bytes::from("1")),
-            ("b".to_string(), Bytes::from("2")),
-        ]).unwrap();
+        let result = engine
+            .msetnx(&[
+                ("a".to_string(), Bytes::from("1")),
+                ("b".to_string(), Bytes::from("2")),
+            ])
+            .unwrap();
         assert_eq!(result, 1);
         assert_eq!(engine.get("a").unwrap(), Some(Bytes::from("1")));
         assert_eq!(engine.get("b").unwrap(), Some(Bytes::from("2")));
 
         // 再次设置，应该失败
-        let result = engine.msetnx(&[
-            ("a".to_string(), Bytes::from("x")),
-            ("c".to_string(), Bytes::from("3")),
-        ]).unwrap();
+        let result = engine
+            .msetnx(&[
+                ("a".to_string(), Bytes::from("x")),
+                ("c".to_string(), Bytes::from("3")),
+            ])
+            .unwrap();
         assert_eq!(result, 0);
         // a 保持原值，c 未被设置
         assert_eq!(engine.get("a").unwrap(), Some(Bytes::from("1")));
@@ -1363,11 +1544,13 @@ mod tests {
     #[test]
     fn test_msetnx_with_expired_key() {
         let engine = StorageEngine::new();
-        engine.set_with_ttl("a".to_string(), Bytes::from("old"), 1).unwrap();
+        engine
+            .set_with_ttl("a".to_string(), Bytes::from("old"), 1)
+            .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
-        let result = engine.msetnx(&[
-            ("a".to_string(), Bytes::from("new")),
-        ]).unwrap();
+        let result = engine
+            .msetnx(&[("a".to_string(), Bytes::from("new"))])
+            .unwrap();
         assert_eq!(result, 1);
         assert_eq!(engine.get("a").unwrap(), Some(Bytes::from("new")));
     }
@@ -1393,7 +1576,9 @@ mod tests {
     #[test]
     fn test_setrange() {
         let engine = StorageEngine::new();
-        engine.set("k".to_string(), Bytes::from("Hello World")).unwrap();
+        engine
+            .set("k".to_string(), Bytes::from("Hello World"))
+            .unwrap();
         let len = engine.setrange("k", 6, Bytes::from("Redis")).unwrap();
         assert_eq!(len, 11);
         assert_eq!(engine.get("k").unwrap(), Some(Bytes::from("Hello Redis")));
@@ -1412,7 +1597,9 @@ mod tests {
     #[test]
     fn test_setrange_overwrite_beginning() {
         let engine = StorageEngine::new();
-        engine.set("k".to_string(), Bytes::from("Hello World")).unwrap();
+        engine
+            .set("k".to_string(), Bytes::from("Hello World"))
+            .unwrap();
         let len = engine.setrange("k", 0, Bytes::from("Hola")).unwrap();
         assert_eq!(len, 11);
         assert_eq!(engine.get("k").unwrap(), Some(Bytes::from("Holao World")));
@@ -1465,7 +1652,9 @@ mod tests {
         let engine = StorageEngine::new();
         // 二进制: 0b10101010 = 170, 0b11110000 = 240
         // 总共 4 + 4 = 8 个 1
-        engine.set("k".to_string(), Bytes::from(vec![0b10101010, 0b11110000])).unwrap();
+        engine
+            .set("k".to_string(), Bytes::from(vec![0b10101010, 0b11110000]))
+            .unwrap();
 
         // 全范围
         assert_eq!(engine.bitcount("k", 0, -1, true).unwrap(), 8);
@@ -1486,51 +1675,86 @@ mod tests {
     #[test]
     fn test_bitop_and_or_xor() {
         let engine = StorageEngine::new();
-        engine.set("a".to_string(), Bytes::from(vec![0b11110000])).unwrap();
-        engine.set("b".to_string(), Bytes::from(vec![0b10101010])).unwrap();
+        engine
+            .set("a".to_string(), Bytes::from(vec![0b11110000]))
+            .unwrap();
+        engine
+            .set("b".to_string(), Bytes::from(vec![0b10101010]))
+            .unwrap();
 
         // AND
-        let len = engine.bitop("AND", "dest", &["a".to_string(), "b".to_string()]).unwrap();
+        let len = engine
+            .bitop("AND", "dest", &["a".to_string(), "b".to_string()])
+            .unwrap();
         assert_eq!(len, 1);
-        assert_eq!(engine.get("dest").unwrap(), Some(Bytes::from(vec![0b10100000])));
+        assert_eq!(
+            engine.get("dest").unwrap(),
+            Some(Bytes::from(vec![0b10100000]))
+        );
 
         // OR
-        let len = engine.bitop("OR", "dest", &["a".to_string(), "b".to_string()]).unwrap();
+        let len = engine
+            .bitop("OR", "dest", &["a".to_string(), "b".to_string()])
+            .unwrap();
         assert_eq!(len, 1);
-        assert_eq!(engine.get("dest").unwrap(), Some(Bytes::from(vec![0b11111010])));
+        assert_eq!(
+            engine.get("dest").unwrap(),
+            Some(Bytes::from(vec![0b11111010]))
+        );
 
         // XOR
-        let len = engine.bitop("XOR", "dest", &["a".to_string(), "b".to_string()]).unwrap();
+        let len = engine
+            .bitop("XOR", "dest", &["a".to_string(), "b".to_string()])
+            .unwrap();
         assert_eq!(len, 1);
-        assert_eq!(engine.get("dest").unwrap(), Some(Bytes::from(vec![0b01011010])));
+        assert_eq!(
+            engine.get("dest").unwrap(),
+            Some(Bytes::from(vec![0b01011010]))
+        );
     }
 
     #[test]
     fn test_bitop_not() {
         let engine = StorageEngine::new();
-        engine.set("a".to_string(), Bytes::from(vec![0b11110000])).unwrap();
+        engine
+            .set("a".to_string(), Bytes::from(vec![0b11110000]))
+            .unwrap();
 
         let len = engine.bitop("NOT", "dest", &["a".to_string()]).unwrap();
         assert_eq!(len, 1);
-        assert_eq!(engine.get("dest").unwrap(), Some(Bytes::from(vec![0b00001111])));
+        assert_eq!(
+            engine.get("dest").unwrap(),
+            Some(Bytes::from(vec![0b00001111]))
+        );
     }
 
     #[test]
     fn test_bitop_different_lengths() {
         let engine = StorageEngine::new();
-        engine.set("a".to_string(), Bytes::from(vec![0xFF, 0xFF])).unwrap();
-        engine.set("b".to_string(), Bytes::from(vec![0x00])).unwrap();
+        engine
+            .set("a".to_string(), Bytes::from(vec![0xFF, 0xFF]))
+            .unwrap();
+        engine
+            .set("b".to_string(), Bytes::from(vec![0x00]))
+            .unwrap();
 
-        let len = engine.bitop("AND", "dest", &["a".to_string(), "b".to_string()]).unwrap();
+        let len = engine
+            .bitop("AND", "dest", &["a".to_string(), "b".to_string()])
+            .unwrap();
         assert_eq!(len, 2);
-        assert_eq!(engine.get("dest").unwrap(), Some(Bytes::from(vec![0x00, 0x00])));
+        assert_eq!(
+            engine.get("dest").unwrap(),
+            Some(Bytes::from(vec![0x00, 0x00]))
+        );
     }
 
     #[test]
     fn test_bitpos() {
         let engine = StorageEngine::new();
         // 0b10101010 = 170
-        engine.set("k".to_string(), Bytes::from(vec![0b10101010])).unwrap();
+        engine
+            .set("k".to_string(), Bytes::from(vec![0b10101010]))
+            .unwrap();
 
         // 查找第一个 1
         assert_eq!(engine.bitpos("k", 1, 0, -1, true).unwrap(), 0);
@@ -1539,12 +1763,16 @@ mod tests {
 
         // 指定字节范围查找第一个 1
         // 第二个字节 0b11110000
-        engine.set("k".to_string(), Bytes::from(vec![0b00000000, 0b11110000])).unwrap();
+        engine
+            .set("k".to_string(), Bytes::from(vec![0b00000000, 0b11110000]))
+            .unwrap();
         assert_eq!(engine.bitpos("k", 1, 0, -1, true).unwrap(), 8);
         assert_eq!(engine.bitpos("k", 1, 1, 1, true).unwrap(), 8);
 
         // 查找不存在的 bit
-        engine.set("k".to_string(), Bytes::from(vec![0b00000000])).unwrap();
+        engine
+            .set("k".to_string(), Bytes::from(vec![0b00000000]))
+            .unwrap();
         assert_eq!(engine.bitpos("k", 1, 0, -1, true).unwrap(), -1);
     }
 
@@ -1553,7 +1781,9 @@ mod tests {
         let engine = StorageEngine::new();
 
         // 添加元素
-        let updated = engine.pfadd("hll", &["a".to_string(), "b".to_string(), "c".to_string()]).unwrap();
+        let updated = engine
+            .pfadd("hll", &["a".to_string(), "b".to_string(), "c".to_string()])
+            .unwrap();
         assert_eq!(updated, 1);
 
         // 估算基数
@@ -1562,7 +1792,9 @@ mod tests {
         assert!(count <= 10); // 少量元素估算应该接近实际值
 
         // 重复元素不增长
-        let updated = engine.pfadd("hll", &["a".to_string(), "b".to_string()]).unwrap();
+        let updated = engine
+            .pfadd("hll", &["a".to_string(), "b".to_string()])
+            .unwrap();
         assert_eq!(updated, 0);
 
         let count2 = engine.pfcount(&["hll".to_string()]).unwrap();
@@ -1582,7 +1814,11 @@ mod tests {
 
         let count = engine.pfcount(&["hll".to_string()]).unwrap();
         let actual = 10000u64;
-        let diff = if count > actual { count - actual } else { actual - count };
+        let diff = if count > actual {
+            count - actual
+        } else {
+            actual - count
+        };
         let error_rate = diff as f64 / actual as f64;
         assert!(
             error_rate < 0.05,
@@ -1597,10 +1833,16 @@ mod tests {
     fn test_pfmerge() {
         let engine = StorageEngine::new();
 
-        engine.pfadd("hll1", &["a".to_string(), "b".to_string(), "c".to_string()]).unwrap();
-        engine.pfadd("hll2", &["c".to_string(), "d".to_string(), "e".to_string()]).unwrap();
+        engine
+            .pfadd("hll1", &["a".to_string(), "b".to_string(), "c".to_string()])
+            .unwrap();
+        engine
+            .pfadd("hll2", &["c".to_string(), "d".to_string(), "e".to_string()])
+            .unwrap();
 
-        engine.pfmerge("merged", &["hll1".to_string(), "hll2".to_string()]).unwrap();
+        engine
+            .pfmerge("merged", &["hll1".to_string(), "hll2".to_string()])
+            .unwrap();
 
         let count = engine.pfcount(&["merged".to_string()]).unwrap();
         assert!(count >= 5); // a, b, c, d, e = 5 个唯一元素
@@ -1610,10 +1852,16 @@ mod tests {
     fn test_pfcount_multiple_keys() {
         let engine = StorageEngine::new();
 
-        engine.pfadd("hll1", &["a".to_string(), "b".to_string()]).unwrap();
-        engine.pfadd("hll2", &["b".to_string(), "c".to_string()]).unwrap();
+        engine
+            .pfadd("hll1", &["a".to_string(), "b".to_string()])
+            .unwrap();
+        engine
+            .pfadd("hll2", &["b".to_string(), "c".to_string()])
+            .unwrap();
 
-        let count = engine.pfcount(&["hll1".to_string(), "hll2".to_string()]).unwrap();
+        let count = engine
+            .pfcount(&["hll1".to_string(), "hll2".to_string()])
+            .unwrap();
         assert!(count >= 3); // a, b, c
     }
 
@@ -1635,7 +1883,12 @@ mod tests {
     #[test]
     fn test_lset() {
         let engine = StorageEngine::new();
-        engine.lpush("list", vec![Bytes::from("c"), Bytes::from("b"), Bytes::from("a")]).unwrap();
+        engine
+            .lpush(
+                "list",
+                vec![Bytes::from("c"), Bytes::from("b"), Bytes::from("a")],
+            )
+            .unwrap();
         engine.lset("list", 1, Bytes::from("x")).unwrap();
         assert_eq!(engine.lindex("list", 1).unwrap(), Some(Bytes::from("x")));
         // 负数索引
@@ -1663,14 +1916,33 @@ mod tests {
     #[test]
     fn test_linsert() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
-        let len = engine.linsert("list", LInsertPosition::Before, Bytes::from("b"), Bytes::from("x")).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
+        let len = engine
+            .linsert(
+                "list",
+                LInsertPosition::Before,
+                Bytes::from("b"),
+                Bytes::from("x"),
+            )
+            .unwrap();
         assert_eq!(len, 4);
         assert_eq!(engine.lindex("list", 0).unwrap(), Some(Bytes::from("a")));
         assert_eq!(engine.lindex("list", 1).unwrap(), Some(Bytes::from("x")));
         assert_eq!(engine.lindex("list", 2).unwrap(), Some(Bytes::from("b")));
 
-        let len = engine.linsert("list", LInsertPosition::After, Bytes::from("b"), Bytes::from("y")).unwrap();
+        let len = engine
+            .linsert(
+                "list",
+                LInsertPosition::After,
+                Bytes::from("b"),
+                Bytes::from("y"),
+            )
+            .unwrap();
         assert_eq!(len, 5);
         assert_eq!(engine.lindex("list", 3).unwrap(), Some(Bytes::from("y")));
     }
@@ -1679,17 +1951,32 @@ mod tests {
     fn test_linsert_pivot_not_found() {
         let engine = StorageEngine::new();
         engine.rpush("list", vec![Bytes::from("a")]).unwrap();
-        let len = engine.linsert("list", LInsertPosition::Before, Bytes::from("z"), Bytes::from("x")).unwrap();
+        let len = engine
+            .linsert(
+                "list",
+                LInsertPosition::Before,
+                Bytes::from("z"),
+                Bytes::from("x"),
+            )
+            .unwrap();
         assert_eq!(len, -1);
     }
 
     #[test]
     fn test_lrem_positive_count() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![
-            Bytes::from("a"), Bytes::from("b"), Bytes::from("a"),
-            Bytes::from("c"), Bytes::from("a"),
-        ]).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![
+                    Bytes::from("a"),
+                    Bytes::from("b"),
+                    Bytes::from("a"),
+                    Bytes::from("c"),
+                    Bytes::from("a"),
+                ],
+            )
+            .unwrap();
         let removed = engine.lrem("list", 2, Bytes::from("a")).unwrap();
         assert_eq!(removed, 2);
         assert_eq!(engine.llen("list").unwrap(), 3);
@@ -1702,10 +1989,18 @@ mod tests {
     #[test]
     fn test_lrem_negative_count() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![
-            Bytes::from("a"), Bytes::from("b"), Bytes::from("a"),
-            Bytes::from("c"), Bytes::from("a"),
-        ]).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![
+                    Bytes::from("a"),
+                    Bytes::from("b"),
+                    Bytes::from("a"),
+                    Bytes::from("c"),
+                    Bytes::from("a"),
+                ],
+            )
+            .unwrap();
         let removed = engine.lrem("list", -1, Bytes::from("a")).unwrap();
         assert_eq!(removed, 1);
         assert_eq!(engine.llen("list").unwrap(), 4);
@@ -1715,9 +2010,17 @@ mod tests {
     #[test]
     fn test_lrem_zero_count() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![
-            Bytes::from("a"), Bytes::from("b"), Bytes::from("a"), Bytes::from("c"),
-        ]).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![
+                    Bytes::from("a"),
+                    Bytes::from("b"),
+                    Bytes::from("a"),
+                    Bytes::from("c"),
+                ],
+            )
+            .unwrap();
         let removed = engine.lrem("list", 0, Bytes::from("a")).unwrap();
         assert_eq!(removed, 2);
         assert_eq!(engine.llen("list").unwrap(), 2);
@@ -1728,10 +2031,18 @@ mod tests {
     #[test]
     fn test_ltrim() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![
-            Bytes::from("a"), Bytes::from("b"), Bytes::from("c"),
-            Bytes::from("d"), Bytes::from("e"),
-        ]).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![
+                    Bytes::from("a"),
+                    Bytes::from("b"),
+                    Bytes::from("c"),
+                    Bytes::from("d"),
+                    Bytes::from("e"),
+                ],
+            )
+            .unwrap();
         engine.ltrim("list", 1, 3).unwrap();
         assert_eq!(engine.llen("list").unwrap(), 3);
         assert_eq!(engine.lindex("list", 0).unwrap(), Some(Bytes::from("b")));
@@ -1741,10 +2052,18 @@ mod tests {
     #[test]
     fn test_ltrim_negative_indices() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![
-            Bytes::from("a"), Bytes::from("b"), Bytes::from("c"),
-            Bytes::from("d"), Bytes::from("e"),
-        ]).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![
+                    Bytes::from("a"),
+                    Bytes::from("b"),
+                    Bytes::from("c"),
+                    Bytes::from("d"),
+                    Bytes::from("e"),
+                ],
+            )
+            .unwrap();
         engine.ltrim("list", -3, -1).unwrap();
         assert_eq!(engine.llen("list").unwrap(), 3);
         assert_eq!(engine.lindex("list", 0).unwrap(), Some(Bytes::from("c")));
@@ -1753,7 +2072,9 @@ mod tests {
     #[test]
     fn test_ltrim_out_of_range() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![Bytes::from("a"), Bytes::from("b")]).unwrap();
+        engine
+            .rpush("list", vec![Bytes::from("a"), Bytes::from("b")])
+            .unwrap();
         engine.ltrim("list", 5, 10).unwrap();
         assert_eq!(engine.llen("list").unwrap(), 0);
     }
@@ -1761,10 +2082,18 @@ mod tests {
     #[test]
     fn test_lpos() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![
-            Bytes::from("a"), Bytes::from("b"), Bytes::from("a"),
-            Bytes::from("c"), Bytes::from("a"),
-        ]).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![
+                    Bytes::from("a"),
+                    Bytes::from("b"),
+                    Bytes::from("a"),
+                    Bytes::from("c"),
+                    Bytes::from("a"),
+                ],
+            )
+            .unwrap();
         let pos = engine.lpos("list", Bytes::from("a"), 1, 0, 0).unwrap();
         assert_eq!(pos, vec![0]); // rank=1 count=0 -> 第一个匹配
         let pos = engine.lpos("list", Bytes::from("a"), 2, 0, 0).unwrap();
@@ -1776,7 +2105,9 @@ mod tests {
     #[test]
     fn test_lpos_not_found() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![Bytes::from("a"), Bytes::from("b")]).unwrap();
+        engine
+            .rpush("list", vec![Bytes::from("a"), Bytes::from("b")])
+            .unwrap();
         let pos = engine.lpos("list", Bytes::from("z"), 1, 0, 0).unwrap();
         assert!(pos.is_empty());
     }
@@ -1784,10 +2115,18 @@ mod tests {
     #[test]
     fn test_lpos_count() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![
-            Bytes::from("a"), Bytes::from("b"), Bytes::from("a"),
-            Bytes::from("c"), Bytes::from("a"),
-        ]).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![
+                    Bytes::from("a"),
+                    Bytes::from("b"),
+                    Bytes::from("a"),
+                    Bytes::from("c"),
+                    Bytes::from("a"),
+                ],
+            )
+            .unwrap();
         let pos = engine.lpos("list", Bytes::from("a"), 1, 2, 0).unwrap();
         assert_eq!(pos, vec![0, 2]);
     }
@@ -1795,7 +2134,9 @@ mod tests {
     #[tokio::test]
     async fn test_blpop_immediate() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![Bytes::from("a"), Bytes::from("b")]).unwrap();
+        engine
+            .rpush("list", vec![Bytes::from("a"), Bytes::from("b")])
+            .unwrap();
         let result = engine.blpop(&["list".to_string()], 1.0).await.unwrap();
         assert_eq!(result, Some(("list".to_string(), Bytes::from("a"))));
         assert_eq!(engine.llen("list").unwrap(), 1);
@@ -1851,7 +2192,9 @@ mod tests {
     #[test]
     fn test_hincrby_non_integer() {
         let engine = StorageEngine::new();
-        engine.hset("hash", "field".to_string(), Bytes::from("abc")).unwrap();
+        engine
+            .hset("hash", "field".to_string(), Bytes::from("abc"))
+            .unwrap();
         let result = engine.hincrby("hash", "field".to_string(), 1);
         assert!(result.is_err());
     }
@@ -1859,17 +2202,25 @@ mod tests {
     #[test]
     fn test_hincrbyfloat() {
         let engine = StorageEngine::new();
-        let v = engine.hincrbyfloat("hash", "field".to_string(), 0.5).unwrap();
+        let v = engine
+            .hincrbyfloat("hash", "field".to_string(), 0.5)
+            .unwrap();
         assert_eq!(v, "0.5");
-        let v = engine.hincrbyfloat("hash", "field".to_string(), 0.25).unwrap();
+        let v = engine
+            .hincrbyfloat("hash", "field".to_string(), 0.25)
+            .unwrap();
         assert_eq!(v, "0.75");
     }
 
     #[test]
     fn test_hkeys() {
         let engine = StorageEngine::new();
-        engine.hset("hash", "b".to_string(), Bytes::from("2")).unwrap();
-        engine.hset("hash", "a".to_string(), Bytes::from("1")).unwrap();
+        engine
+            .hset("hash", "b".to_string(), Bytes::from("2"))
+            .unwrap();
+        engine
+            .hset("hash", "a".to_string(), Bytes::from("1"))
+            .unwrap();
         let keys = engine.hkeys("hash").unwrap();
         assert_eq!(keys, vec!["a".to_string(), "b".to_string()]);
     }
@@ -1877,8 +2228,12 @@ mod tests {
     #[test]
     fn test_hvals() {
         let engine = StorageEngine::new();
-        engine.hset("hash", "b".to_string(), Bytes::from("2")).unwrap();
-        engine.hset("hash", "a".to_string(), Bytes::from("1")).unwrap();
+        engine
+            .hset("hash", "b".to_string(), Bytes::from("2"))
+            .unwrap();
+        engine
+            .hset("hash", "a".to_string(), Bytes::from("1"))
+            .unwrap();
         let vals = engine.hvals("hash").unwrap();
         assert_eq!(vals, vec![Bytes::from("1"), Bytes::from("2")]);
     }
@@ -1886,9 +2241,13 @@ mod tests {
     #[test]
     fn test_hsetnx() {
         let engine = StorageEngine::new();
-        let result = engine.hsetnx("hash", "field".to_string(), Bytes::from("v1")).unwrap();
+        let result = engine
+            .hsetnx("hash", "field".to_string(), Bytes::from("v1"))
+            .unwrap();
         assert_eq!(result, 1);
-        let result = engine.hsetnx("hash", "field".to_string(), Bytes::from("v2")).unwrap();
+        let result = engine
+            .hsetnx("hash", "field".to_string(), Bytes::from("v2"))
+            .unwrap();
         assert_eq!(result, 0);
         let val = engine.hget("hash", "field").unwrap();
         assert_eq!(val, Some(Bytes::from("v1")));
@@ -1897,7 +2256,9 @@ mod tests {
     #[test]
     fn test_hrandfield_single() {
         let engine = StorageEngine::new();
-        engine.hset("hash", "a".to_string(), Bytes::from("1")).unwrap();
+        engine
+            .hset("hash", "a".to_string(), Bytes::from("1"))
+            .unwrap();
         let result = engine.hrandfield("hash", 1, false).unwrap();
         assert_eq!(result.len(), 1);
         assert!(result[0].0 == "a");
@@ -1907,9 +2268,15 @@ mod tests {
     #[test]
     fn test_hrandfield_multiple() {
         let engine = StorageEngine::new();
-        engine.hset("hash", "a".to_string(), Bytes::from("1")).unwrap();
-        engine.hset("hash", "b".to_string(), Bytes::from("2")).unwrap();
-        engine.hset("hash", "c".to_string(), Bytes::from("3")).unwrap();
+        engine
+            .hset("hash", "a".to_string(), Bytes::from("1"))
+            .unwrap();
+        engine
+            .hset("hash", "b".to_string(), Bytes::from("2"))
+            .unwrap();
+        engine
+            .hset("hash", "c".to_string(), Bytes::from("3"))
+            .unwrap();
         let result = engine.hrandfield("hash", 2, false).unwrap();
         assert_eq!(result.len(), 2);
         let fields: Vec<String> = result.iter().map(|(k, _)| k.clone()).collect();
@@ -1919,8 +2286,12 @@ mod tests {
     #[test]
     fn test_hrandfield_negative() {
         let engine = StorageEngine::new();
-        engine.hset("hash", "a".to_string(), Bytes::from("1")).unwrap();
-        engine.hset("hash", "b".to_string(), Bytes::from("2")).unwrap();
+        engine
+            .hset("hash", "a".to_string(), Bytes::from("1"))
+            .unwrap();
+        engine
+            .hset("hash", "b".to_string(), Bytes::from("2"))
+            .unwrap();
         let result = engine.hrandfield("hash", -5, false).unwrap();
         assert_eq!(result.len(), 5);
     }
@@ -1928,7 +2299,9 @@ mod tests {
     #[test]
     fn test_hrandfield_with_values() {
         let engine = StorageEngine::new();
-        engine.hset("hash", "a".to_string(), Bytes::from("1")).unwrap();
+        engine
+            .hset("hash", "a".to_string(), Bytes::from("1"))
+            .unwrap();
         let result = engine.hrandfield("hash", 1, true).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, "a");
@@ -1938,9 +2311,15 @@ mod tests {
     #[test]
     fn test_hscan() {
         let engine = StorageEngine::new();
-        engine.hset("hash", "a".to_string(), Bytes::from("1")).unwrap();
-        engine.hset("hash", "b".to_string(), Bytes::from("2")).unwrap();
-        engine.hset("hash", "c".to_string(), Bytes::from("3")).unwrap();
+        engine
+            .hset("hash", "a".to_string(), Bytes::from("1"))
+            .unwrap();
+        engine
+            .hset("hash", "b".to_string(), Bytes::from("2"))
+            .unwrap();
+        engine
+            .hset("hash", "c".to_string(), Bytes::from("3"))
+            .unwrap();
 
         let (cursor, fields) = engine.hscan("hash", 0, "*", 2).unwrap();
         assert_eq!(fields.len(), 2);
@@ -1951,17 +2330,30 @@ mod tests {
         assert_eq!(cursor2, 0);
 
         // 合并结果应包含所有字段
-        let mut all_fields: Vec<String> = fields.iter().chain(fields2.iter()).map(|(k, _)| k.clone()).collect();
+        let mut all_fields: Vec<String> = fields
+            .iter()
+            .chain(fields2.iter())
+            .map(|(k, _)| k.clone())
+            .collect();
         all_fields.sort();
-        assert_eq!(all_fields, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        assert_eq!(
+            all_fields,
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
     }
 
     #[test]
     fn test_hscan_match() {
         let engine = StorageEngine::new();
-        engine.hset("hash", "foo".to_string(), Bytes::from("1")).unwrap();
-        engine.hset("hash", "bar".to_string(), Bytes::from("2")).unwrap();
-        engine.hset("hash", "foobar".to_string(), Bytes::from("3")).unwrap();
+        engine
+            .hset("hash", "foo".to_string(), Bytes::from("1"))
+            .unwrap();
+        engine
+            .hset("hash", "bar".to_string(), Bytes::from("2"))
+            .unwrap();
+        engine
+            .hset("hash", "foobar".to_string(), Bytes::from("3"))
+            .unwrap();
 
         let (cursor, fields) = engine.hscan("hash", 0, "foo*", 10).unwrap();
         assert_eq!(cursor, 0);
@@ -1971,7 +2363,12 @@ mod tests {
     #[test]
     fn test_spop() {
         let engine = StorageEngine::new();
-        engine.sadd("set", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        engine
+            .sadd(
+                "set",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
         let popped = engine.spop("set", 2).unwrap();
         assert_eq!(popped.len(), 2);
         assert_eq!(engine.scard("set").unwrap(), 1);
@@ -1987,7 +2384,12 @@ mod tests {
     #[test]
     fn test_srandmember() {
         let engine = StorageEngine::new();
-        engine.sadd("set", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        engine
+            .sadd(
+                "set",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
         let members = engine.srandmember("set", 2).unwrap();
         assert_eq!(members.len(), 2);
         assert_eq!(engine.scard("set").unwrap(), 3); // 不删除
@@ -1996,7 +2398,9 @@ mod tests {
     #[test]
     fn test_srandmember_negative() {
         let engine = StorageEngine::new();
-        engine.sadd("set", vec![Bytes::from("a"), Bytes::from("b")]).unwrap();
+        engine
+            .sadd("set", vec![Bytes::from("a"), Bytes::from("b")])
+            .unwrap();
         let members = engine.srandmember("set", -5).unwrap();
         assert_eq!(members.len(), 5); // 可重复
     }
@@ -2004,7 +2408,9 @@ mod tests {
     #[test]
     fn test_smove() {
         let engine = StorageEngine::new();
-        engine.sadd("s1", vec![Bytes::from("a"), Bytes::from("b")]).unwrap();
+        engine
+            .sadd("s1", vec![Bytes::from("a"), Bytes::from("b")])
+            .unwrap();
         engine.sadd("s2", vec![Bytes::from("c")]).unwrap();
         let result = engine.smove("s1", "s2", Bytes::from("a")).unwrap();
         assert!(result);
@@ -2024,9 +2430,21 @@ mod tests {
     #[test]
     fn test_sinterstore() {
         let engine = StorageEngine::new();
-        engine.sadd("s1", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
-        engine.sadd("s2", vec![Bytes::from("b"), Bytes::from("c"), Bytes::from("d")]).unwrap();
-        let count = engine.sinterstore("dest", &["s1".to_string(), "s2".to_string()]).unwrap();
+        engine
+            .sadd(
+                "s1",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
+        engine
+            .sadd(
+                "s2",
+                vec![Bytes::from("b"), Bytes::from("c"), Bytes::from("d")],
+            )
+            .unwrap();
+        let count = engine
+            .sinterstore("dest", &["s1".to_string(), "s2".to_string()])
+            .unwrap();
         assert_eq!(count, 2);
         assert!(engine.sismember("dest", &Bytes::from("b")).unwrap());
         assert!(engine.sismember("dest", &Bytes::from("c")).unwrap());
@@ -2035,18 +2453,33 @@ mod tests {
     #[test]
     fn test_sunionstore() {
         let engine = StorageEngine::new();
-        engine.sadd("s1", vec![Bytes::from("a"), Bytes::from("b")]).unwrap();
-        engine.sadd("s2", vec![Bytes::from("b"), Bytes::from("c")]).unwrap();
-        let count = engine.sunionstore("dest", &["s1".to_string(), "s2".to_string()]).unwrap();
+        engine
+            .sadd("s1", vec![Bytes::from("a"), Bytes::from("b")])
+            .unwrap();
+        engine
+            .sadd("s2", vec![Bytes::from("b"), Bytes::from("c")])
+            .unwrap();
+        let count = engine
+            .sunionstore("dest", &["s1".to_string(), "s2".to_string()])
+            .unwrap();
         assert_eq!(count, 3);
     }
 
     #[test]
     fn test_sdiffstore() {
         let engine = StorageEngine::new();
-        engine.sadd("s1", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
-        engine.sadd("s2", vec![Bytes::from("b"), Bytes::from("c")]).unwrap();
-        let count = engine.sdiffstore("dest", &["s1".to_string(), "s2".to_string()]).unwrap();
+        engine
+            .sadd(
+                "s1",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
+        engine
+            .sadd("s2", vec![Bytes::from("b"), Bytes::from("c")])
+            .unwrap();
+        let count = engine
+            .sdiffstore("dest", &["s1".to_string(), "s2".to_string()])
+            .unwrap();
         assert_eq!(count, 1);
         assert!(engine.sismember("dest", &Bytes::from("a")).unwrap());
     }
@@ -2054,7 +2487,12 @@ mod tests {
     #[test]
     fn test_sscan() {
         let engine = StorageEngine::new();
-        engine.sadd("set", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        engine
+            .sadd(
+                "set",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
 
         let (cursor, members) = engine.sscan("set", 0, "*", 2).unwrap();
         assert_eq!(members.len(), 2);
@@ -2064,7 +2502,11 @@ mod tests {
         assert_eq!(members2.len(), 1);
         assert_eq!(cursor2, 0);
 
-        let mut all: Vec<String> = members.iter().chain(members2.iter()).map(|m| String::from_utf8_lossy(m).to_string()).collect();
+        let mut all: Vec<String> = members
+            .iter()
+            .chain(members2.iter())
+            .map(|m| String::from_utf8_lossy(m).to_string())
+            .collect();
         all.sort();
         assert_eq!(all, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
     }
@@ -2072,7 +2514,16 @@ mod tests {
     #[test]
     fn test_sscan_match() {
         let engine = StorageEngine::new();
-        engine.sadd("set", vec![Bytes::from("foo"), Bytes::from("bar"), Bytes::from("foobar")]).unwrap();
+        engine
+            .sadd(
+                "set",
+                vec![
+                    Bytes::from("foo"),
+                    Bytes::from("bar"),
+                    Bytes::from("foobar"),
+                ],
+            )
+            .unwrap();
 
         let (cursor, members) = engine.sscan("set", 0, "foo*", 10).unwrap();
         assert_eq!(cursor, 0);
@@ -2084,52 +2535,121 @@ mod tests {
     #[test]
     fn test_sort_list_numeric() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![Bytes::from("3"), Bytes::from("1"), Bytes::from("2")]).unwrap();
-        let result = engine.sort("list", None, Vec::new(), None, None, true, false, None).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![Bytes::from("3"), Bytes::from("1"), Bytes::from("2")],
+            )
+            .unwrap();
+        let result = engine
+            .sort("list", None, Vec::new(), None, None, true, false, None)
+            .unwrap();
         assert_eq!(result, vec!["1", "2", "3"]);
     }
 
     #[test]
     fn test_sort_list_alpha() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![Bytes::from("c"), Bytes::from("a"), Bytes::from("b")]).unwrap();
-        let result = engine.sort("list", None, Vec::new(), None, None, true, true, None).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![Bytes::from("c"), Bytes::from("a"), Bytes::from("b")],
+            )
+            .unwrap();
+        let result = engine
+            .sort("list", None, Vec::new(), None, None, true, true, None)
+            .unwrap();
         assert_eq!(result, vec!["a", "b", "c"]);
     }
 
     #[test]
     fn test_sort_desc() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![Bytes::from("1"), Bytes::from("3"), Bytes::from("2")]).unwrap();
-        let result = engine.sort("list", None, Vec::new(), None, None, false, false, None).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![Bytes::from("1"), Bytes::from("3"), Bytes::from("2")],
+            )
+            .unwrap();
+        let result = engine
+            .sort("list", None, Vec::new(), None, None, false, false, None)
+            .unwrap();
         assert_eq!(result, vec!["3", "2", "1"]);
     }
 
     #[test]
     fn test_sort_limit() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![Bytes::from("5"), Bytes::from("1"), Bytes::from("3"), Bytes::from("2"), Bytes::from("4")]).unwrap();
-        let result = engine.sort("list", None, Vec::new(), Some(1), Some(2), true, false, None).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![
+                    Bytes::from("5"),
+                    Bytes::from("1"),
+                    Bytes::from("3"),
+                    Bytes::from("2"),
+                    Bytes::from("4"),
+                ],
+            )
+            .unwrap();
+        let result = engine
+            .sort(
+                "list",
+                None,
+                Vec::new(),
+                Some(1),
+                Some(2),
+                true,
+                false,
+                None,
+            )
+            .unwrap();
         assert_eq!(result, vec!["2", "3"]);
     }
 
     #[test]
     fn test_sort_store() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![Bytes::from("3"), Bytes::from("1"), Bytes::from("2")]).unwrap();
-        let result = engine.sort("list", None, Vec::new(), None, None, true, false, Some("dest".to_string())).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![Bytes::from("3"), Bytes::from("1"), Bytes::from("2")],
+            )
+            .unwrap();
+        let result = engine
+            .sort(
+                "list",
+                None,
+                Vec::new(),
+                None,
+                None,
+                true,
+                false,
+                Some("dest".to_string()),
+            )
+            .unwrap();
         // STORE 时返回空，数据存入 dest
         assert!(result.is_empty());
         let stored = engine.lrange("dest", 0, -1).unwrap();
-        let stored_str: Vec<String> = stored.iter().map(|b| String::from_utf8_lossy(b).to_string()).collect();
+        let stored_str: Vec<String> = stored
+            .iter()
+            .map(|b| String::from_utf8_lossy(b).to_string())
+            .collect();
         assert_eq!(stored_str, vec!["1", "2", "3"]);
     }
 
     #[test]
     fn test_sort_set() {
         let engine = StorageEngine::new();
-        engine.sadd("set", vec![Bytes::from("10"), Bytes::from("2"), Bytes::from("1")]).unwrap();
-        let result = engine.sort("set", None, Vec::new(), None, None, true, false, None).unwrap();
+        engine
+            .sadd(
+                "set",
+                vec![Bytes::from("10"), Bytes::from("2"), Bytes::from("1")],
+            )
+            .unwrap();
+        let result = engine
+            .sort("set", None, Vec::new(), None, None, true, false, None)
+            .unwrap();
         assert_eq!(result, vec!["1", "2", "10"]);
     }
 
@@ -2140,7 +2660,9 @@ mod tests {
         let engine = StorageEngine::new();
         engine.set("a".to_string(), Bytes::from("1")).unwrap();
         engine.set("b".to_string(), Bytes::from("2")).unwrap();
-        let count = engine.unlink(&["a".to_string(), "b".to_string(), "c".to_string()]).unwrap();
+        let count = engine
+            .unlink(&["a".to_string(), "b".to_string(), "c".to_string()])
+            .unwrap();
         assert_eq!(count, 2);
         assert!(!engine.exists("a").unwrap());
         assert!(!engine.exists("b").unwrap());
@@ -2191,29 +2713,49 @@ mod tests {
     #[test]
     fn test_dump_restore_list() {
         let engine = StorageEngine::new();
-        engine.rpush("list", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        engine
+            .rpush(
+                "list",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
         let data = engine.dump("list").unwrap().unwrap();
         engine.restore("restored", 0, &data, false).unwrap();
         let restored = engine.lrange("restored", 0, -1).unwrap();
-        let restored_str: Vec<String> = restored.iter().map(|b| String::from_utf8_lossy(b).to_string()).collect();
+        let restored_str: Vec<String> = restored
+            .iter()
+            .map(|b| String::from_utf8_lossy(b).to_string())
+            .collect();
         assert_eq!(restored_str, vec!["a", "b", "c"]);
     }
 
     #[test]
     fn test_dump_restore_hash() {
         let engine = StorageEngine::new();
-        engine.hset("hash", "f1".to_string(), Bytes::from("v1")).unwrap();
-        engine.hset("hash", "f2".to_string(), Bytes::from("v2")).unwrap();
+        engine
+            .hset("hash", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
+        engine
+            .hset("hash", "f2".to_string(), Bytes::from("v2"))
+            .unwrap();
         let data = engine.dump("hash").unwrap().unwrap();
         engine.restore("restored", 0, &data, false).unwrap();
-        assert_eq!(engine.hget("restored", "f1").unwrap(), Some(Bytes::from("v1")));
-        assert_eq!(engine.hget("restored", "f2").unwrap(), Some(Bytes::from("v2")));
+        assert_eq!(
+            engine.hget("restored", "f1").unwrap(),
+            Some(Bytes::from("v1"))
+        );
+        assert_eq!(
+            engine.hget("restored", "f2").unwrap(),
+            Some(Bytes::from("v2"))
+        );
     }
 
     #[test]
     fn test_dump_restore_set() {
         let engine = StorageEngine::new();
-        engine.sadd("set", vec![Bytes::from("x"), Bytes::from("y")]).unwrap();
+        engine
+            .sadd("set", vec![Bytes::from("x"), Bytes::from("y")])
+            .unwrap();
         let data = engine.dump("set").unwrap().unwrap();
         engine.restore("restored", 0, &data, false).unwrap();
         assert!(engine.sismember("restored", &Bytes::from("x")).unwrap());
@@ -2223,7 +2765,9 @@ mod tests {
     #[test]
     fn test_dump_restore_zset() {
         let engine = StorageEngine::new();
-        engine.zadd("zset", vec![(1.0, "a".to_string()), (2.0, "b".to_string())]).unwrap();
+        engine
+            .zadd("zset", vec![(1.0, "a".to_string()), (2.0, "b".to_string())])
+            .unwrap();
         let data = engine.dump("zset").unwrap().unwrap();
         engine.restore("restored", 0, &data, false).unwrap();
         assert_eq!(engine.zscore("restored", "a").unwrap(), Some(1.0));
@@ -2253,16 +2797,31 @@ mod tests {
     fn test_object_encoding_string() {
         let engine = StorageEngine::new();
         // 整数编码
-        engine.set("int_key".to_string(), Bytes::from("42")).unwrap();
-        assert_eq!(engine.object_encoding("int_key").unwrap(), Some("int".to_string()));
+        engine
+            .set("int_key".to_string(), Bytes::from("42"))
+            .unwrap();
+        assert_eq!(
+            engine.object_encoding("int_key").unwrap(),
+            Some("int".to_string())
+        );
 
         // embstr（≤44 字节）
-        engine.set("embstr_key".to_string(), Bytes::from("hello world")).unwrap();
-        assert_eq!(engine.object_encoding("embstr_key").unwrap(), Some("embstr".to_string()));
+        engine
+            .set("embstr_key".to_string(), Bytes::from("hello world"))
+            .unwrap();
+        assert_eq!(
+            engine.object_encoding("embstr_key").unwrap(),
+            Some("embstr".to_string())
+        );
 
         // raw（>44 字节）
-        engine.set("raw_key".to_string(), Bytes::from("a".repeat(100))).unwrap();
-        assert_eq!(engine.object_encoding("raw_key").unwrap(), Some("raw".to_string()));
+        engine
+            .set("raw_key".to_string(), Bytes::from("a".repeat(100)))
+            .unwrap();
+        assert_eq!(
+            engine.object_encoding("raw_key").unwrap(),
+            Some("raw".to_string())
+        );
 
         // 不存在的 key
         assert_eq!(engine.object_encoding("missing").unwrap(), None);
@@ -2272,52 +2831,92 @@ mod tests {
     fn test_object_encoding_list() {
         let engine = StorageEngine::new();
         // 小列表 → listpack
-        engine.lpush("small_list", vec![Bytes::from("a"), Bytes::from("b")]).unwrap();
-        assert_eq!(engine.object_encoding("small_list").unwrap(), Some("listpack".to_string()));
+        engine
+            .lpush("small_list", vec![Bytes::from("a"), Bytes::from("b")])
+            .unwrap();
+        assert_eq!(
+            engine.object_encoding("small_list").unwrap(),
+            Some("listpack".to_string())
+        );
 
         // 大列表 → quicklist
         let big_values: Vec<Bytes> = (0..3).map(|_| Bytes::from("x".repeat(100))).collect();
         engine.lpush("big_list", big_values).unwrap();
-        assert_eq!(engine.object_encoding("big_list").unwrap(), Some("quicklist".to_string()));
+        assert_eq!(
+            engine.object_encoding("big_list").unwrap(),
+            Some("quicklist".to_string())
+        );
     }
 
     #[test]
     fn test_object_encoding_hash() {
         let engine = StorageEngine::new();
         // 小哈希 → listpack
-        engine.hset("small_hash", "f1".to_string(), Bytes::from("v1")).unwrap();
-        assert_eq!(engine.object_encoding("small_hash").unwrap(), Some("listpack".to_string()));
+        engine
+            .hset("small_hash", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
+        assert_eq!(
+            engine.object_encoding("small_hash").unwrap(),
+            Some("listpack".to_string())
+        );
 
         // 大哈希 → hashtable
         for i in 0..3usize {
-            engine.hset("big_hash", format!("field{}", i), Bytes::from("x".repeat(100))).unwrap();
+            engine
+                .hset(
+                    "big_hash",
+                    format!("field{}", i),
+                    Bytes::from("x".repeat(100)),
+                )
+                .unwrap();
         }
-        assert_eq!(engine.object_encoding("big_hash").unwrap(), Some("hashtable".to_string()));
+        assert_eq!(
+            engine.object_encoding("big_hash").unwrap(),
+            Some("hashtable".to_string())
+        );
     }
 
     #[test]
     fn test_object_encoding_set() {
         let engine = StorageEngine::new();
         // 整数集合 → intset
-        engine.sadd("int_set", vec![Bytes::from("1"), Bytes::from("2")]).unwrap();
-        assert_eq!(engine.object_encoding("int_set").unwrap(), Some("intset".to_string()));
+        engine
+            .sadd("int_set", vec![Bytes::from("1"), Bytes::from("2")])
+            .unwrap();
+        assert_eq!(
+            engine.object_encoding("int_set").unwrap(),
+            Some("intset".to_string())
+        );
 
         // 非整数集合 → hashtable
-        engine.sadd("str_set", vec![Bytes::from("hello"), Bytes::from("world")]).unwrap();
-        assert_eq!(engine.object_encoding("str_set").unwrap(), Some("hashtable".to_string()));
+        engine
+            .sadd("str_set", vec![Bytes::from("hello"), Bytes::from("world")])
+            .unwrap();
+        assert_eq!(
+            engine.object_encoding("str_set").unwrap(),
+            Some("hashtable".to_string())
+        );
     }
 
     #[test]
     fn test_object_encoding_zset() {
         let engine = StorageEngine::new();
         // 小有序集合 → listpack
-        engine.zadd("small_zset", vec![(1.0, "a".to_string())]).unwrap();
-        assert_eq!(engine.object_encoding("small_zset").unwrap(), Some("listpack".to_string()));
+        engine
+            .zadd("small_zset", vec![(1.0, "a".to_string())])
+            .unwrap();
+        assert_eq!(
+            engine.object_encoding("small_zset").unwrap(),
+            Some("listpack".to_string())
+        );
 
         // 大有序集合 → skiplist
         let members: Vec<(f64, String)> = (0..130).map(|i| (i as f64, format!("m{}", i))).collect();
         engine.zadd("big_zset", members).unwrap();
-        assert_eq!(engine.object_encoding("big_zset").unwrap(), Some("skiplist".to_string()));
+        assert_eq!(
+            engine.object_encoding("big_zset").unwrap(),
+            Some("skiplist".to_string())
+        );
     }
 
     #[test]
@@ -2390,7 +2989,9 @@ mod tests {
         let engine = StorageEngine::new();
         engine.set("a".to_string(), Bytes::from("1")).unwrap();
         engine.set("b".to_string(), Bytes::from("2")).unwrap();
-        let count = engine.touch_keys(&["a".to_string(), "b".to_string(), "c".to_string()]).unwrap();
+        let count = engine
+            .touch_keys(&["a".to_string(), "b".to_string(), "c".to_string()])
+            .unwrap();
         assert_eq!(count, 2);
     }
 
@@ -2504,66 +3105,119 @@ mod tests {
     #[test]
     fn test_lmove_left_left() {
         let engine = StorageEngine::new();
-        engine.lpush("src", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        engine
+            .lpush(
+                "src",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
         let v = engine.lmove("src", "dst", true, true).unwrap();
         assert_eq!(v, Some(Bytes::from("c")));
-        assert_eq!(engine.lrange("src", 0, -1).unwrap(), vec![Bytes::from("b"), Bytes::from("a")]);
+        assert_eq!(
+            engine.lrange("src", 0, -1).unwrap(),
+            vec![Bytes::from("b"), Bytes::from("a")]
+        );
         assert_eq!(engine.lrange("dst", 0, -1).unwrap(), vec![Bytes::from("c")]);
     }
 
     #[test]
     fn test_lmove_left_right() {
         let engine = StorageEngine::new();
-        engine.lpush("src", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        engine
+            .lpush(
+                "src",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
         let v = engine.lmove("src", "dst", true, false).unwrap();
         assert_eq!(v, Some(Bytes::from("c")));
-        assert_eq!(engine.lrange("src", 0, -1).unwrap(), vec![Bytes::from("b"), Bytes::from("a")]);
+        assert_eq!(
+            engine.lrange("src", 0, -1).unwrap(),
+            vec![Bytes::from("b"), Bytes::from("a")]
+        );
         assert_eq!(engine.lrange("dst", 0, -1).unwrap(), vec![Bytes::from("c")]);
     }
 
     #[test]
     fn test_lmove_right_left() {
         let engine = StorageEngine::new();
-        engine.lpush("src", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        engine
+            .lpush(
+                "src",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
         let v = engine.lmove("src", "dst", false, true).unwrap();
         assert_eq!(v, Some(Bytes::from("a")));
-        assert_eq!(engine.lrange("src", 0, -1).unwrap(), vec![Bytes::from("c"), Bytes::from("b")]);
+        assert_eq!(
+            engine.lrange("src", 0, -1).unwrap(),
+            vec![Bytes::from("c"), Bytes::from("b")]
+        );
         assert_eq!(engine.lrange("dst", 0, -1).unwrap(), vec![Bytes::from("a")]);
     }
 
     #[test]
     fn test_lmove_right_right() {
         let engine = StorageEngine::new();
-        engine.lpush("src", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        engine
+            .lpush(
+                "src",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
         let v = engine.lmove("src", "dst", false, false).unwrap();
         assert_eq!(v, Some(Bytes::from("a")));
-        assert_eq!(engine.lrange("src", 0, -1).unwrap(), vec![Bytes::from("c"), Bytes::from("b")]);
+        assert_eq!(
+            engine.lrange("src", 0, -1).unwrap(),
+            vec![Bytes::from("c"), Bytes::from("b")]
+        );
         assert_eq!(engine.lrange("dst", 0, -1).unwrap(), vec![Bytes::from("a")]);
     }
 
     #[test]
     fn test_lmove_same_key_rotation() {
         let engine = StorageEngine::new();
-        engine.lpush("list", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        engine
+            .lpush(
+                "list",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
         let v = engine.lmove("list", "list", true, false).unwrap();
         assert_eq!(v, Some(Bytes::from("c")));
-        assert_eq!(engine.lrange("list", 0, -1).unwrap(), vec![Bytes::from("b"), Bytes::from("a"), Bytes::from("c")]);
+        assert_eq!(
+            engine.lrange("list", 0, -1).unwrap(),
+            vec![Bytes::from("b"), Bytes::from("a"), Bytes::from("c")]
+        );
     }
 
     #[test]
     fn test_rpoplpush() {
         let engine = StorageEngine::new();
-        engine.lpush("src", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        engine
+            .lpush(
+                "src",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
         let v = engine.rpoplpush("src", "dst").unwrap();
         assert_eq!(v, Some(Bytes::from("a")));
-        assert_eq!(engine.lrange("src", 0, -1).unwrap(), vec![Bytes::from("c"), Bytes::from("b")]);
+        assert_eq!(
+            engine.lrange("src", 0, -1).unwrap(),
+            vec![Bytes::from("c"), Bytes::from("b")]
+        );
         assert_eq!(engine.lrange("dst", 0, -1).unwrap(), vec![Bytes::from("a")]);
     }
 
     #[test]
     fn test_lmpop_single_key() {
         let engine = StorageEngine::new();
-        engine.lpush("list", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        engine
+            .lpush(
+                "list",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
         let result = engine.lmpop(&["list".to_string()], true, 1).unwrap();
         assert!(result.is_some());
         let (key, vals) = result.unwrap();
@@ -2575,8 +3229,12 @@ mod tests {
     fn test_lmpop_multiple_keys() {
         let engine = StorageEngine::new();
         engine.lpush("l2", vec![Bytes::from("x")]).unwrap();
-        engine.lpush("l1", vec![Bytes::from("a"), Bytes::from("b")]).unwrap();
-        let result = engine.lmpop(&["l1".to_string(), "l2".to_string()], true, 1).unwrap();
+        engine
+            .lpush("l1", vec![Bytes::from("a"), Bytes::from("b")])
+            .unwrap();
+        let result = engine
+            .lmpop(&["l1".to_string(), "l2".to_string()], true, 1)
+            .unwrap();
         assert!(result.is_some());
         let (key, vals) = result.unwrap();
         assert_eq!(key, "l1");
@@ -2586,7 +3244,17 @@ mod tests {
     #[test]
     fn test_lmpop_count() {
         let engine = StorageEngine::new();
-        engine.lpush("list", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c"), Bytes::from("d")]).unwrap();
+        engine
+            .lpush(
+                "list",
+                vec![
+                    Bytes::from("a"),
+                    Bytes::from("b"),
+                    Bytes::from("c"),
+                    Bytes::from("d"),
+                ],
+            )
+            .unwrap();
         let result = engine.lmpop(&["list".to_string()], true, 2).unwrap();
         assert!(result.is_some());
         let (key, vals) = result.unwrap();
@@ -2604,11 +3272,13 @@ mod tests {
     #[test]
     fn test_blmove_immediate() {
         let engine = StorageEngine::new();
-        engine.lpush("src", vec![Bytes::from("a"), Bytes::from("b")]).unwrap();
+        engine
+            .lpush("src", vec![Bytes::from("a"), Bytes::from("b")])
+            .unwrap();
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(async {
-            engine.blmove("src", "dst", true, true, 1.0).await
-        }).unwrap();
+        let result = rt
+            .block_on(async { engine.blmove("src", "dst", true, true, 1.0).await })
+            .unwrap();
         assert_eq!(result, Some(Bytes::from("b")));
     }
 
@@ -2616,20 +3286,22 @@ mod tests {
     fn test_blmove_timeout() {
         let engine = StorageEngine::new();
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(async {
-            engine.blmove("empty", "dst", true, true, 0.1).await
-        }).unwrap();
+        let result = rt
+            .block_on(async { engine.blmove("empty", "dst", true, true, 0.1).await })
+            .unwrap();
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_blmpop_immediate() {
         let engine = StorageEngine::new();
-        engine.lpush("list", vec![Bytes::from("a"), Bytes::from("b")]).unwrap();
+        engine
+            .lpush("list", vec![Bytes::from("a"), Bytes::from("b")])
+            .unwrap();
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(async {
-            engine.blmpop(&["list".to_string()], true, 1, 1.0).await
-        }).unwrap();
+        let result = rt
+            .block_on(async { engine.blmpop(&["list".to_string()], true, 1, 1.0).await })
+            .unwrap();
         assert!(result.is_some());
         let (key, vals) = result.unwrap();
         assert_eq!(key, "list");
@@ -2640,9 +3312,9 @@ mod tests {
     fn test_blmpop_timeout() {
         let engine = StorageEngine::new();
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(async {
-            engine.blmpop(&["empty".to_string()], true, 1, 0.1).await
-        }).unwrap();
+        let result = rt
+            .block_on(async { engine.blmpop(&["empty".to_string()], true, 1, 0.1).await })
+            .unwrap();
         assert_eq!(result, None);
     }
 
@@ -2651,13 +3323,19 @@ mod tests {
     #[test]
     fn test_hexpire_basic() {
         let engine = StorageEngine::new();
-        engine.hset("h", "f1".to_string(), Bytes::from("v1")).unwrap();
-        engine.hset("h", "f2".to_string(), Bytes::from("v2")).unwrap();
+        engine
+            .hset("h", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
+        engine
+            .hset("h", "f2".to_string(), Bytes::from("v2"))
+            .unwrap();
 
         let result = engine.hexpire("h", &["f1".to_string()], 3600).unwrap();
         assert_eq!(result, vec![1]);
 
-        let ttls = engine.httl("h", &["f1".to_string(), "f2".to_string()]).unwrap();
+        let ttls = engine
+            .httl("h", &["f1".to_string(), "f2".to_string()])
+            .unwrap();
         assert!(ttls[0] > 3500 && ttls[0] <= 3600);
         assert_eq!(ttls[1], -1);
     }
@@ -2665,7 +3343,9 @@ mod tests {
     #[test]
     fn test_hpexpire_and_hpttl() {
         let engine = StorageEngine::new();
-        engine.hset("h", "f1".to_string(), Bytes::from("v1")).unwrap();
+        engine
+            .hset("h", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
 
         let result = engine.hpexpire("h", &["f1".to_string()], 5000).unwrap();
         assert_eq!(result, vec![1]);
@@ -2677,10 +3357,14 @@ mod tests {
     #[test]
     fn test_hexpireat_and_hexpiretime() {
         let engine = StorageEngine::new();
-        engine.hset("h", "f1".to_string(), Bytes::from("v1")).unwrap();
+        engine
+            .hset("h", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
 
         let future_ts = StorageEngine::now_millis() / 1000 + 100;
-        let result = engine.hexpireat("h", &["f1".to_string()], future_ts).unwrap();
+        let result = engine
+            .hexpireat("h", &["f1".to_string()], future_ts)
+            .unwrap();
         assert_eq!(result, vec![1]);
 
         let times = engine.hexpiretime("h", &["f1".to_string()]).unwrap();
@@ -2690,10 +3374,14 @@ mod tests {
     #[test]
     fn test_hpexpireat_and_hpexpiretime() {
         let engine = StorageEngine::new();
-        engine.hset("h", "f1".to_string(), Bytes::from("v1")).unwrap();
+        engine
+            .hset("h", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
 
         let future_ts = StorageEngine::now_millis() + 100_000;
-        let result = engine.hpexpireat("h", &["f1".to_string()], future_ts).unwrap();
+        let result = engine
+            .hpexpireat("h", &["f1".to_string()], future_ts)
+            .unwrap();
         assert_eq!(result, vec![1]);
 
         let times = engine.hpexpiretime("h", &["f1".to_string()]).unwrap();
@@ -2703,7 +3391,9 @@ mod tests {
     #[test]
     fn test_hpersist() {
         let engine = StorageEngine::new();
-        engine.hset("h", "f1".to_string(), Bytes::from("v1")).unwrap();
+        engine
+            .hset("h", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
 
         engine.hexpire("h", &["f1".to_string()], 3600).unwrap();
         let ttls = engine.httl("h", &["f1".to_string()]).unwrap();
@@ -2719,7 +3409,9 @@ mod tests {
     #[test]
     fn test_hexpire_field_not_exists() {
         let engine = StorageEngine::new();
-        engine.hset("h", "f1".to_string(), Bytes::from("v1")).unwrap();
+        engine
+            .hset("h", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
 
         let result = engine.hexpire("h", &["fx".to_string()], 3600).unwrap();
         assert_eq!(result, vec![0]);
@@ -2729,7 +3421,9 @@ mod tests {
     fn test_hexpire_key_not_exists() {
         let engine = StorageEngine::new();
 
-        let result = engine.hexpire("missing", &["f1".to_string()], 3600).unwrap();
+        let result = engine
+            .hexpire("missing", &["f1".to_string()], 3600)
+            .unwrap();
         assert_eq!(result, vec![-1]);
 
         let ttls = engine.httl("missing", &["f1".to_string()]).unwrap();
@@ -2739,8 +3433,12 @@ mod tests {
     #[test]
     fn test_hash_field_lazy_expiration() {
         let engine = StorageEngine::new();
-        engine.hset("h", "f1".to_string(), Bytes::from("v1")).unwrap();
-        engine.hset("h", "f2".to_string(), Bytes::from("v2")).unwrap();
+        engine
+            .hset("h", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
+        engine
+            .hset("h", "f2".to_string(), Bytes::from("v2"))
+            .unwrap();
 
         // 设置 f1 立即过期（1毫秒）
         engine.hpexpire("h", &["f1".to_string()], 1).unwrap();
@@ -2763,7 +3461,9 @@ mod tests {
     #[test]
     fn test_hash_all_fields_expire_removes_key() {
         let engine = StorageEngine::new();
-        engine.hset("h", "f1".to_string(), Bytes::from("v1")).unwrap();
+        engine
+            .hset("h", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
 
         engine.hpexpire("h", &["f1".to_string()], 1).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -2779,8 +3479,12 @@ mod tests {
     #[test]
     fn test_hash_expiration_with_hdel() {
         let engine = StorageEngine::new();
-        engine.hset("h", "f1".to_string(), Bytes::from("v1")).unwrap();
-        engine.hset("h", "f2".to_string(), Bytes::from("v2")).unwrap();
+        engine
+            .hset("h", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
+        engine
+            .hset("h", "f2".to_string(), Bytes::from("v2"))
+            .unwrap();
 
         engine.hexpire("h", &["f1".to_string()], 3600).unwrap();
         let count = engine.hdel("h", &["f1".to_string()]).unwrap();
@@ -2803,7 +3507,9 @@ mod tests {
     #[test]
     fn test_hpersist_no_expiration() {
         let engine = StorageEngine::new();
-        engine.hset("h", "f1".to_string(), Bytes::from("v1")).unwrap();
+        engine
+            .hset("h", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
 
         let result = engine.hpersist("h", &["f1".to_string()]).unwrap();
         assert_eq!(result, vec![0]);
@@ -2812,14 +3518,28 @@ mod tests {
     #[test]
     fn test_multiple_fields_hexpire() {
         let engine = StorageEngine::new();
-        engine.hset("h", "f1".to_string(), Bytes::from("v1")).unwrap();
-        engine.hset("h", "f2".to_string(), Bytes::from("v2")).unwrap();
-        engine.hset("h", "f3".to_string(), Bytes::from("v3")).unwrap();
+        engine
+            .hset("h", "f1".to_string(), Bytes::from("v1"))
+            .unwrap();
+        engine
+            .hset("h", "f2".to_string(), Bytes::from("v2"))
+            .unwrap();
+        engine
+            .hset("h", "f3".to_string(), Bytes::from("v3"))
+            .unwrap();
 
-        let result = engine.hexpire("h", &["f1".to_string(), "f2".to_string(), "fx".to_string()], 3600).unwrap();
+        let result = engine
+            .hexpire(
+                "h",
+                &["f1".to_string(), "f2".to_string(), "fx".to_string()],
+                3600,
+            )
+            .unwrap();
         assert_eq!(result, vec![1, 1, 0]);
 
-        let ttls = engine.httl("h", &["f1".to_string(), "f2".to_string(), "f3".to_string()]).unwrap();
+        let ttls = engine
+            .httl("h", &["f1".to_string(), "f2".to_string(), "f3".to_string()])
+            .unwrap();
         assert!(ttls[0] > 0);
         assert!(ttls[1] > 0);
         assert_eq!(ttls[2], -1);
@@ -2830,22 +3550,43 @@ mod tests {
     #[test]
     fn test_sintercard() {
         let engine = StorageEngine::new();
-        engine.sadd("s1", vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
-        engine.sadd("s2", vec![Bytes::from("b"), Bytes::from("c"), Bytes::from("d")]).unwrap();
+        engine
+            .sadd(
+                "s1",
+                vec![Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
+        engine
+            .sadd(
+                "s2",
+                vec![Bytes::from("b"), Bytes::from("c"), Bytes::from("d")],
+            )
+            .unwrap();
 
-        let count = engine.sintercard(&["s1".to_string(), "s2".to_string()], 0).unwrap();
+        let count = engine
+            .sintercard(&["s1".to_string(), "s2".to_string()], 0)
+            .unwrap();
         assert_eq!(count, 2);
 
-        let count = engine.sintercard(&["s1".to_string(), "s2".to_string()], 1).unwrap();
+        let count = engine
+            .sintercard(&["s1".to_string(), "s2".to_string()], 1)
+            .unwrap();
         assert_eq!(count, 1);
     }
 
     #[test]
     fn test_smismember() {
         let engine = StorageEngine::new();
-        engine.sadd("s1", vec![Bytes::from("a"), Bytes::from("b")]).unwrap();
+        engine
+            .sadd("s1", vec![Bytes::from("a"), Bytes::from("b")])
+            .unwrap();
 
-        let result = engine.smismember("s1", &[Bytes::from("a"), Bytes::from("b"), Bytes::from("c")]).unwrap();
+        let result = engine
+            .smismember(
+                "s1",
+                &[Bytes::from("a"), Bytes::from("b"), Bytes::from("c")],
+            )
+            .unwrap();
         assert_eq!(result, vec![1, 1, 0]);
     }
 
@@ -2854,7 +3595,16 @@ mod tests {
     #[test]
     fn test_zrandmember() {
         let engine = StorageEngine::new();
-        engine.zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string()), (3.0, "c".to_string())]).unwrap();
+        engine
+            .zadd(
+                "z1",
+                vec![
+                    (1.0, "a".to_string()),
+                    (2.0, "b".to_string()),
+                    (3.0, "c".to_string()),
+                ],
+            )
+            .unwrap();
 
         let result = engine.zrandmember("z1", 2, false).unwrap();
         assert_eq!(result.len(), 2);
@@ -2866,10 +3616,30 @@ mod tests {
     #[test]
     fn test_zdiff() {
         let engine = StorageEngine::new();
-        engine.zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string()), (3.0, "c".to_string())]).unwrap();
-        engine.zadd("z2", vec![(2.0, "b".to_string()), (3.0, "c".to_string()), (4.0, "d".to_string())]).unwrap();
+        engine
+            .zadd(
+                "z1",
+                vec![
+                    (1.0, "a".to_string()),
+                    (2.0, "b".to_string()),
+                    (3.0, "c".to_string()),
+                ],
+            )
+            .unwrap();
+        engine
+            .zadd(
+                "z2",
+                vec![
+                    (2.0, "b".to_string()),
+                    (3.0, "c".to_string()),
+                    (4.0, "d".to_string()),
+                ],
+            )
+            .unwrap();
 
-        let result = engine.zdiff(&["z1".to_string(), "z2".to_string()], false).unwrap();
+        let result = engine
+            .zdiff(&["z1".to_string(), "z2".to_string()], false)
+            .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, "a");
     }
@@ -2877,10 +3647,16 @@ mod tests {
     #[test]
     fn test_zdiffstore() {
         let engine = StorageEngine::new();
-        engine.zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string())]).unwrap();
-        engine.zadd("z2", vec![(2.0, "b".to_string()), (3.0, "c".to_string())]).unwrap();
+        engine
+            .zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string())])
+            .unwrap();
+        engine
+            .zadd("z2", vec![(2.0, "b".to_string()), (3.0, "c".to_string())])
+            .unwrap();
 
-        let count = engine.zdiffstore("z3", &["z1".to_string(), "z2".to_string()]).unwrap();
+        let count = engine
+            .zdiffstore("z3", &["z1".to_string(), "z2".to_string()])
+            .unwrap();
         assert_eq!(count, 1);
 
         let score = engine.zscore("z3", "a").unwrap();
@@ -2890,10 +3666,16 @@ mod tests {
     #[test]
     fn test_zinter() {
         let engine = StorageEngine::new();
-        engine.zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string())]).unwrap();
-        engine.zadd("z2", vec![(2.0, "b".to_string()), (3.0, "c".to_string())]).unwrap();
+        engine
+            .zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string())])
+            .unwrap();
+        engine
+            .zadd("z2", vec![(2.0, "b".to_string()), (3.0, "c".to_string())])
+            .unwrap();
 
-        let result = engine.zinter(&["z1".to_string(), "z2".to_string()], None, "SUM", false).unwrap();
+        let result = engine
+            .zinter(&["z1".to_string(), "z2".to_string()], None, "SUM", false)
+            .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, "b");
         assert_eq!(result[0].1, 4.0);
@@ -2905,7 +3687,9 @@ mod tests {
         engine.zadd("z1", vec![(1.0, "a".to_string())]).unwrap();
         engine.zadd("z2", vec![(2.0, "a".to_string())]).unwrap();
 
-        let result = engine.zunion(&["z1".to_string(), "z2".to_string()], None, "SUM", false).unwrap();
+        let result = engine
+            .zunion(&["z1".to_string(), "z2".to_string()], None, "SUM", false)
+            .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, "a");
         assert_eq!(result[0].1, 3.0);
@@ -2914,9 +3698,20 @@ mod tests {
     #[test]
     fn test_zrangestore() {
         let engine = StorageEngine::new();
-        engine.zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string()), (3.0, "c".to_string())]).unwrap();
+        engine
+            .zadd(
+                "z1",
+                vec![
+                    (1.0, "a".to_string()),
+                    (2.0, "b".to_string()),
+                    (3.0, "c".to_string()),
+                ],
+            )
+            .unwrap();
 
-        let count = engine.zrangestore("z2", "z1", "0", "1", false, false, false, 0, 0).unwrap();
+        let count = engine
+            .zrangestore("z2", "z1", "0", "1", false, false, false, 0, 0)
+            .unwrap();
         assert_eq!(count, 2);
 
         let score = engine.zscore("z2", "a").unwrap();
@@ -2926,7 +3721,9 @@ mod tests {
     #[test]
     fn test_zmpop() {
         let engine = StorageEngine::new();
-        engine.zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string())]).unwrap();
+        engine
+            .zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string())])
+            .unwrap();
 
         let result = engine.zmpop(&["z1".to_string()], true, 1).unwrap();
         assert!(result.is_some());
@@ -2939,9 +3736,20 @@ mod tests {
     #[test]
     fn test_zrevrangebyscore() {
         let engine = StorageEngine::new();
-        engine.zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string()), (3.0, "c".to_string())]).unwrap();
+        engine
+            .zadd(
+                "z1",
+                vec![
+                    (1.0, "a".to_string()),
+                    (2.0, "b".to_string()),
+                    (3.0, "c".to_string()),
+                ],
+            )
+            .unwrap();
 
-        let result = engine.zrevrangebyscore("z1", 3.0, 1.5, false, 0, 0).unwrap();
+        let result = engine
+            .zrevrangebyscore("z1", 3.0, 1.5, false, 0, 0)
+            .unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].0, "c");
         assert_eq!(result[1].0, "b");
@@ -2950,18 +3758,34 @@ mod tests {
     #[test]
     fn test_zrevrangebylex() {
         let engine = StorageEngine::new();
-        engine.zadd("z1", vec![(1.0, "a".to_string()), (1.0, "b".to_string()), (1.0, "c".to_string())]).unwrap();
+        engine
+            .zadd(
+                "z1",
+                vec![
+                    (1.0, "a".to_string()),
+                    (1.0, "b".to_string()),
+                    (1.0, "c".to_string()),
+                ],
+            )
+            .unwrap();
 
         let result = engine.zrevrangebylex("z1", "[c", "[a", 0, 0).unwrap();
-        assert_eq!(result, vec!["c".to_string(), "b".to_string(), "a".to_string()]);
+        assert_eq!(
+            result,
+            vec!["c".to_string(), "b".to_string(), "a".to_string()]
+        );
     }
 
     #[test]
     fn test_zmscore() {
         let engine = StorageEngine::new();
-        engine.zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string())]).unwrap();
+        engine
+            .zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string())])
+            .unwrap();
 
-        let result = engine.zmscore("z1", &["a".to_string(), "b".to_string(), "c".to_string()]).unwrap();
+        let result = engine
+            .zmscore("z1", &["a".to_string(), "b".to_string(), "c".to_string()])
+            .unwrap();
         assert_eq!(result[0], Some(1.0));
         assert_eq!(result[1], Some(2.0));
         assert_eq!(result[2], None);
@@ -2970,7 +3794,16 @@ mod tests {
     #[test]
     fn test_zlexcount() {
         let engine = StorageEngine::new();
-        engine.zadd("z1", vec![(1.0, "a".to_string()), (1.0, "b".to_string()), (1.0, "c".to_string())]).unwrap();
+        engine
+            .zadd(
+                "z1",
+                vec![
+                    (1.0, "a".to_string()),
+                    (1.0, "b".to_string()),
+                    (1.0, "c".to_string()),
+                ],
+            )
+            .unwrap();
 
         let count = engine.zlexcount("z1", "[a", "[c").unwrap();
         assert_eq!(count, 3);
@@ -2979,19 +3812,34 @@ mod tests {
     #[test]
     fn test_zrange_unified() {
         let engine = StorageEngine::new();
-        engine.zadd("z1", vec![(1.0, "a".to_string()), (2.0, "b".to_string()), (3.0, "c".to_string())]).unwrap();
+        engine
+            .zadd(
+                "z1",
+                vec![
+                    (1.0, "a".to_string()),
+                    (2.0, "b".to_string()),
+                    (3.0, "c".to_string()),
+                ],
+            )
+            .unwrap();
 
-        let result = engine.zrange_unified("z1", "0", "1", false, false, false, false, 0, 0).unwrap();
+        let result = engine
+            .zrange_unified("z1", "0", "1", false, false, false, false, 0, 0)
+            .unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].0, "a");
         assert_eq!(result[1].0, "b");
 
-        let result = engine.zrange_unified("z1", "1.5", "3.0", true, false, false, false, 0, 0).unwrap();
+        let result = engine
+            .zrange_unified("z1", "1.5", "3.0", true, false, false, false, 0, 0)
+            .unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].0, "b");
         assert_eq!(result[1].0, "c");
 
-        let result = engine.zrange_unified("z1", "0", "-1", false, false, true, false, 0, 0).unwrap();
+        let result = engine
+            .zrange_unified("z1", "0", "-1", false, false, true, false, 0, 0)
+            .unwrap();
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].0, "c");
     }
@@ -3001,11 +3849,17 @@ mod tests {
     #[test]
     fn test_bitfield_get_u8() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0x12, 0x34])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0x12, 0x34]))
+            .unwrap();
 
-        let ops = vec![
-            BitFieldOp::Get(BitFieldEncoding { signed: false, bits: 8 }, BitFieldOffset::Num(0)),
-        ];
+        let ops = vec![BitFieldOp::Get(
+            BitFieldEncoding {
+                signed: false,
+                bits: 8,
+            },
+            BitFieldOffset::Num(0),
+        )];
         let result = engine.bitfield("bf", &ops).unwrap();
         assert_eq!(result, vec![BitFieldResult::Value(0x12)]);
     }
@@ -3013,11 +3867,17 @@ mod tests {
     #[test]
     fn test_bitfield_get_u16() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0x12, 0x34])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0x12, 0x34]))
+            .unwrap();
 
-        let ops = vec![
-            BitFieldOp::Get(BitFieldEncoding { signed: false, bits: 16 }, BitFieldOffset::Num(0)),
-        ];
+        let ops = vec![BitFieldOp::Get(
+            BitFieldEncoding {
+                signed: false,
+                bits: 16,
+            },
+            BitFieldOffset::Num(0),
+        )];
         let result = engine.bitfield("bf", &ops).unwrap();
         // 大端序：0x12 0x34 -> 0x1234 = 4660
         assert_eq!(result, vec![BitFieldResult::Value(0x1234)]);
@@ -3026,11 +3886,17 @@ mod tests {
     #[test]
     fn test_bitfield_get_i8_positive() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0x7F])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0x7F]))
+            .unwrap();
 
-        let ops = vec![
-            BitFieldOp::Get(BitFieldEncoding { signed: true, bits: 8 }, BitFieldOffset::Num(0)),
-        ];
+        let ops = vec![BitFieldOp::Get(
+            BitFieldEncoding {
+                signed: true,
+                bits: 8,
+            },
+            BitFieldOffset::Num(0),
+        )];
         let result = engine.bitfield("bf", &ops).unwrap();
         assert_eq!(result, vec![BitFieldResult::Value(127)]);
     }
@@ -3038,11 +3904,17 @@ mod tests {
     #[test]
     fn test_bitfield_get_i8_negative() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0xFF])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0xFF]))
+            .unwrap();
 
-        let ops = vec![
-            BitFieldOp::Get(BitFieldEncoding { signed: true, bits: 8 }, BitFieldOffset::Num(0)),
-        ];
+        let ops = vec![BitFieldOp::Get(
+            BitFieldEncoding {
+                signed: true,
+                bits: 8,
+            },
+            BitFieldOffset::Num(0),
+        )];
         let result = engine.bitfield("bf", &ops).unwrap();
         assert_eq!(result, vec![BitFieldResult::Value(-1)]);
     }
@@ -3050,11 +3922,17 @@ mod tests {
     #[test]
     fn test_bitfield_get_i16_negative() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0xFF, 0x80])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0xFF, 0x80]))
+            .unwrap();
 
-        let ops = vec![
-            BitFieldOp::Get(BitFieldEncoding { signed: true, bits: 16 }, BitFieldOffset::Num(0)),
-        ];
+        let ops = vec![BitFieldOp::Get(
+            BitFieldEncoding {
+                signed: true,
+                bits: 16,
+            },
+            BitFieldOffset::Num(0),
+        )];
         let result = engine.bitfield("bf", &ops).unwrap();
         // 大端序：0xFF 0x80 -> -128
         assert_eq!(result, vec![BitFieldResult::Value(-128)]);
@@ -3063,18 +3941,29 @@ mod tests {
     #[test]
     fn test_bitfield_set() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0x00])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0x00]))
+            .unwrap();
 
-        let ops = vec![
-            BitFieldOp::Set(BitFieldEncoding { signed: false, bits: 8 }, BitFieldOffset::Num(0), 0x42),
-        ];
+        let ops = vec![BitFieldOp::Set(
+            BitFieldEncoding {
+                signed: false,
+                bits: 8,
+            },
+            BitFieldOffset::Num(0),
+            0x42,
+        )];
         let result = engine.bitfield("bf", &ops).unwrap();
         assert_eq!(result, vec![BitFieldResult::Value(0x00)]);
 
         // 验证新值
-        let ops2 = vec![
-            BitFieldOp::Get(BitFieldEncoding { signed: false, bits: 8 }, BitFieldOffset::Num(0)),
-        ];
+        let ops2 = vec![BitFieldOp::Get(
+            BitFieldEncoding {
+                signed: false,
+                bits: 8,
+            },
+            BitFieldOffset::Num(0),
+        )];
         let result2 = engine.bitfield("bf", &ops2).unwrap();
         assert_eq!(result2, vec![BitFieldResult::Value(0x42)]);
     }
@@ -3082,11 +3971,18 @@ mod tests {
     #[test]
     fn test_bitfield_incrby() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0x05])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0x05]))
+            .unwrap();
 
-        let ops = vec![
-            BitFieldOp::IncrBy(BitFieldEncoding { signed: false, bits: 8 }, BitFieldOffset::Num(0), 3),
-        ];
+        let ops = vec![BitFieldOp::IncrBy(
+            BitFieldEncoding {
+                signed: false,
+                bits: 8,
+            },
+            BitFieldOffset::Num(0),
+            3,
+        )];
         let result = engine.bitfield("bf", &ops).unwrap();
         assert_eq!(result, vec![BitFieldResult::Value(0x08)]);
     }
@@ -3094,11 +3990,20 @@ mod tests {
     #[test]
     fn test_bitfield_overflow_wrap() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0xFE])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0xFE]))
+            .unwrap();
 
         let ops = vec![
             BitFieldOp::Overflow(BitFieldOverflow::Wrap),
-            BitFieldOp::IncrBy(BitFieldEncoding { signed: false, bits: 8 }, BitFieldOffset::Num(0), 5),
+            BitFieldOp::IncrBy(
+                BitFieldEncoding {
+                    signed: false,
+                    bits: 8,
+                },
+                BitFieldOffset::Num(0),
+                5,
+            ),
         ];
         let result = engine.bitfield("bf", &ops).unwrap();
         // 0xFE + 5 = 259, wrap -> 259 % 256 = 3
@@ -3108,11 +4013,20 @@ mod tests {
     #[test]
     fn test_bitfield_overflow_sat() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0xFE])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0xFE]))
+            .unwrap();
 
         let ops = vec![
             BitFieldOp::Overflow(BitFieldOverflow::Sat),
-            BitFieldOp::IncrBy(BitFieldEncoding { signed: false, bits: 8 }, BitFieldOffset::Num(0), 5),
+            BitFieldOp::IncrBy(
+                BitFieldEncoding {
+                    signed: false,
+                    bits: 8,
+                },
+                BitFieldOffset::Num(0),
+                5,
+            ),
         ];
         let result = engine.bitfield("bf", &ops).unwrap();
         // 0xFE + 5 = 259, sat -> 255
@@ -3122,20 +4036,33 @@ mod tests {
     #[test]
     fn test_bitfield_overflow_fail() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0xFE])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0xFE]))
+            .unwrap();
 
         let ops = vec![
             BitFieldOp::Overflow(BitFieldOverflow::Fail),
-            BitFieldOp::IncrBy(BitFieldEncoding { signed: false, bits: 8 }, BitFieldOffset::Num(0), 5),
+            BitFieldOp::IncrBy(
+                BitFieldEncoding {
+                    signed: false,
+                    bits: 8,
+                },
+                BitFieldOffset::Num(0),
+                5,
+            ),
         ];
         let result = engine.bitfield("bf", &ops).unwrap();
         // 溢出，返回 nil
         assert_eq!(result, vec![BitFieldResult::Nil]);
 
         // 值不应被修改
-        let ops2 = vec![
-            BitFieldOp::Get(BitFieldEncoding { signed: false, bits: 8 }, BitFieldOffset::Num(0)),
-        ];
+        let ops2 = vec![BitFieldOp::Get(
+            BitFieldEncoding {
+                signed: false,
+                bits: 8,
+            },
+            BitFieldOffset::Num(0),
+        )];
         let result2 = engine.bitfield("bf", &ops2).unwrap();
         assert_eq!(result2, vec![BitFieldResult::Value(0xFE)]);
     }
@@ -3143,12 +4070,18 @@ mod tests {
     #[test]
     fn test_bitfield_hash_offset() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0x12, 0x34, 0x56, 0x78])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0x12, 0x34, 0x56, 0x78]))
+            .unwrap();
 
         // #1 u16 -> offset = 1 * 16 = 16，读取字节 2,3 -> 0x5678
-        let ops = vec![
-            BitFieldOp::Get(BitFieldEncoding { signed: false, bits: 16 }, BitFieldOffset::Hash(1)),
-        ];
+        let ops = vec![BitFieldOp::Get(
+            BitFieldEncoding {
+                signed: false,
+                bits: 16,
+            },
+            BitFieldOffset::Hash(1),
+        )];
         let result = engine.bitfield("bf", &ops).unwrap();
         assert_eq!(result, vec![BitFieldResult::Value(0x5678)]);
     }
@@ -3156,7 +4089,9 @@ mod tests {
     #[test]
     fn test_bitfield_cross_byte_boundary() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0xAB, 0xCD])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0xAB, 0xCD]))
+            .unwrap();
 
         // 从位偏移 4 开始读取 12 位
         // 0xAB = 1010 1011, 0xCD = 1100 1101
@@ -3164,9 +4099,13 @@ mod tests {
         // 位偏移 4：byte 0 的 bit 3（因为大端序 bit 7 是 offset 0）
         // offset 4 -> byte 0, bit 7-4 = 3
         // 读取 12 位：1011 1100 1101 -> 0xBCD = 3021
-        let ops = vec![
-            BitFieldOp::Get(BitFieldEncoding { signed: false, bits: 12 }, BitFieldOffset::Num(4)),
-        ];
+        let ops = vec![BitFieldOp::Get(
+            BitFieldEncoding {
+                signed: false,
+                bits: 12,
+            },
+            BitFieldOffset::Num(4),
+        )];
         let result = engine.bitfield("bf", &ops).unwrap();
         assert_eq!(result, vec![BitFieldResult::Value(0xBCD)]);
     }
@@ -3175,15 +4114,24 @@ mod tests {
     fn test_bitfield_auto_extend() {
         let engine = StorageEngine::new();
         // key 不存在
-        let ops = vec![
-            BitFieldOp::Set(BitFieldEncoding { signed: false, bits: 16 }, BitFieldOffset::Num(16), 0x1234),
-        ];
+        let ops = vec![BitFieldOp::Set(
+            BitFieldEncoding {
+                signed: false,
+                bits: 16,
+            },
+            BitFieldOffset::Num(16),
+            0x1234,
+        )];
         let result = engine.bitfield("bf", &ops).unwrap();
         assert_eq!(result, vec![BitFieldResult::Value(0x00)]);
 
-        let ops2 = vec![
-            BitFieldOp::Get(BitFieldEncoding { signed: false, bits: 16 }, BitFieldOffset::Num(16)),
-        ];
+        let ops2 = vec![BitFieldOp::Get(
+            BitFieldEncoding {
+                signed: false,
+                bits: 16,
+            },
+            BitFieldOffset::Num(16),
+        )];
         let result2 = engine.bitfield("bf", &ops2).unwrap();
         assert_eq!(result2, vec![BitFieldResult::Value(0x1234)]);
     }
@@ -3191,11 +4139,17 @@ mod tests {
     #[test]
     fn test_bitfield_ro() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0x12, 0x34])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0x12, 0x34]))
+            .unwrap();
 
-        let ops = vec![
-            BitFieldOp::Get(BitFieldEncoding { signed: false, bits: 8 }, BitFieldOffset::Num(0)),
-        ];
+        let ops = vec![BitFieldOp::Get(
+            BitFieldEncoding {
+                signed: false,
+                bits: 8,
+            },
+            BitFieldOffset::Num(0),
+        )];
         let result = engine.bitfield_ro("bf", &ops).unwrap();
         assert_eq!(result, vec![BitFieldResult::Value(0x12)]);
     }
@@ -3204,9 +4158,14 @@ mod tests {
     fn test_bitfield_ro_reject_set() {
         let engine = StorageEngine::new();
 
-        let ops = vec![
-            BitFieldOp::Set(BitFieldEncoding { signed: false, bits: 8 }, BitFieldOffset::Num(0), 1),
-        ];
+        let ops = vec![BitFieldOp::Set(
+            BitFieldEncoding {
+                signed: false,
+                bits: 8,
+            },
+            BitFieldOffset::Num(0),
+            1,
+        )];
         let result = engine.bitfield_ro("bf", &ops);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("只支持 GET"));
@@ -3215,11 +4174,20 @@ mod tests {
     #[test]
     fn test_bitfield_signed_overflow_wrap() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0x7F])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0x7F]))
+            .unwrap();
 
         let ops = vec![
             BitFieldOp::Overflow(BitFieldOverflow::Wrap),
-            BitFieldOp::IncrBy(BitFieldEncoding { signed: true, bits: 8 }, BitFieldOffset::Num(0), 1),
+            BitFieldOp::IncrBy(
+                BitFieldEncoding {
+                    signed: true,
+                    bits: 8,
+                },
+                BitFieldOffset::Num(0),
+                1,
+            ),
         ];
         let result = engine.bitfield("bf", &ops).unwrap();
         // 127 + 1 = 128, i8 wrap -> -128
@@ -3229,11 +4197,20 @@ mod tests {
     #[test]
     fn test_bitfield_signed_overflow_sat() {
         let engine = StorageEngine::new();
-        engine.set("bf".to_string(), Bytes::from(vec![0x7F])).unwrap();
+        engine
+            .set("bf".to_string(), Bytes::from(vec![0x7F]))
+            .unwrap();
 
         let ops = vec![
             BitFieldOp::Overflow(BitFieldOverflow::Sat),
-            BitFieldOp::IncrBy(BitFieldEncoding { signed: true, bits: 8 }, BitFieldOffset::Num(0), 10),
+            BitFieldOp::IncrBy(
+                BitFieldEncoding {
+                    signed: true,
+                    bits: 8,
+                },
+                BitFieldOffset::Num(0),
+                10,
+            ),
         ];
         let result = engine.bitfield("bf", &ops).unwrap();
         // 127 + 10 = 137, i8 sat -> 127
@@ -3245,9 +4222,13 @@ mod tests {
         let engine = StorageEngine::new();
         engine.lpush("list", vec![Bytes::from("a")]).unwrap();
 
-        let ops = vec![
-            BitFieldOp::Get(BitFieldEncoding { signed: false, bits: 8 }, BitFieldOffset::Num(0)),
-        ];
+        let ops = vec![BitFieldOp::Get(
+            BitFieldEncoding {
+                signed: false,
+                bits: 8,
+            },
+            BitFieldOffset::Num(0),
+        )];
         let result = engine.bitfield("list", &ops);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("WRONGTYPE"));
@@ -3258,7 +4239,16 @@ mod tests {
     #[test]
     fn test_xadd_auto_id() {
         let engine = StorageEngine::new();
-        let id = engine.xadd("stream", "*", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
+        let id = engine
+            .xadd(
+                "stream",
+                "*",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         assert!(id.is_some());
         let id_str = id.unwrap();
         assert!(id_str.contains('-'));
@@ -3267,15 +4257,44 @@ mod tests {
     #[test]
     fn test_xadd_specified_id() {
         let engine = StorageEngine::new();
-        let id = engine.xadd("stream", "1234567890-1", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
+        let id = engine
+            .xadd(
+                "stream",
+                "1234567890-1",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         assert_eq!(id, Some("1234567890-1".to_string()));
     }
 
     #[test]
     fn test_xadd_id_increasing() {
         let engine = StorageEngine::new();
-        let id1 = engine.xadd("stream", "*", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap().unwrap();
-        let id2 = engine.xadd("stream", "*", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap().unwrap();
+        let id1 = engine
+            .xadd(
+                "stream",
+                "*",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        let id2 = engine
+            .xadd(
+                "stream",
+                "*",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap()
+            .unwrap();
         let sid1 = StreamId::parse(&id1).unwrap();
         let sid2 = StreamId::parse(&id2).unwrap();
         assert!(sid2 > sid1);
@@ -3284,7 +4303,16 @@ mod tests {
     #[test]
     fn test_xadd_partial_auto() {
         let engine = StorageEngine::new();
-        let id = engine.xadd("stream", "1234567890-*", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
+        let id = engine
+            .xadd(
+                "stream",
+                "1234567890-*",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         assert_eq!(id, Some("1234567890-0".to_string()));
     }
 
@@ -3292,17 +4320,62 @@ mod tests {
     fn test_xlen() {
         let engine = StorageEngine::new();
         assert_eq!(engine.xlen("stream").unwrap(), 0);
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         assert_eq!(engine.xlen("stream").unwrap(), 2);
     }
 
     #[test]
     fn test_xrange() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-2", vec![("f3".to_string(), "v3".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-2",
+                vec![("f3".to_string(), "v3".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
         let result = engine.xrange("stream", "-", "+", None).unwrap();
         assert_eq!(result.len(), 3);
@@ -3318,9 +4391,36 @@ mod tests {
     #[test]
     fn test_xrevrange() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-2", vec![("f3".to_string(), "v3".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-2",
+                vec![("f3".to_string(), "v3".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
         let result = engine.xrevrange("stream", "+", "-", None).unwrap();
         assert_eq!(result.len(), 3);
@@ -3331,9 +4431,36 @@ mod tests {
     #[test]
     fn test_xtrim_maxlen() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-2", vec![("f3".to_string(), "v3".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-2",
+                vec![("f3".to_string(), "v3".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
         let removed = engine.xtrim("stream", "MAXLEN", "2", false).unwrap();
         assert_eq!(removed, 1);
@@ -3343,9 +4470,36 @@ mod tests {
     #[test]
     fn test_xtrim_minid() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-2", vec![("f3".to_string(), "v3".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-2",
+                vec![("f3".to_string(), "v3".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
         let removed = engine.xtrim("stream", "MINID", "1000-1", false).unwrap();
         assert_eq!(removed, 1);
@@ -3355,8 +4509,26 @@ mod tests {
     #[test]
     fn test_xdel() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
         let removed = engine.xdel("stream", &[StreamId::new(1000, 0)]).unwrap();
         assert_eq!(removed, 1);
@@ -3369,11 +4541,44 @@ mod tests {
     #[test]
     fn test_xread() {
         let engine = StorageEngine::new();
-        engine.xadd("s1", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("s1", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
-        engine.xadd("s2", "2000-0", vec![("f3".to_string(), "v3".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "s1",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "s1",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "s2",
+                "2000-0",
+                vec![("f3".to_string(), "v3".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
-        let result = engine.xread(&["s1".to_string(), "s2".to_string()], &["1000-0".to_string(), "2000-0".to_string()], None).unwrap();
+        let result = engine
+            .xread(
+                &["s1".to_string(), "s2".to_string()],
+                &["1000-0".to_string(), "2000-0".to_string()],
+                None,
+            )
+            .unwrap();
         assert_eq!(result.len(), 1); // 只有 s1 有新消息
         assert_eq!(result[0].0, "s1");
         assert_eq!(result[0].1.len(), 1);
@@ -3383,10 +4588,30 @@ mod tests {
     #[test]
     fn test_xread_dollar() {
         let engine = StorageEngine::new();
-        engine.xadd("s1", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("s1", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "s1",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "s1",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
-        let result = engine.xread(&["s1".to_string()], &["$".to_string()], None).unwrap();
+        let result = engine
+            .xread(&["s1".to_string()], &["$".to_string()], None)
+            .unwrap();
         // $ 表示从最后一条之后读，所以没有新消息
         assert_eq!(result.len(), 0);
     }
@@ -3394,7 +4619,16 @@ mod tests {
     #[test]
     fn test_xsetid() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
 
         let ok = engine.xsetid("stream", StreamId::new(2000, 0)).unwrap();
         assert!(ok);
@@ -3413,7 +4647,14 @@ mod tests {
         let engine = StorageEngine::new();
         engine.set("s".to_string(), Bytes::from("val")).unwrap();
 
-        let result = engine.xadd("s", "*", vec![("f1".to_string(), "v1".to_string())], false, None, None);
+        let result = engine.xadd(
+            "s",
+            "*",
+            vec![("f1".to_string(), "v1".to_string())],
+            false,
+            None,
+            None,
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("WRONGTYPE"));
     }
@@ -3421,9 +4662,36 @@ mod tests {
     #[test]
     fn test_xadd_maxlen() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, Some(2), None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, Some(2), None).unwrap();
-        engine.xadd("stream", "1000-2", vec![("f3".to_string(), "v3".to_string())], false, Some(2), None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                Some(2),
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                Some(2),
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-2",
+                vec![("f3".to_string(), "v3".to_string())],
+                false,
+                Some(2),
+                None,
+            )
+            .unwrap();
 
         assert_eq!(engine.xlen("stream").unwrap(), 2);
         let result = engine.xrange("stream", "-", "+", None).unwrap();
@@ -3434,7 +4702,16 @@ mod tests {
     #[test]
     fn test_xadd_nostream() {
         let engine = StorageEngine::new();
-        let result = engine.xadd("stream", "*", vec![("f1".to_string(), "v1".to_string())], true, None, None).unwrap();
+        let result = engine
+            .xadd(
+                "stream",
+                "*",
+                vec![("f1".to_string(), "v1".to_string())],
+                true,
+                None,
+                None,
+            )
+            .unwrap();
         assert!(result.is_none());
     }
 
@@ -3444,7 +4721,16 @@ mod tests {
     fn test_xgroup_create_destroy() {
         let engine = StorageEngine::new();
         // 创建流和消费者组
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         let ok = engine.xgroup_create("stream", "g1", "0-0", false).unwrap();
         assert!(ok);
 
@@ -3477,8 +4763,26 @@ mod tests {
     #[test]
     fn test_xgroup_setid() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         engine.xgroup_create("stream", "g1", "0-0", false).unwrap();
 
         let ok = engine.xgroup_setid("stream", "g1", "1000-1").unwrap();
@@ -3492,7 +4796,16 @@ mod tests {
     #[test]
     fn test_xgroup_consumer_management() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         engine.xgroup_create("stream", "g1", "0-0", false).unwrap();
 
         // 显式创建消费者
@@ -3504,7 +4817,16 @@ mod tests {
         assert!(!ok);
 
         // XREADGROUP 自动创建消费者
-        let result = engine.xreadgroup("g1", "c2", &["stream".to_string()], &[">".to_string()], None, false).unwrap();
+        let result = engine
+            .xreadgroup(
+                "g1",
+                "c2",
+                &["stream".to_string()],
+                &[">".to_string()],
+                None,
+                false,
+            )
+            .unwrap();
         assert_eq!(result.len(), 1);
 
         // 删除消费者
@@ -3512,31 +4834,87 @@ mod tests {
         assert_eq!(count, 0); // c1 没有 PEL
 
         // 删除不存在的消费者
-        let count = engine.xgroup_delconsumer("stream", "g1", "missing").unwrap();
+        let count = engine
+            .xgroup_delconsumer("stream", "g1", "missing")
+            .unwrap();
         assert_eq!(count, 0);
     }
 
     #[test]
     fn test_xreadgroup_basic() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         engine.xgroup_create("stream", "g1", "0-0", false).unwrap();
 
         // 消费者 c1 读取新消息
-        let result = engine.xreadgroup("g1", "c1", &["stream".to_string()], &[">".to_string()], None, false).unwrap();
+        let result = engine
+            .xreadgroup(
+                "g1",
+                "c1",
+                &["stream".to_string()],
+                &[">".to_string()],
+                None,
+                false,
+            )
+            .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].1.len(), 2);
         assert_eq!(result[0].1[0].0, StreamId::new(1000, 0));
         assert_eq!(result[0].1[1].0, StreamId::new(1000, 1));
 
         // 再次读取，没有新消息了（last_delivered_id 已更新）
-        let result = engine.xreadgroup("g1", "c1", &["stream".to_string()], &[">".to_string()], None, false).unwrap();
+        let result = engine
+            .xreadgroup(
+                "g1",
+                "c1",
+                &["stream".to_string()],
+                &[">".to_string()],
+                None,
+                false,
+            )
+            .unwrap();
         assert_eq!(result.len(), 0);
 
         // 添加新消息后再次读取
-        engine.xadd("stream", "1000-2", vec![("f3".to_string(), "v3".to_string())], false, None, None).unwrap();
-        let result = engine.xreadgroup("g1", "c1", &["stream".to_string()], &[">".to_string()], None, false).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-2",
+                vec![("f3".to_string(), "v3".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        let result = engine
+            .xreadgroup(
+                "g1",
+                "c1",
+                &["stream".to_string()],
+                &[">".to_string()],
+                None,
+                false,
+            )
+            .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].1.len(), 1);
         assert_eq!(result[0].1[0].0, StreamId::new(1000, 2));
@@ -3545,30 +4923,86 @@ mod tests {
     #[test]
     fn test_xreadgroup_noack() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         engine.xgroup_create("stream", "g1", "0-0", false).unwrap();
 
-        let result = engine.xreadgroup("g1", "c1", &["stream".to_string()], &[">".to_string()], None, true).unwrap();
+        let result = engine
+            .xreadgroup(
+                "g1",
+                "c1",
+                &["stream".to_string()],
+                &[">".to_string()],
+                None,
+                true,
+            )
+            .unwrap();
         assert_eq!(result.len(), 1);
 
         // NOACK 模式下消息不应进入 PEL
-        let (total, _, _, _, _) = engine.xpending("stream", "g1", None, None, None, None).unwrap();
+        let (total, _, _, _, _) = engine
+            .xpending("stream", "g1", None, None, None, None)
+            .unwrap();
         assert_eq!(total, 0);
     }
 
     #[test]
     fn test_xreadgroup_pel_read() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         engine.xgroup_create("stream", "g1", "0-0", false).unwrap();
 
         // 读取新消息到 PEL
-        let result = engine.xreadgroup("g1", "c1", &["stream".to_string()], &[">".to_string()], None, false).unwrap();
+        let result = engine
+            .xreadgroup(
+                "g1",
+                "c1",
+                &["stream".to_string()],
+                &[">".to_string()],
+                None,
+                false,
+            )
+            .unwrap();
         assert_eq!(result.len(), 1);
 
         // 使用非 ">" 的 ID 读取该消费者 PEL 中的消息
-        let result = engine.xreadgroup("g1", "c1", &["stream".to_string()], &["1000-0".to_string()], None, false).unwrap();
+        let result = engine
+            .xreadgroup(
+                "g1",
+                "c1",
+                &["stream".to_string()],
+                &["1000-0".to_string()],
+                None,
+                false,
+            )
+            .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].1.len(), 1);
         assert_eq!(result[0].1[0].0, StreamId::new(1000, 1));
@@ -3577,75 +5011,169 @@ mod tests {
     #[test]
     fn test_xack() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         engine.xgroup_create("stream", "g1", "0-0", false).unwrap();
 
-        engine.xreadgroup("g1", "c1", &["stream".to_string()], &[">".to_string()], None, false).unwrap();
+        engine
+            .xreadgroup(
+                "g1",
+                "c1",
+                &["stream".to_string()],
+                &[">".to_string()],
+                None,
+                false,
+            )
+            .unwrap();
 
         // 确认一条消息
-        let acked = engine.xack("stream", "g1", &[StreamId::new(1000, 0)]).unwrap();
+        let acked = engine
+            .xack("stream", "g1", &[StreamId::new(1000, 0)])
+            .unwrap();
         assert_eq!(acked, 1);
 
         // PEL 中还剩一条
-        let (total, _, _, _, _) = engine.xpending("stream", "g1", None, None, None, None).unwrap();
+        let (total, _, _, _, _) = engine
+            .xpending("stream", "g1", None, None, None, None)
+            .unwrap();
         assert_eq!(total, 1);
 
         // 确认不存在消息
-        let acked = engine.xack("stream", "g1", &[StreamId::new(9999, 0)]).unwrap();
+        let acked = engine
+            .xack("stream", "g1", &[StreamId::new(9999, 0)])
+            .unwrap();
         assert_eq!(acked, 0);
 
         // 确认最后一条
-        let acked = engine.xack("stream", "g1", &[StreamId::new(1000, 1)]).unwrap();
+        let acked = engine
+            .xack("stream", "g1", &[StreamId::new(1000, 1)])
+            .unwrap();
         assert_eq!(acked, 1);
-        let (total, _, _, _, _) = engine.xpending("stream", "g1", None, None, None, None).unwrap();
+        let (total, _, _, _, _) = engine
+            .xpending("stream", "g1", None, None, None, None)
+            .unwrap();
         assert_eq!(total, 0);
     }
 
     #[test]
     fn test_xclaim() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         engine.xgroup_create("stream", "g1", "0-0", false).unwrap();
 
         // c1 读取消息
-        engine.xreadgroup("g1", "c1", &["stream".to_string()], &[">".to_string()], None, false).unwrap();
-        let (total, _, _, consumers, _) = engine.xpending("stream", "g1", None, None, None, None).unwrap();
+        engine
+            .xreadgroup(
+                "g1",
+                "c1",
+                &["stream".to_string()],
+                &[">".to_string()],
+                None,
+                false,
+            )
+            .unwrap();
+        let (total, _, _, consumers, _) = engine
+            .xpending("stream", "g1", None, None, None, None)
+            .unwrap();
         assert_eq!(total, 1);
         assert_eq!(consumers.len(), 1);
         assert_eq!(consumers[0].0, "c1");
 
         // c2 用 min_idle_time=0 claim 消息
-        let result = engine.xclaim("stream", "g1", "c2", 0, &[StreamId::new(1000, 0)], false).unwrap();
+        let result = engine
+            .xclaim("stream", "g1", "c2", 0, &[StreamId::new(1000, 0)], false)
+            .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, StreamId::new(1000, 0));
 
-        let (total, _, _, consumers, _) = engine.xpending("stream", "g1", None, None, None, None).unwrap();
+        let (total, _, _, consumers, _) = engine
+            .xpending("stream", "g1", None, None, None, None)
+            .unwrap();
         assert_eq!(total, 1);
         assert_eq!(consumers[0].0, "c2");
 
         // justid 模式
-        let result = engine.xclaim("stream", "g1", "c2", 0, &[StreamId::new(1000, 0)], true).unwrap();
+        let result = engine
+            .xclaim("stream", "g1", "c2", 0, &[StreamId::new(1000, 0)], true)
+            .unwrap();
         assert_eq!(result[0].1, None);
     }
 
     #[test]
     fn test_xautoclaim() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         engine.xgroup_create("stream", "g1", "0-0", false).unwrap();
 
         // c1 读取两条消息
-        engine.xreadgroup("g1", "c1", &["stream".to_string()], &[">".to_string()], None, false).unwrap();
+        engine
+            .xreadgroup(
+                "g1",
+                "c1",
+                &["stream".to_string()],
+                &[">".to_string()],
+                None,
+                false,
+            )
+            .unwrap();
 
         // c2 自动 claim 从 0-0 开始的所有消息（min_idle_time=0）
-        let (_next_id, result) = engine.xautoclaim("stream", "g1", "c2", 0, StreamId::new(0, 0), 10, false).unwrap();
+        let (_next_id, result) = engine
+            .xautoclaim("stream", "g1", "c2", 0, StreamId::new(0, 0), 10, false)
+            .unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].0, StreamId::new(1000, 0));
         assert_eq!(result[1].0, StreamId::new(1000, 1));
 
-        let (total, _, _, consumers, _) = engine.xpending("stream", "g1", None, None, None, None).unwrap();
+        let (total, _, _, consumers, _) = engine
+            .xpending("stream", "g1", None, None, None, None)
+            .unwrap();
         assert_eq!(total, 2);
         assert_eq!(consumers[0].0, "c2");
     }
@@ -3653,31 +5181,81 @@ mod tests {
     #[test]
     fn test_xpending() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-2", vec![("f3".to_string(), "v3".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-2",
+                vec![("f3".to_string(), "v3".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         engine.xgroup_create("stream", "g1", "0-0", false).unwrap();
 
         // c1 读取前两条
-        engine.xreadgroup("g1", "c1", &["stream".to_string()], &[">".to_string()], Some(2), false).unwrap();
+        engine
+            .xreadgroup(
+                "g1",
+                "c1",
+                &["stream".to_string()],
+                &[">".to_string()],
+                Some(2),
+                false,
+            )
+            .unwrap();
         // c2 读取第三条
-        engine.xreadgroup("g1", "c2", &["stream".to_string()], &[">".to_string()], Some(1), false).unwrap();
+        engine
+            .xreadgroup(
+                "g1",
+                "c2",
+                &["stream".to_string()],
+                &[">".to_string()],
+                Some(1),
+                false,
+            )
+            .unwrap();
 
         // 概览查询
-        let (total, min_id, max_id, consumers, _) = engine.xpending("stream", "g1", None, None, None, None).unwrap();
+        let (total, min_id, max_id, consumers, _) = engine
+            .xpending("stream", "g1", None, None, None, None)
+            .unwrap();
         assert_eq!(total, 3);
         assert_eq!(min_id, Some(StreamId::new(1000, 0)));
         assert_eq!(max_id, Some(StreamId::new(1000, 2)));
         assert_eq!(consumers.len(), 2);
 
         // 详细查询
-        let (total, _, _, _, details) = engine.xpending(
-            "stream", "g1",
-            Some(StreamId::new(1000, 0)),
-            Some(StreamId::new(1000, 2)),
-            Some(10),
-            Some("c1"),
-        ).unwrap();
+        let (total, _, _, _, details) = engine
+            .xpending(
+                "stream",
+                "g1",
+                Some(StreamId::new(1000, 0)),
+                Some(StreamId::new(1000, 2)),
+                Some(10),
+                Some("c1"),
+            )
+            .unwrap();
         assert_eq!(total, 3);
         assert_eq!(details.len(), 2);
         assert_eq!(details[0].1, "c1");
@@ -3686,8 +5264,26 @@ mod tests {
     #[test]
     fn test_xinfo() {
         let engine = StorageEngine::new();
-        engine.xadd("stream", "1000-0", vec![("f1".to_string(), "v1".to_string())], false, None, None).unwrap();
-        engine.xadd("stream", "1000-1", vec![("f2".to_string(), "v2".to_string())], false, None, None).unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-0",
+                vec![("f1".to_string(), "v1".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+            .xadd(
+                "stream",
+                "1000-1",
+                vec![("f2".to_string(), "v2".to_string())],
+                false,
+                None,
+                None,
+            )
+            .unwrap();
         engine.xgroup_create("stream", "g1", "0-0", false).unwrap();
         engine.xgroup_create("stream", "g2", "$", false).unwrap();
 
@@ -3702,7 +5298,16 @@ mod tests {
         assert_eq!(groups.len(), 2);
 
         // XREADGROUP 创建消费者
-        engine.xreadgroup("g1", "c1", &["stream".to_string()], &[">".to_string()], None, false).unwrap();
+        engine
+            .xreadgroup(
+                "g1",
+                "c1",
+                &["stream".to_string()],
+                &[">".to_string()],
+                None,
+                false,
+            )
+            .unwrap();
 
         // XINFO CONSUMERS
         let consumers = engine.xinfo_consumers("stream", "g1").unwrap();
@@ -3711,4 +5316,3 @@ mod tests {
         assert_eq!(consumers[0].1, 2); // pel count
     }
 }
-

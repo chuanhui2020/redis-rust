@@ -71,8 +71,7 @@ impl RespParser {
     /// 如果找不到，返回 None，表示数据不完整
     fn find_crlf(&self, buf: &BytesMut, start: usize) -> Option<usize> {
         // 从 start 位置开始搜索 \r\n
-        (start..buf.len().saturating_sub(1))
-            .find(|&i| buf[i] == b'\r' && buf[i + 1] == b'\n')
+        (start..buf.len().saturating_sub(1)).find(|&i| buf[i] == b'\r' && buf[i + 1] == b'\n')
     }
 
     fn parse_integer_from_bytes(buf: &[u8]) -> std::result::Result<i64, AppError> {
@@ -89,10 +88,14 @@ impl RespParser {
         while i < buf.len() {
             let b = buf[i];
             if !b.is_ascii_digit() {
-                return Err(AppError::Protocol(format!("整数解析失败: 非法字符 {}", b as char)));
+                return Err(AppError::Protocol(format!(
+                    "整数解析失败: 非法字符 {}",
+                    b as char
+                )));
             }
             let digit = (b - b'0') as u64;
-            val = val.checked_mul(10)
+            val = val
+                .checked_mul(10)
                 .and_then(|v| v.checked_add(digit))
                 .ok_or_else(|| AppError::Protocol("整数解析失败: 溢出".to_string()))?;
             i += 1;
@@ -244,9 +247,7 @@ impl RespParser {
         // 将空格分隔的参数转换为 RESP Array of BulkStrings
         let elements: Vec<RespValue> = parts
             .iter()
-            .map(|s| {
-                RespValue::BulkString(Some(Bytes::copy_from_slice(s.as_bytes())))
-            })
+            .map(|s| RespValue::BulkString(Some(Bytes::copy_from_slice(s.as_bytes()))))
             .collect();
 
         buf.advance(end + 2);
@@ -333,10 +334,7 @@ mod tests {
     fn test_encode_bulk_string() {
         let parser = RespParser::new();
         let val = RespValue::BulkString(Some(Bytes::from_static(b"foobar")));
-        assert_eq!(
-            parser.encode(&val),
-            Bytes::from_static(b"$6\r\nfoobar\r\n")
-        );
+        assert_eq!(parser.encode(&val), Bytes::from_static(b"$6\r\nfoobar\r\n"));
     }
 
     #[test]

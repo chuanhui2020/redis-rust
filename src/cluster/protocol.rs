@@ -218,7 +218,9 @@ pub fn decode_message(data: &[u8]) -> Result<ClusterMessage, String> {
     let flags = data[5];
     let sender_port = u16::from_be_bytes([data[6], data[7]]);
     let current_epoch = u64::from_be_bytes(
-        data[8..16].try_into().map_err(|e| format!("invalid epoch bytes: {}", e))?
+        data[8..16]
+            .try_into()
+            .map_err(|e| format!("invalid epoch bytes: {}", e))?,
     );
 
     let mut offset = 16usize;
@@ -272,7 +274,12 @@ pub fn decode_message(data: &[u8]) -> Result<ClusterMessage, String> {
         let node_id = String::from_utf8_lossy(&data[offset..offset + 40])
             .trim_end_matches('\0')
             .to_string();
-        let ip = [data[offset + 40], data[offset + 41], data[offset + 42], data[offset + 43]];
+        let ip = [
+            data[offset + 40],
+            data[offset + 41],
+            data[offset + 42],
+            data[offset + 43],
+        ];
         let port = u16::from_be_bytes([data[offset + 44], data[offset + 45]]);
         let flags = data[offset + 46];
         nodes.push(NodeInfo {
@@ -310,7 +317,9 @@ pub async fn read_message<R: AsyncReadExt + Unpin>(
     let flags = header[5];
     let sender_port = u16::from_be_bytes([header[6], header[7]]);
     let current_epoch = u64::from_be_bytes(
-        header[8..16].try_into().map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+        header[8..16]
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?,
     );
 
     let mut sender_id_buf = [0u8; 40];
@@ -388,5 +397,3 @@ pub async fn write_message<W: AsyncWriteExt + Unpin>(
     stream.write_all(&data).await?;
     Ok(())
 }
-
-

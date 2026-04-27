@@ -1,7 +1,7 @@
 //! Server/Admin 命令解析器
+use super::{Command, CommandParser};
 use crate::error::{AppError, Result};
 use crate::protocol::RespValue;
-use super::{Command, CommandParser};
 
 impl CommandParser {
     /// 解析 PING 命令
@@ -16,9 +16,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_ping(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() > 2 {
-            return Err(AppError::Command(
-                "PING 命令参数过多".to_string(),
-            ));
+            return Err(AppError::Command("PING 命令参数过多".to_string()));
         }
 
         let message = if arr.len() == 2 {
@@ -31,7 +29,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -41,9 +39,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_dbsize(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 1 {
-            return Err(AppError::Command(
-                "DBSIZE 命令不需要参数".to_string(),
-            ));
+            return Err(AppError::Command("DBSIZE 命令不需要参数".to_string()));
         }
         Ok(Command::DbSize)
     }
@@ -59,9 +55,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_info(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() > 2 {
-            return Err(AppError::Command(
-                "INFO 命令参数过多".to_string(),
-            ));
+            return Err(AppError::Command("INFO 命令参数过多".to_string()));
         }
         let section = if arr.len() == 2 {
             Some(self.extract_string(&arr[1])?)
@@ -72,7 +66,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -82,9 +76,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_bgrewriteaof(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 1 {
-            return Err(AppError::Command(
-                "BGREWRITEAOF 命令不需要参数".to_string(),
-            ));
+            return Err(AppError::Command("BGREWRITEAOF 命令不需要参数".to_string()));
         }
         Ok(Command::BgRewriteAof)
     }
@@ -100,13 +92,12 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_select(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
-            return Err(AppError::Command(
-                "SELECT 命令需要 1 个参数".to_string(),
-            ));
+            return Err(AppError::Command("SELECT 命令需要 1 个参数".to_string()));
         }
-        let index: usize = self.extract_string(&arr[1])?.parse().map_err(|_| {
-            AppError::Command("SELECT 的参数必须是整数".to_string())
-        })?;
+        let index: usize = self
+            .extract_string(&arr[1])?
+            .parse()
+            .map_err(|_| AppError::Command("SELECT 的参数必须是整数".to_string()))?;
         Ok(Command::Select(index))
     }
     /// 解析 AUTH 命令
@@ -130,14 +121,12 @@ impl CommandParser {
             let password = self.extract_string(&arr[2])?;
             Ok(Command::Auth(username, password))
         } else {
-            Err(AppError::Command(
-                "AUTH 命令需要 1 或 2 个参数".to_string(),
-            ))
+            Err(AppError::Command("AUTH 命令需要 1 或 2 个参数".to_string()))
         }
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -147,29 +136,24 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_acl(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "ACL 命令需要子命令".to_string(),
-            ));
+            return Err(AppError::Command("ACL 命令需要子命令".to_string()));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "SETUSER" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "ACL SETUSER 需要用户名".to_string(),
-                    ));
+                    return Err(AppError::Command("ACL SETUSER 需要用户名".to_string()));
                 }
                 let username = self.extract_string(&arr[2])?;
-                let rules: Vec<String> = arr[3..].iter()
+                let rules: Vec<String> = arr[3..]
+                    .iter()
                     .map(|v| self.extract_string(v))
                     .collect::<Result<Vec<_>>>()?;
                 Ok(Command::AclSetUser(username, rules))
             }
             "GETUSER" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "ACL GETUSER 需要 1 个参数".to_string(),
-                    ));
+                    return Err(AppError::Command("ACL GETUSER 需要 1 个参数".to_string()));
                 }
                 let username = self.extract_string(&arr[2])?;
                 Ok(Command::AclGetUser(username))
@@ -180,7 +164,8 @@ impl CommandParser {
                         "ACL DELUSER 需要至少 1 个用户名".to_string(),
                     ));
                 }
-                let names: Vec<String> = arr[2..].iter()
+                let names: Vec<String> = arr[2..]
+                    .iter()
                     .map(|v| self.extract_string(v))
                     .collect::<Result<Vec<_>>>()?;
                 Ok(Command::AclDelUser(names))
@@ -222,19 +207,18 @@ impl CommandParser {
                     ));
                 }
                 let username = self.extract_string(&arr[2])?;
-                let command: Vec<String> = arr[3..].iter()
+                let command: Vec<String> = arr[3..]
+                    .iter()
                     .map(|v| self.extract_string(v))
                     .collect::<Result<Vec<_>>>()?;
                 Ok(Command::AclDryRun { username, command })
             }
-            _ => Err(AppError::Command(
-                format!("ACL 未知子命令: {}", sub),
-            )),
+            _ => Err(AppError::Command(format!("ACL 未知子命令: {}", sub))),
         }
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -244,9 +228,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_client(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "CLIENT 命令需要子命令".to_string(),
-            ));
+            return Err(AppError::Command("CLIENT 命令需要子命令".to_string()));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
@@ -269,25 +251,19 @@ impl CommandParser {
             }
             "LIST" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command(
-                        "CLIENT LIST 命令不需要参数".to_string(),
-                    ));
+                    return Err(AppError::Command("CLIENT LIST 命令不需要参数".to_string()));
                 }
                 Ok(Command::ClientList)
             }
             "ID" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command(
-                        "CLIENT ID 命令不需要参数".to_string(),
-                    ));
+                    return Err(AppError::Command("CLIENT ID 命令不需要参数".to_string()));
                 }
                 Ok(Command::ClientId)
             }
             "INFO" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command(
-                        "CLIENT INFO 命令不需要参数".to_string(),
-                    ));
+                    return Err(AppError::Command("CLIENT INFO 命令不需要参数".to_string()));
                 }
                 Ok(Command::ClientInfo)
             }
@@ -331,7 +307,12 @@ impl CommandParser {
                     }
                     i += 1;
                 }
-                Ok(Command::ClientKill { id, addr, user, skipme })
+                Ok(Command::ClientKill {
+                    id,
+                    addr,
+                    user,
+                    skipme,
+                })
             }
             "PAUSE" => {
                 if arr.len() < 3 {
@@ -366,9 +347,11 @@ impl CommandParser {
                 let flag = match self.extract_string(&arr[2])?.to_ascii_uppercase().as_str() {
                     "ON" => true,
                     "OFF" => false,
-                    _ => return Err(AppError::Command(
-                        "CLIENT NO-EVICT 参数必须是 ON 或 OFF".to_string(),
-                    )),
+                    _ => {
+                        return Err(AppError::Command(
+                            "CLIENT NO-EVICT 参数必须是 ON 或 OFF".to_string(),
+                        ));
+                    }
                 };
                 Ok(Command::ClientNoEvict(flag))
             }
@@ -381,9 +364,11 @@ impl CommandParser {
                 let flag = match self.extract_string(&arr[2])?.to_ascii_uppercase().as_str() {
                     "ON" => true,
                     "OFF" => false,
-                    _ => return Err(AppError::Command(
-                        "CLIENT NO-TOUCH 参数必须是 ON 或 OFF".to_string(),
-                    )),
+                    _ => {
+                        return Err(AppError::Command(
+                            "CLIENT NO-TOUCH 参数必须是 ON 或 OFF".to_string(),
+                        ));
+                    }
                 };
                 Ok(Command::ClientNoTouch(flag))
             }
@@ -397,9 +382,11 @@ impl CommandParser {
                     "ON" => crate::server::ReplyMode::On,
                     "OFF" => crate::server::ReplyMode::Off,
                     "SKIP" => crate::server::ReplyMode::Skip,
-                    _ => return Err(AppError::Command(
-                        "CLIENT REPLY 参数必须是 ON、OFF 或 SKIP".to_string(),
-                    )),
+                    _ => {
+                        return Err(AppError::Command(
+                            "CLIENT REPLY 参数必须是 ON、OFF 或 SKIP".to_string(),
+                        ));
+                    }
                 };
                 Ok(Command::ClientReply(mode))
             }
@@ -421,13 +408,19 @@ impl CommandParser {
             }
             "TRACKING" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command("CLIENT TRACKING 需要 ON 或 OFF".to_string()));
+                    return Err(AppError::Command(
+                        "CLIENT TRACKING 需要 ON 或 OFF".to_string(),
+                    ));
                 }
                 let mode = self.extract_string(&arr[2])?.to_ascii_uppercase();
                 let on = match mode.as_str() {
                     "ON" => true,
                     "OFF" => false,
-                    _ => return Err(AppError::Command("CLIENT TRACKING 模式必须是 ON 或 OFF".to_string())),
+                    _ => {
+                        return Err(AppError::Command(
+                            "CLIENT TRACKING 模式必须是 ON 或 OFF".to_string(),
+                        ));
+                    }
                 };
                 let mut redirect = None;
                 let mut bcast = false;
@@ -442,9 +435,14 @@ impl CommandParser {
                         "REDIRECT" => {
                             i += 1;
                             if i >= arr.len() {
-                                return Err(AppError::Command("REDIRECT 需要 client-id".to_string()));
+                                return Err(AppError::Command(
+                                    "REDIRECT 需要 client-id".to_string(),
+                                ));
                             }
-                            redirect = Some(self.extract_string(&arr[i])?.parse::<u64>().map_err(|_| AppError::Command("无效的 client-id".to_string()))?);
+                            redirect =
+                                Some(self.extract_string(&arr[i])?.parse::<u64>().map_err(
+                                    |_| AppError::Command("无效的 client-id".to_string()),
+                                )?);
                         }
                         "BCAST" => bcast = true,
                         "PREFIX" => {
@@ -461,24 +459,34 @@ impl CommandParser {
                     }
                     i += 1;
                 }
-                Ok(Command::ClientTracking { on, redirect, bcast, prefixes, optin, optout, noloop })
+                Ok(Command::ClientTracking {
+                    on,
+                    redirect,
+                    bcast,
+                    prefixes,
+                    optin,
+                    optout,
+                    noloop,
+                })
             }
             "CACHING" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command("CLIENT CACHING 需要 YES 或 NO".to_string()));
+                    return Err(AppError::Command(
+                        "CLIENT CACHING 需要 YES 或 NO".to_string(),
+                    ));
                 }
                 let mode = self.extract_string(&arr[2])?.to_ascii_uppercase();
                 match mode.as_str() {
                     "YES" => Ok(Command::ClientCaching(true)),
                     "NO" => Ok(Command::ClientCaching(false)),
-                    _ => Err(AppError::Command("CLIENT CACHING 必须是 YES 或 NO".to_string())),
+                    _ => Err(AppError::Command(
+                        "CLIENT CACHING 必须是 YES 或 NO".to_string(),
+                    )),
                 }
             }
             "GETREDIR" => Ok(Command::ClientGetRedir),
             "TRACKINGINFO" => Ok(Command::ClientTrackingInfo),
-            _ => Err(AppError::Command(
-                format!("CLIENT 未知子命令: {}", sub),
-            )),
+            _ => Err(AppError::Command(format!("CLIENT 未知子命令: {}", sub))),
         }
     }
     /// 解析 SORT 命令
@@ -493,9 +501,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_sort(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "SORT 命令需要至少 1 个参数".to_string(),
-            ));
+            return Err(AppError::Command("SORT 命令需要至少 1 个参数".to_string()));
         }
         let key = self.extract_string(&arr[1])?;
         let mut by_pattern = None;
@@ -521,12 +527,20 @@ impl CommandParser {
                     if i + 2 >= arr.len() {
                         return Err(AppError::Command("SORT LIMIT 需要 2 个参数".to_string()));
                     }
-                    limit_offset = Some(self.extract_string(&arr[i + 1])?.parse::<isize>().map_err(|_| {
-                        AppError::Command("SORT LIMIT offset 必须是整数".to_string())
-                    })?);
-                    limit_count = Some(self.extract_string(&arr[i + 2])?.parse::<isize>().map_err(|_| {
-                        AppError::Command("SORT LIMIT count 必须是整数".to_string())
-                    })?);
+                    limit_offset = Some(
+                        self.extract_string(&arr[i + 1])?
+                            .parse::<isize>()
+                            .map_err(|_| {
+                                AppError::Command("SORT LIMIT offset 必须是整数".to_string())
+                            })?,
+                    );
+                    limit_count = Some(
+                        self.extract_string(&arr[i + 2])?
+                            .parse::<isize>()
+                            .map_err(|_| {
+                                AppError::Command("SORT LIMIT count 必须是整数".to_string())
+                            })?,
+                    );
                     i += 3;
                 }
                 "GET" => {
@@ -561,7 +575,16 @@ impl CommandParser {
             }
         }
 
-        Ok(Command::Sort(key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha, store_key))
+        Ok(Command::Sort(
+            key,
+            by_pattern,
+            get_patterns,
+            limit_offset,
+            limit_count,
+            asc,
+            alpha,
+            store_key,
+        ))
     }
 
     /// 解析 SORT_RO 命令：SORT_RO key [BY pattern] [LIMIT offset count] [GET pattern ...] [ASC|DESC] [ALPHA]
@@ -594,12 +617,20 @@ impl CommandParser {
                     if i + 2 >= arr.len() {
                         return Err(AppError::Command("SORT_RO LIMIT 需要 2 个参数".to_string()));
                     }
-                    limit_offset = Some(self.extract_string(&arr[i + 1])?.parse::<isize>().map_err(|_| {
-                        AppError::Command("SORT_RO LIMIT offset 必须是整数".to_string())
-                    })?);
-                    limit_count = Some(self.extract_string(&arr[i + 2])?.parse::<isize>().map_err(|_| {
-                        AppError::Command("SORT_RO LIMIT count 必须是整数".to_string())
-                    })?);
+                    limit_offset = Some(
+                        self.extract_string(&arr[i + 1])?
+                            .parse::<isize>()
+                            .map_err(|_| {
+                                AppError::Command("SORT_RO LIMIT offset 必须是整数".to_string())
+                            })?,
+                    );
+                    limit_count = Some(
+                        self.extract_string(&arr[i + 2])?
+                            .parse::<isize>()
+                            .map_err(|_| {
+                                AppError::Command("SORT_RO LIMIT count 必须是整数".to_string())
+                            })?,
+                    );
                     i += 3;
                 }
                 "GET" => {
@@ -627,7 +658,15 @@ impl CommandParser {
             }
         }
 
-        Ok(Command::SortRo(key, by_pattern, get_patterns, limit_offset, limit_count, asc, alpha))
+        Ok(Command::SortRo(
+            key,
+            by_pattern,
+            get_patterns,
+            limit_offset,
+            limit_count,
+            asc,
+            alpha,
+        ))
     }
 
     /// 解析 MOVE 命令
@@ -642,14 +681,13 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_move(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command(
-                "MOVE 命令需要 2 个参数".to_string(),
-            ));
+            return Err(AppError::Command("MOVE 命令需要 2 个参数".to_string()));
         }
         let key = self.extract_string(&arr[1])?;
-        let db: usize = self.extract_string(&arr[2])?.parse().map_err(|_| {
-            AppError::Command("MOVE 的数据库索引必须是整数".to_string())
-        })?;
+        let db: usize = self
+            .extract_string(&arr[2])?
+            .parse()
+            .map_err(|_| AppError::Command("MOVE 的数据库索引必须是整数".to_string()))?;
         Ok(Command::Move(key, db))
     }
 
@@ -665,21 +703,18 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_eval(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "EVAL 命令需要至少 1 个参数".to_string(),
-            ));
+            return Err(AppError::Command("EVAL 命令需要至少 1 个参数".to_string()));
         }
         let script = self.extract_string(&arr[1])?;
         if arr.len() < 3 {
             return Ok(Command::Eval(script, Vec::new(), Vec::new()));
         }
-        let numkeys: usize = self.extract_string(&arr[2])?.parse().map_err(|_| {
-            AppError::Command("EVAL numkeys 必须是整数".to_string())
-        })?;
+        let numkeys: usize = self
+            .extract_string(&arr[2])?
+            .parse()
+            .map_err(|_| AppError::Command("EVAL numkeys 必须是整数".to_string()))?;
         if arr.len() < 3 + numkeys {
-            return Err(AppError::Command(
-                "EVAL 提供的 key 数量不足".to_string(),
-            ));
+            return Err(AppError::Command("EVAL 提供的 key 数量不足".to_string()));
         }
         let mut keys = Vec::new();
         for i in 0..numkeys {
@@ -693,7 +728,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -711,13 +746,12 @@ impl CommandParser {
         if arr.len() < 3 {
             return Ok(Command::EvalSha(sha1, Vec::new(), Vec::new()));
         }
-        let numkeys: usize = self.extract_string(&arr[2])?.parse().map_err(|_| {
-            AppError::Command("EVALSHA numkeys 必须是整数".to_string())
-        })?;
+        let numkeys: usize = self
+            .extract_string(&arr[2])?
+            .parse()
+            .map_err(|_| AppError::Command("EVALSHA numkeys 必须是整数".to_string()))?;
         if arr.len() < 3 + numkeys {
-            return Err(AppError::Command(
-                "EVALSHA 提供的 key 数量不足".to_string(),
-            ));
+            return Err(AppError::Command("EVALSHA 提供的 key 数量不足".to_string()));
         }
         let mut keys = Vec::new();
         for i in 0..numkeys {
@@ -731,7 +765,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -741,9 +775,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_script(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "SCRIPT 命令需要子命令".to_string(),
-            ));
+            return Err(AppError::Command("SCRIPT 命令需要子命令".to_string()));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
@@ -770,9 +802,7 @@ impl CommandParser {
             }
             "FLUSH" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command(
-                        "SCRIPT FLUSH 命令不需要参数".to_string(),
-                    ));
+                    return Err(AppError::Command("SCRIPT FLUSH 命令不需要参数".to_string()));
                 }
                 Ok(Command::ScriptFlush)
             }
@@ -787,20 +817,16 @@ impl CommandParser {
             }
             "HELP" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command(
-                        "SCRIPT HELP 命令不需要参数".to_string(),
-                    ));
+                    return Err(AppError::Command("SCRIPT HELP 命令不需要参数".to_string()));
                 }
                 Ok(Command::ScriptHelp)
             }
-            _ => Err(AppError::Command(
-                format!("SCRIPT 未知子命令: {}", sub),
-            )),
+            _ => Err(AppError::Command(format!("SCRIPT 未知子命令: {}", sub))),
         }
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -810,9 +836,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_function(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "FUNCTION 命令需要子命令".to_string(),
-            ));
+            return Err(AppError::Command("FUNCTION 命令需要子命令".to_string()));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
@@ -827,9 +851,7 @@ impl CommandParser {
                     }
                 }
                 if arr.len() <= code_idx {
-                    return Err(AppError::Command(
-                        "FUNCTION LOAD 需要函数代码".to_string(),
-                    ));
+                    return Err(AppError::Command("FUNCTION LOAD 需要函数代码".to_string()));
                 }
                 let code = self.extract_string(&arr[code_idx])?;
                 Ok(Command::FunctionLoad(code, replace))
@@ -888,14 +910,12 @@ impl CommandParser {
                 };
                 Ok(Command::FunctionFlush(async_mode))
             }
-            _ => Err(AppError::Command(
-                format!("FUNCTION 未知子命令: {}", sub),
-            )),
+            _ => Err(AppError::Command(format!("FUNCTION 未知子命令: {}", sub))),
         }
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -905,21 +925,18 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_fcall(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "FCALL 命令需要函数名".to_string(),
-            ));
+            return Err(AppError::Command("FCALL 命令需要函数名".to_string()));
         }
         let name = self.extract_string(&arr[1])?;
         if arr.len() < 3 {
             return Ok(Command::FCall(name, vec![], vec![]));
         }
-        let numkeys: usize = self.extract_string(&arr[2])?.parse().map_err(|_| {
-            AppError::Command("FCALL numkeys 必须是整数".to_string())
-        })?;
+        let numkeys: usize = self
+            .extract_string(&arr[2])?
+            .parse()
+            .map_err(|_| AppError::Command("FCALL numkeys 必须是整数".to_string()))?;
         if arr.len() < 3 + numkeys {
-            return Err(AppError::Command(
-                "FCALL 提供的 key 数量不足".to_string(),
-            ));
+            return Err(AppError::Command("FCALL 提供的 key 数量不足".to_string()));
         }
         let mut keys = Vec::new();
         for i in 0..numkeys {
@@ -933,7 +950,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -943,17 +960,16 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_fcall_ro(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "FCALL_RO 命令需要函数名".to_string(),
-            ));
+            return Err(AppError::Command("FCALL_RO 命令需要函数名".to_string()));
         }
         let name = self.extract_string(&arr[1])?;
         if arr.len() < 3 {
             return Ok(Command::FCallRO(name, vec![], vec![]));
         }
-        let numkeys: usize = self.extract_string(&arr[2])?.parse().map_err(|_| {
-            AppError::Command("FCALL_RO numkeys 必须是整数".to_string())
-        })?;
+        let numkeys: usize = self
+            .extract_string(&arr[2])?
+            .parse()
+            .map_err(|_| AppError::Command("FCALL_RO numkeys 必须是整数".to_string()))?;
         if arr.len() < 3 + numkeys {
             return Err(AppError::Command(
                 "FCALL_RO 提供的 key 数量不足".to_string(),
@@ -971,7 +987,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -981,21 +997,18 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_eval_ro(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "EVAL_RO 命令需要脚本".to_string(),
-            ));
+            return Err(AppError::Command("EVAL_RO 命令需要脚本".to_string()));
         }
         let script = self.extract_string(&arr[1])?;
         if arr.len() < 3 {
             return Ok(Command::EvalRO(script, Vec::new(), Vec::new()));
         }
-        let numkeys: usize = self.extract_string(&arr[2])?.parse().map_err(|_| {
-            AppError::Command("EVAL_RO numkeys 必须是整数".to_string())
-        })?;
+        let numkeys: usize = self
+            .extract_string(&arr[2])?
+            .parse()
+            .map_err(|_| AppError::Command("EVAL_RO numkeys 必须是整数".to_string()))?;
         if arr.len() < 3 + numkeys {
-            return Err(AppError::Command(
-                "EVAL_RO 提供的 key 数量不足".to_string(),
-            ));
+            return Err(AppError::Command("EVAL_RO 提供的 key 数量不足".to_string()));
         }
         let mut keys = Vec::new();
         for i in 0..numkeys {
@@ -1009,7 +1022,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -1019,17 +1032,16 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_evalsha_ro(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "EVALSHA_RO 命令需要 sha1".to_string(),
-            ));
+            return Err(AppError::Command("EVALSHA_RO 命令需要 sha1".to_string()));
         }
         let sha1 = self.extract_string(&arr[1])?;
         if arr.len() < 3 {
             return Ok(Command::EvalShaRO(sha1, Vec::new(), Vec::new()));
         }
-        let numkeys: usize = self.extract_string(&arr[2])?.parse().map_err(|_| {
-            AppError::Command("EVALSHA_RO numkeys 必须是整数".to_string())
-        })?;
+        let numkeys: usize = self
+            .extract_string(&arr[2])?
+            .parse()
+            .map_err(|_| AppError::Command("EVALSHA_RO numkeys 必须是整数".to_string()))?;
         if arr.len() < 3 + numkeys {
             return Err(AppError::Command(
                 "EVALSHA_RO 提供的 key 数量不足".to_string(),
@@ -1047,7 +1059,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -1057,27 +1069,21 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_config(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "CONFIG 命令需要子命令".to_string(),
-            ));
+            return Err(AppError::Command("CONFIG 命令需要子命令".to_string()));
         }
 
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "GET" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "CONFIG GET 需要 1 个参数".to_string(),
-                    ));
+                    return Err(AppError::Command("CONFIG GET 需要 1 个参数".to_string()));
                 }
                 let key = self.extract_string(&arr[2])?;
                 Ok(Command::ConfigGet(key))
             }
             "SET" => {
                 if arr.len() != 4 {
-                    return Err(AppError::Command(
-                        "CONFIG SET 需要 2 个参数".to_string(),
-                    ));
+                    return Err(AppError::Command("CONFIG SET 需要 2 个参数".to_string()));
                 }
                 let key = self.extract_string(&arr[2])?;
                 let value = self.extract_string(&arr[3])?;
@@ -1090,7 +1096,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -1100,17 +1106,13 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_memory(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "MEMORY 命令需要子命令".to_string(),
-            ));
+            return Err(AppError::Command("MEMORY 命令需要子命令".to_string()));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "USAGE" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "MEMORY USAGE 需要 key 参数".to_string(),
-                    ));
+                    return Err(AppError::Command("MEMORY USAGE 需要 key 参数".to_string()));
                 }
                 let key = self.extract_string(&arr[2])?;
                 let mut samples = None;
@@ -1118,9 +1120,10 @@ impl CommandParser {
                 while i < arr.len() {
                     let arg = self.extract_string(&arr[i])?.to_ascii_uppercase();
                     if arg == "SAMPLES" && i + 1 < arr.len() {
-                        samples = Some(self.extract_string(&arr[i + 1])?.parse().map_err(|_| {
-                            AppError::Command("MEMORY USAGE SAMPLES 必须是整数".to_string())
-                        })?);
+                        samples =
+                            Some(self.extract_string(&arr[i + 1])?.parse().map_err(|_| {
+                                AppError::Command("MEMORY USAGE SAMPLES 必须是整数".to_string())
+                            })?);
                         i += 2;
                     } else {
                         i += 1;
@@ -1134,7 +1137,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -1144,24 +1147,21 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_latency(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "LATENCY 命令需要子命令".to_string(),
-            ));
+            return Err(AppError::Command("LATENCY 命令需要子命令".to_string()));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "LATEST" => Ok(Command::LatencyLatest),
             "HISTORY" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "LATENCY HISTORY 需要事件名".to_string(),
-                    ));
+                    return Err(AppError::Command("LATENCY HISTORY 需要事件名".to_string()));
                 }
                 let event = self.extract_string(&arr[2])?;
                 Ok(Command::LatencyHistory(event))
             }
             "RESET" => {
-                let events: Vec<String> = arr[2..].iter()
+                let events: Vec<String> = arr[2..]
+                    .iter()
                     .map(|v| self.extract_string(v))
                     .collect::<Result<Vec<_>>>()?;
                 Ok(Command::LatencyReset(events))
@@ -1181,9 +1181,9 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_hello(&self, arr: &[RespValue]) -> Result<Command> {
         let protover: u8 = if arr.len() >= 2 {
-            self.extract_string(&arr[1])?.parse().map_err(|_| {
-                AppError::Command("HELLO protover 必须是整数".to_string())
-            })?
+            self.extract_string(&arr[1])?
+                .parse()
+                .map_err(|_| AppError::Command("HELLO protover 必须是整数".to_string()))?
         } else {
             2
         };
@@ -1193,20 +1193,18 @@ impl CommandParser {
         while i < arr.len() {
             let arg = self.extract_string(&arr[i])?.to_ascii_uppercase();
             match arg.as_str() {
-                "AUTH"
-                    if i + 2 < arr.len() => {
-                        let username = self.extract_string(&arr[i + 1])?;
-                        let password = self.extract_string(&arr[i + 2])?;
-                        auth = Some((username, password));
-                        i += 3;
-                        continue;
-                    }
-                "SETNAME"
-                    if i + 1 < arr.len() => {
-                        setname = Some(self.extract_string(&arr[i + 1])?);
-                        i += 2;
-                        continue;
-                    }
+                "AUTH" if i + 2 < arr.len() => {
+                    let username = self.extract_string(&arr[i + 1])?;
+                    let password = self.extract_string(&arr[i + 2])?;
+                    auth = Some((username, password));
+                    i += 3;
+                    continue;
+                }
+                "SETNAME" if i + 1 < arr.len() => {
+                    setname = Some(self.extract_string(&arr[i + 1])?);
+                    i += 2;
+                    continue;
+                }
                 _ => {}
             }
             i += 1;
@@ -1215,7 +1213,7 @@ impl CommandParser {
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -1225,9 +1223,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_slowlog(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "SLOWLOG 命令需要子命令".to_string(),
-            ));
+            return Err(AppError::Command("SLOWLOG 命令需要子命令".to_string()));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
@@ -1243,28 +1239,22 @@ impl CommandParser {
             }
             "LEN" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command(
-                        "SLOWLOG LEN 不需要参数".to_string(),
-                    ));
+                    return Err(AppError::Command("SLOWLOG LEN 不需要参数".to_string()));
                 }
                 Ok(Command::SlowLogLen)
             }
             "RESET" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command(
-                        "SLOWLOG RESET 不需要参数".to_string(),
-                    ));
+                    return Err(AppError::Command("SLOWLOG RESET 不需要参数".to_string()));
                 }
                 Ok(Command::SlowLogReset)
             }
-            _ => Err(AppError::Command(
-                format!("SLOWLOG 未知子命令: {}", sub),
-            )),
+            _ => Err(AppError::Command(format!("SLOWLOG 未知子命令: {}", sub))),
         }
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -1274,9 +1264,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_object(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "OBJECT 命令需要子命令".to_string(),
-            ));
+            return Err(AppError::Command("OBJECT 命令需要子命令".to_string()));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
@@ -1313,14 +1301,12 @@ impl CommandParser {
                 Ok(Command::ObjectFreq(self.extract_string(&arr[2])?))
             }
             "HELP" => Ok(Command::ObjectHelp),
-            _ => Err(AppError::Command(
-                format!("OBJECT 未知子命令: {}", sub),
-            )),
+            _ => Err(AppError::Command(format!("OBJECT 未知子命令: {}", sub))),
         }
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -1330,9 +1316,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_debug(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "DEBUG 命令需要子命令".to_string(),
-            ));
+            return Err(AppError::Command("DEBUG 命令需要子命令".to_string()));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
@@ -1345,9 +1329,11 @@ impl CommandParser {
                 let flag = match self.extract_string(&arr[2])?.as_str() {
                     "0" => false,
                     "1" => true,
-                    _ => return Err(AppError::Command(
-                        "DEBUG SET-ACTIVE-EXPIRE 参数必须是 0 或 1".to_string(),
-                    )),
+                    _ => {
+                        return Err(AppError::Command(
+                            "DEBUG SET-ACTIVE-EXPIRE 参数必须是 0 或 1".to_string(),
+                        ));
+                    }
                 };
                 Ok(Command::DebugSetActiveExpire(flag))
             }
@@ -1357,9 +1343,10 @@ impl CommandParser {
                         "DEBUG SLEEP 需要 1 个参数 (seconds)".to_string(),
                     ));
                 }
-                let seconds: f64 = self.extract_string(&arr[2])?.parse().map_err(|_| {
-                    AppError::Command("DEBUG SLEEP 参数必须是数字".to_string())
-                })?;
+                let seconds: f64 = self
+                    .extract_string(&arr[2])?
+                    .parse()
+                    .map_err(|_| AppError::Command("DEBUG SLEEP 参数必须是数字".to_string()))?;
                 Ok(Command::DebugSleep(seconds))
             }
             "OBJECT" => {
@@ -1370,9 +1357,7 @@ impl CommandParser {
                 }
                 Ok(Command::DebugObject(self.extract_string(&arr[2])?))
             }
-            _ => Err(AppError::Command(
-                format!("DEBUG 未知子命令: {}", sub),
-            )),
+            _ => Err(AppError::Command(format!("DEBUG 未知子命令: {}", sub))),
         }
     }
     /// 解析 ECHO 命令
@@ -1387,15 +1372,13 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_echo(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
-            return Err(AppError::Command(
-                "ECHO 命令需要 1 个参数".to_string(),
-            ));
+            return Err(AppError::Command("ECHO 命令需要 1 个参数".to_string()));
         }
         Ok(Command::Echo(self.extract_string(&arr[1])?))
     }
     /// 解析 UNKNOWN 命令
     ///
-    /// Redis 语法: 
+    /// Redis 语法:
     ///
     /// # 参数
     /// - `arr` - RESP 数组，arr[0] 为命令名，后续为命令参数
@@ -1405,16 +1388,16 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_swapdb(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command(
-                "SWAPDB 命令需要 2 个参数".to_string(),
-            ));
+            return Err(AppError::Command("SWAPDB 命令需要 2 个参数".to_string()));
         }
-        let idx1: usize = self.extract_string(&arr[1])?.parse().map_err(|_| {
-            AppError::Command("SWAPDB 索引必须是整数".to_string())
-        })?;
-        let idx2: usize = self.extract_string(&arr[2])?.parse().map_err(|_| {
-            AppError::Command("SWAPDB 索引必须是整数".to_string())
-        })?;
+        let idx1: usize = self
+            .extract_string(&arr[1])?
+            .parse()
+            .map_err(|_| AppError::Command("SWAPDB 索引必须是整数".to_string()))?;
+        let idx2: usize = self
+            .extract_string(&arr[2])?
+            .parse()
+            .map_err(|_| AppError::Command("SWAPDB 索引必须是整数".to_string()))?;
         Ok(Command::SwapDb(idx1, idx2))
     }
     /// 解析 SHUTDOWN 命令

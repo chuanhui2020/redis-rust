@@ -265,7 +265,10 @@ impl ZSetData {
         if count > 0 {
             let n = count as usize;
             let mut rng = rand::thread_rng();
-            let mut selected = members.choose_multiple(&mut rng, n).cloned().collect::<Vec<_>>();
+            let mut selected = members
+                .choose_multiple(&mut rng, n)
+                .cloned()
+                .collect::<Vec<_>>();
             selected.shuffle(&mut rng);
             selected
         } else {
@@ -301,8 +304,7 @@ pub enum BitFieldOffset {
 }
 
 /// BITFIELD 溢出策略
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum BitFieldOverflow {
     /// 回绕（默认）
     #[default]
@@ -312,7 +314,6 @@ pub enum BitFieldOverflow {
     /// 失败
     Fail,
 }
-
 
 /// BITFIELD 子操作
 #[derive(Debug, Clone, PartialEq)]
@@ -346,16 +347,24 @@ impl BitFieldEncoding {
         let signed = match s.chars().next() {
             Some('i') => true,
             Some('u') => false,
-            _ => return Err(AppError::Command("BITFIELD 编码必须以 i 或 u 开头".to_string())),
+            _ => {
+                return Err(AppError::Command(
+                    "BITFIELD 编码必须以 i 或 u 开头".to_string(),
+                ));
+            }
         };
-        let bits: usize = s[1..].parse().map_err(|_| {
-            AppError::Command("BITFIELD 编码位宽必须是整数".to_string())
-        })?;
+        let bits: usize = s[1..]
+            .parse()
+            .map_err(|_| AppError::Command("BITFIELD 编码位宽必须是整数".to_string()))?;
         if bits == 0 || bits > 64 {
-            return Err(AppError::Command("BITFIELD 编码位宽必须在 1-64 之间".to_string()));
+            return Err(AppError::Command(
+                "BITFIELD 编码位宽必须在 1-64 之间".to_string(),
+            ));
         }
         if !signed && bits == 64 {
-            return Err(AppError::Command("BITFIELD 无符号编码最大支持 u63".to_string()));
+            return Err(AppError::Command(
+                "BITFIELD 无符号编码最大支持 u63".to_string(),
+            ));
         }
         Ok(BitFieldEncoding { signed, bits })
     }
@@ -383,14 +392,14 @@ impl BitFieldOffset {
     /// 解析偏移字符串，如 "0", "#1", "#2"
     pub fn parse(s: &str) -> Result<Self> {
         if let Some(num_str) = s.strip_prefix('#') {
-            let num: usize = num_str.parse().map_err(|_| {
-                AppError::Command("BITFIELD #偏移必须是整数".to_string())
-            })?;
+            let num: usize = num_str
+                .parse()
+                .map_err(|_| AppError::Command("BITFIELD #偏移必须是整数".to_string()))?;
             Ok(BitFieldOffset::Hash(num))
         } else {
-            let num: usize = s.parse().map_err(|_| {
-                AppError::Command("BITFIELD 偏移必须是整数".to_string())
-            })?;
+            let num: usize = s
+                .parse()
+                .map_err(|_| AppError::Command("BITFIELD 偏移必须是整数".to_string()))?;
             Ok(BitFieldOffset::Num(num))
         }
     }
@@ -436,7 +445,11 @@ fn unsigned_to_signed(value: u64, bits: usize) -> i64 {
 /// 将 i64 转换为指定宽度的无符号表示
 #[allow(dead_code)]
 fn signed_to_unsigned(value: i64, bits: usize) -> u64 {
-    let mask = if bits == 64 { !0u64 } else { (1u64 << bits) - 1 };
+    let mask = if bits == 64 {
+        !0u64
+    } else {
+        (1u64 << bits) - 1
+    };
     (value as u64) & mask
 }
 
@@ -1142,7 +1155,11 @@ impl StorageEngine {
                                 .map(|((score, member), _)| (member.clone(), score.into_inner()))
                                 .collect();
                             if limit_count > 0 {
-                                result = result.into_iter().skip(limit_offset).take(limit_count).collect();
+                                result = result
+                                    .into_iter()
+                                    .skip(limit_offset)
+                                    .take(limit_count)
+                                    .collect();
                             }
                             Ok(result)
                         }
@@ -1181,7 +1198,11 @@ impl StorageEngine {
                         StorageValue::ZSet(z) => {
                             let mut result = z.rev_range_by_lex(min, max)?;
                             if limit_count > 0 {
-                                result = result.into_iter().skip(limit_offset).take(limit_count).collect();
+                                result = result
+                                    .into_iter()
+                                    .skip(limit_offset)
+                                    .take(limit_count)
+                                    .collect();
                             }
                             Ok(result)
                         }
@@ -1210,9 +1231,7 @@ impl StorageEngine {
                 } else {
                     Self::check_zset_type(v)?;
                     match v {
-                        StorageValue::ZSet(z) => {
-                            Ok(members.iter().map(|m| z.score(m)).collect())
-                        }
+                        StorageValue::ZSet(z) => Ok(members.iter().map(|m| z.score(m)).collect()),
                         _ => unreachable!(),
                     }
                 }
@@ -1411,7 +1430,12 @@ impl StorageEngine {
                                 })?;
                                 if rev {
                                     z.score_to_member
-                                        .range(..=(OrderedFloat(max_score), String::from("\u{10FFFF}")))
+                                        .range(
+                                            ..=(
+                                                OrderedFloat(max_score),
+                                                String::from("\u{10FFFF}"),
+                                            ),
+                                        )
                                         .rev()
                                         .filter(|((s, _), _)| s.into_inner() >= min_score)
                                         .map(|((s, m), _)| (m.clone(), s.into_inner()))
@@ -1428,7 +1452,8 @@ impl StorageEngine {
                                 lex_result?
                                     .into_iter()
                                     .map(|m| {
-                                        let score = z.member_to_score.get(&m).copied().unwrap_or(0.0);
+                                        let score =
+                                            z.member_to_score.get(&m).copied().unwrap_or(0.0);
                                         (m, score)
                                     })
                                     .collect()
@@ -1446,7 +1471,11 @@ impl StorageEngine {
                                 }
                             };
                             if limit_count > 0 {
-                                result = result.into_iter().skip(limit_offset).take(limit_count).collect();
+                                result = result
+                                    .into_iter()
+                                    .skip(limit_offset)
+                                    .take(limit_count)
+                                    .collect();
                             }
                             Ok(result)
                         }
@@ -1458,4 +1487,3 @@ impl StorageEngine {
         }
     }
 }
-

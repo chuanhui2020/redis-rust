@@ -18,8 +18,13 @@ impl StorageEngine {
         let mut union_scores: HashMap<String, Vec<f64>> = HashMap::new();
 
         for (idx, key) in keys.iter().enumerate() {
-            let weight = weights.map(|w| w.get(idx).copied().unwrap_or(1.0)).unwrap_or(1.0);
-            let map = db.inner.get_shard(key).read()
+            let weight = weights
+                .map(|w| w.get(idx).copied().unwrap_or(1.0))
+                .unwrap_or(1.0);
+            let map = db
+                .inner
+                .get_shard(key)
+                .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key) {
                 if Self::is_key_expired(&db, key) {
@@ -48,7 +53,10 @@ impl StorageEngine {
             result.add(member, final_score);
         }
 
-        let mut map = db.inner.get_shard(destination).write()
+        let mut map = db
+            .inner
+            .get_shard(destination)
+            .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         map.insert(destination.to_string(), StorageValue::ZSet(result));
         self.bump_version(destination);
@@ -65,7 +73,10 @@ impl StorageEngine {
         let db = self.db();
 
         if keys.is_empty() {
-            let mut map = db.inner.get_shard(destination).write()
+            let mut map = db
+                .inner
+                .get_shard(destination)
+                .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             map.remove(destination);
             self.bump_version(destination);
@@ -76,18 +87,24 @@ impl StorageEngine {
         let mut inter_members: HashMap<String, Vec<f64>> = HashMap::new();
 
         for (idx, key) in keys.iter().enumerate() {
-            let weight = weights.map(|w| w.get(idx).copied().unwrap_or(1.0)).unwrap_or(1.0);
+            let weight = weights
+                .map(|w| w.get(idx).copied().unwrap_or(1.0))
+                .unwrap_or(1.0);
             let mut current_members: HashMap<String, f64> = HashMap::new();
 
-            let map = db.inner.get_shard(key).read()
+            let map = db
+                .inner
+                .get_shard(key)
+                .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
                 && !Self::is_key_expired(&db, key)
-                    && let StorageValue::ZSet(z) = v {
-                        for (member, score) in &z.member_to_score {
-                            current_members.insert(member.clone(), *score * weight);
-                        }
-                    }
+                && let StorageValue::ZSet(z) = v
+            {
+                for (member, score) in &z.member_to_score {
+                    current_members.insert(member.clone(), *score * weight);
+                }
+            }
 
             if first {
                 for (member, score) in current_members {
@@ -118,7 +135,10 @@ impl StorageEngine {
             result.add(member, final_score);
         }
 
-        let mut map = db.inner.get_shard(destination).write()
+        let mut map = db
+            .inner
+            .get_shard(destination)
+            .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         map.insert(destination.to_string(), StorageValue::ZSet(result));
         self.bump_version(destination);
@@ -135,7 +155,10 @@ impl StorageEngine {
         let mut diff_members: HashMap<String, f64> = HashMap::new();
 
         for key in keys {
-            let map = db.inner.get_shard(key).read()
+            let map = db
+                .inner
+                .get_shard(key)
+                .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             let current: HashMap<String, f64> = if let Some(v) = map.get(key) {
                 if Self::is_key_expired(&db, key) {
@@ -174,7 +197,10 @@ impl StorageEngine {
         let db = self.db();
 
         if keys.is_empty() {
-            let mut map = db.inner.get_shard(destination).write()
+            let mut map = db
+                .inner
+                .get_shard(destination)
+                .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             map.remove(destination);
             self.bump_version(destination);
@@ -185,7 +211,10 @@ impl StorageEngine {
         let mut diff_members: HashMap<String, f64> = HashMap::new();
 
         for key in keys {
-            let map = db.inner.get_shard(key).read()
+            let map = db
+                .inner
+                .get_shard(key)
+                .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             let current: HashMap<String, f64> = if let Some(v) = map.get(key) {
                 if Self::is_key_expired(&db, key) {
@@ -212,7 +241,10 @@ impl StorageEngine {
             result.add(member, score);
         }
         let count = result.member_to_score.len();
-        let mut map = db.inner.get_shard(destination).write()
+        let mut map = db
+            .inner
+            .get_shard(destination)
+            .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         map.insert(destination.to_string(), StorageValue::ZSet(result));
         self.bump_version(destination);
@@ -235,18 +267,24 @@ impl StorageEngine {
         let mut inter_members: HashMap<String, Vec<f64>> = HashMap::new();
 
         for (idx, key) in keys.iter().enumerate() {
-            let weight = weights.map(|w| w.get(idx).copied().unwrap_or(1.0)).unwrap_or(1.0);
+            let weight = weights
+                .map(|w| w.get(idx).copied().unwrap_or(1.0))
+                .unwrap_or(1.0);
             let mut current_members: HashMap<String, f64> = HashMap::new();
 
-            let map = db.inner.get_shard(key).read()
+            let map = db
+                .inner
+                .get_shard(key)
+                .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
                 && !Self::is_key_expired(&db, key)
-                    && let StorageValue::ZSet(z) = v {
-                        for (member, score) in &z.member_to_score {
-                            current_members.insert(member.clone(), *score * weight);
-                        }
-                    }
+                && let StorageValue::ZSet(z) = v
+            {
+                for (member, score) in &z.member_to_score {
+                    current_members.insert(member.clone(), *score * weight);
+                }
+            }
 
             if first {
                 for (member, score) in current_members {
@@ -292,8 +330,13 @@ impl StorageEngine {
         let mut union_scores: HashMap<String, Vec<f64>> = HashMap::new();
 
         for (idx, key) in keys.iter().enumerate() {
-            let weight = weights.map(|w| w.get(idx).copied().unwrap_or(1.0)).unwrap_or(1.0);
-            let map = db.inner.get_shard(key).read()
+            let weight = weights
+                .map(|w| w.get(idx).copied().unwrap_or(1.0))
+                .unwrap_or(1.0);
+            let map = db
+                .inner
+                .get_shard(key)
+                .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key) {
                 if Self::is_key_expired(&db, key) {
@@ -340,7 +383,10 @@ impl StorageEngine {
     ) -> Result<usize> {
         let db = self.db();
         let result = {
-            let map = db.inner.get_shard(src).read()
+            let map = db
+                .inner
+                .get_shard(src)
+                .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             match map.get(src) {
                 Some(v) => {
@@ -352,14 +398,23 @@ impl StorageEngine {
                             StorageValue::ZSet(z) => {
                                 let pairs: Vec<(String, f64)> = if by_score {
                                     let min_score: f64 = min.parse().map_err(|_| {
-                                        AppError::Command("ZRANGESTORE BYSCORE min 必须是数字".to_string())
+                                        AppError::Command(
+                                            "ZRANGESTORE BYSCORE min 必须是数字".to_string(),
+                                        )
                                     })?;
                                     let max_score: f64 = max.parse().map_err(|_| {
-                                        AppError::Command("ZRANGESTORE BYSCORE max 必须是数字".to_string())
+                                        AppError::Command(
+                                            "ZRANGESTORE BYSCORE max 必须是数字".to_string(),
+                                        )
                                     })?;
                                     if rev {
                                         z.score_to_member
-                                            .range(..=(OrderedFloat(max_score), String::from("\u{10FFFF}")))
+                                            .range(
+                                                ..=(
+                                                    OrderedFloat(max_score),
+                                                    String::from("\u{10FFFF}"),
+                                                ),
+                                            )
                                             .rev()
                                             .filter(|((s, _), _)| s.into_inner() >= min_score)
                                             .map(|((s, m), _)| (m.clone(), s.into_inner()))
@@ -376,13 +431,16 @@ impl StorageEngine {
                                     lex_result?
                                         .into_iter()
                                         .map(|m| {
-                                            let score = z.member_to_score.get(&m).copied().unwrap_or(0.0);
+                                            let score =
+                                                z.member_to_score.get(&m).copied().unwrap_or(0.0);
                                             (m, score)
                                         })
                                         .collect()
                                 } else {
                                     let start: isize = min.parse().map_err(|_| {
-                                        AppError::Command("ZRANGESTORE start 必须是整数".to_string())
+                                        AppError::Command(
+                                            "ZRANGESTORE start 必须是整数".to_string(),
+                                        )
                                     })?;
                                     let stop: isize = max.parse().map_err(|_| {
                                         AppError::Command("ZRANGESTORE stop 必须是整数".to_string())
@@ -395,7 +453,11 @@ impl StorageEngine {
                                 };
                                 // 应用 LIMIT
                                 if limit_count > 0 {
-                                    pairs.into_iter().skip(limit_offset).take(limit_count).collect()
+                                    pairs
+                                        .into_iter()
+                                        .skip(limit_offset)
+                                        .take(limit_count)
+                                        .collect()
                                 } else {
                                     pairs
                                 }
@@ -413,7 +475,10 @@ impl StorageEngine {
             new_zset.add(member.clone(), *score);
         }
         let count = new_zset.member_to_score.len();
-        let mut map = db.inner.get_shard(dst).write()
+        let mut map = db
+            .inner
+            .get_shard(dst)
+            .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         if count > 0 {
             map.insert(dst.to_string(), StorageValue::ZSet(new_zset));
@@ -501,7 +566,12 @@ impl StorageEngine {
 
         loop {
             let wait_result = if let Some(deadline) = deadline {
-                match tokio::time::timeout(deadline - tokio::time::Instant::now(), notify.notified()).await {
+                match tokio::time::timeout(
+                    deadline - tokio::time::Instant::now(),
+                    notify.notified(),
+                )
+                .await
+                {
                     Ok(()) => true,
                     Err(_) => false,
                 }
@@ -547,9 +617,10 @@ impl StorageEngine {
         timeout: f64,
     ) -> Result<Option<(String, String, f64)>> {
         if let Some((key, mut pairs)) = self.zmpop(keys, true, 1)?
-            && let Some((member, score)) = pairs.pop() {
-                return Ok(Some((key, member, score)));
-            }
+            && let Some((member, score)) = pairs.pop()
+        {
+            return Ok(Some((key, member, score)));
+        }
 
         let db = self.db();
         let notify = Arc::new(tokio::sync::Notify::new());
@@ -572,7 +643,12 @@ impl StorageEngine {
 
         loop {
             let wait_result = if let Some(deadline) = deadline {
-                match tokio::time::timeout(deadline - tokio::time::Instant::now(), notify.notified()).await {
+                match tokio::time::timeout(
+                    deadline - tokio::time::Instant::now(),
+                    notify.notified(),
+                )
+                .await
+                {
                     Ok(()) => true,
                     Err(_) => false,
                 }
@@ -586,18 +662,19 @@ impl StorageEngine {
             }
 
             if let Some((key, mut pairs)) = self.zmpop(keys, true, 1)?
-                && let Some((member, score)) = pairs.pop() {
-                    let mut waiters_map = db.blocking_waiters.write().unwrap();
-                    for key in keys {
-                        if let Some(list) = waiters_map.get_mut(key) {
-                            list.retain(|n| !Arc::ptr_eq(n, &notify));
-                            if list.is_empty() {
-                                waiters_map.remove(key);
-                            }
+                && let Some((member, score)) = pairs.pop()
+            {
+                let mut waiters_map = db.blocking_waiters.write().unwrap();
+                for key in keys {
+                    if let Some(list) = waiters_map.get_mut(key) {
+                        list.retain(|n| !Arc::ptr_eq(n, &notify));
+                        if list.is_empty() {
+                            waiters_map.remove(key);
                         }
                     }
-                    return Ok(Some((key, member, score)));
                 }
+                return Ok(Some((key, member, score)));
+            }
         }
 
         let mut waiters_map = db.blocking_waiters.write().unwrap();
@@ -623,15 +700,19 @@ impl StorageEngine {
         for key in keys {
             let mut current_members: HashMap<String, f64> = HashMap::new();
 
-            let map = db.inner.get_shard(key).read()
+            let map = db
+                .inner
+                .get_shard(key)
+                .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
                 && !Self::is_key_expired(&db, key)
-                    && let StorageValue::ZSet(z) = v {
-                        for (member, score) in &z.member_to_score {
-                            current_members.insert(member.clone(), *score);
-                        }
-                    }
+                && let StorageValue::ZSet(z) = v
+            {
+                for (member, score) in &z.member_to_score {
+                    current_members.insert(member.clone(), *score);
+                }
+            }
 
             if first {
                 for (member, score) in current_members {
@@ -663,9 +744,10 @@ impl StorageEngine {
         timeout: f64,
     ) -> Result<Option<(String, String, f64)>> {
         if let Some((key, mut pairs)) = self.zmpop(keys, false, 1)?
-            && let Some((member, score)) = pairs.pop() {
-                return Ok(Some((key, member, score)));
-            }
+            && let Some((member, score)) = pairs.pop()
+        {
+            return Ok(Some((key, member, score)));
+        }
 
         let db = self.db();
         let notify = Arc::new(tokio::sync::Notify::new());
@@ -688,7 +770,12 @@ impl StorageEngine {
 
         loop {
             let wait_result = if let Some(deadline) = deadline {
-                match tokio::time::timeout(deadline - tokio::time::Instant::now(), notify.notified()).await {
+                match tokio::time::timeout(
+                    deadline - tokio::time::Instant::now(),
+                    notify.notified(),
+                )
+                .await
+                {
                     Ok(()) => true,
                     Err(_) => false,
                 }
@@ -702,18 +789,19 @@ impl StorageEngine {
             }
 
             if let Some((key, mut pairs)) = self.zmpop(keys, false, 1)?
-                && let Some((member, score)) = pairs.pop() {
-                    let mut waiters_map = db.blocking_waiters.write().unwrap();
-                    for key in keys {
-                        if let Some(list) = waiters_map.get_mut(key) {
-                            list.retain(|n| !Arc::ptr_eq(n, &notify));
-                            if list.is_empty() {
-                                waiters_map.remove(key);
-                            }
+                && let Some((member, score)) = pairs.pop()
+            {
+                let mut waiters_map = db.blocking_waiters.write().unwrap();
+                for key in keys {
+                    if let Some(list) = waiters_map.get_mut(key) {
+                        list.retain(|n| !Arc::ptr_eq(n, &notify));
+                        if list.is_empty() {
+                            waiters_map.remove(key);
                         }
                     }
-                    return Ok(Some((key, member, score)));
                 }
+                return Ok(Some((key, member, score)));
+            }
         }
 
         let mut waiters_map = db.blocking_waiters.write().unwrap();

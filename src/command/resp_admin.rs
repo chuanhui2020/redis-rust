@@ -18,11 +18,11 @@ use crate::protocol::RespValue;
 pub(crate) fn to_resp_ping(cmd: &Command) -> RespValue {
     match cmd {
         Command::Ping(msg) => {
-                let mut parts = vec![bulk("PING")];
-                if let Some(m) = msg {
-                    parts.push(bulk(m));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("PING")];
+            if let Some(m) = msg {
+                parts.push(bulk(m));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -42,9 +42,7 @@ pub(crate) fn to_resp_ping(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::ConfigGet 变体，将触发 unreachable!()
 pub(crate) fn to_resp_config_get(cmd: &Command) -> RespValue {
     match cmd {
-        Command::ConfigGet(key) => {
-                RespValue::Array(vec![bulk("CONFIG"), bulk("GET"), bulk(key)])
-        }
+        Command::ConfigGet(key) => RespValue::Array(vec![bulk("CONFIG"), bulk("GET"), bulk(key)]),
         _ => unreachable!(),
     }
 }
@@ -64,7 +62,7 @@ pub(crate) fn to_resp_config_get(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_config_set(cmd: &Command) -> RespValue {
     match cmd {
         Command::ConfigSet(key, value) => {
-                RespValue::Array(vec![bulk("CONFIG"), bulk("SET"), bulk(key), bulk(value)])
+            RespValue::Array(vec![bulk("CONFIG"), bulk("SET"), bulk(key), bulk(value)])
         }
         _ => unreachable!(),
     }
@@ -72,7 +70,7 @@ pub(crate) fn to_resp_config_set(cmd: &Command) -> RespValue {
 
 /// 将 Command::ConfigRewrite 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::ConfigRewrite 变体）
@@ -84,16 +82,14 @@ pub(crate) fn to_resp_config_set(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::ConfigRewrite 变体，将触发 unreachable!()
 pub(crate) fn to_resp_config_rewrite(cmd: &Command) -> RespValue {
     match cmd {
-        Command::ConfigRewrite => {
-                RespValue::Array(vec![bulk("CONFIG"), bulk("REWRITE")])
-        }
+        Command::ConfigRewrite => RespValue::Array(vec![bulk("CONFIG"), bulk("REWRITE")]),
         _ => unreachable!(),
     }
 }
 
 /// 将 Command::ConfigResetStat 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::ConfigResetStat 变体）
@@ -105,9 +101,7 @@ pub(crate) fn to_resp_config_rewrite(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::ConfigResetStat 变体，将触发 unreachable!()
 pub(crate) fn to_resp_config_reset_stat(cmd: &Command) -> RespValue {
     match cmd {
-        Command::ConfigResetStat => {
-                RespValue::Array(vec![bulk("CONFIG"), bulk("RESETSTAT")])
-        }
+        Command::ConfigResetStat => RespValue::Array(vec![bulk("CONFIG"), bulk("RESETSTAT")]),
         _ => unreachable!(),
     }
 }
@@ -127,12 +121,12 @@ pub(crate) fn to_resp_config_reset_stat(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_memory_usage(cmd: &Command) -> RespValue {
     match cmd {
         Command::MemoryUsage(key, samples) => {
-                let mut parts = vec![bulk("MEMORY"), bulk("USAGE"), bulk(key)];
-                if let Some(s) = samples {
-                    parts.push(bulk("SAMPLES"));
-                    parts.push(bulk(&s.to_string()));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("MEMORY"), bulk("USAGE"), bulk(key)];
+            if let Some(s) = samples {
+                parts.push(bulk("SAMPLES"));
+                parts.push(bulk(&s.to_string()));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -140,7 +134,7 @@ pub(crate) fn to_resp_memory_usage(cmd: &Command) -> RespValue {
 
 /// 将 Command::MemoryDoctor 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::MemoryDoctor 变体）
@@ -152,16 +146,14 @@ pub(crate) fn to_resp_memory_usage(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::MemoryDoctor 变体，将触发 unreachable!()
 pub(crate) fn to_resp_memory_doctor(cmd: &Command) -> RespValue {
     match cmd {
-        Command::MemoryDoctor => {
-                RespValue::Array(vec![bulk("MEMORY"), bulk("DOCTOR")])
-        }
+        Command::MemoryDoctor => RespValue::Array(vec![bulk("MEMORY"), bulk("DOCTOR")]),
         _ => unreachable!(),
     }
 }
 
 /// 将 Command::LatencyLatest 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::LatencyLatest 变体）
@@ -173,9 +165,7 @@ pub(crate) fn to_resp_memory_doctor(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::LatencyLatest 变体，将触发 unreachable!()
 pub(crate) fn to_resp_latency_latest(cmd: &Command) -> RespValue {
     match cmd {
-        Command::LatencyLatest => {
-                RespValue::Array(vec![bulk("LATENCY"), bulk("LATEST")])
-        }
+        Command::LatencyLatest => RespValue::Array(vec![bulk("LATENCY"), bulk("LATEST")]),
         _ => unreachable!(),
     }
 }
@@ -195,7 +185,7 @@ pub(crate) fn to_resp_latency_latest(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_latency_history(cmd: &Command) -> RespValue {
     match cmd {
         Command::LatencyHistory(event) => {
-                RespValue::Array(vec![bulk("LATENCY"), bulk("HISTORY"), bulk(event)])
+            RespValue::Array(vec![bulk("LATENCY"), bulk("HISTORY"), bulk(event)])
         }
         _ => unreachable!(),
     }
@@ -216,11 +206,11 @@ pub(crate) fn to_resp_latency_history(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_latency_reset(cmd: &Command) -> RespValue {
     match cmd {
         Command::LatencyReset(events) => {
-                let mut parts = vec![bulk("LATENCY"), bulk("RESET")];
-                for e in events {
-                    parts.push(bulk(e));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("LATENCY"), bulk("RESET")];
+            for e in events {
+                parts.push(bulk(e));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -228,7 +218,7 @@ pub(crate) fn to_resp_latency_reset(cmd: &Command) -> RespValue {
 
 /// 将 Command::Reset 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::Reset 变体）
@@ -240,9 +230,7 @@ pub(crate) fn to_resp_latency_reset(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::Reset 变体，将触发 unreachable!()
 pub(crate) fn to_resp_reset(cmd: &Command) -> RespValue {
     match cmd {
-        Command::Reset => {
-                RespValue::Array(vec![bulk("RESET")])
-        }
+        Command::Reset => RespValue::Array(vec![bulk("RESET")]),
         _ => unreachable!(),
     }
 }
@@ -262,17 +250,17 @@ pub(crate) fn to_resp_reset(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_hello(cmd: &Command) -> RespValue {
     match cmd {
         Command::Hello(protover, auth, setname) => {
-                let mut parts = vec![bulk("HELLO"), bulk(&protover.to_string())];
-                if let Some((user, pass)) = auth {
-                    parts.push(bulk("AUTH"));
-                    parts.push(bulk(user));
-                    parts.push(bulk(pass));
-                }
-                if let Some(name) = setname {
-                    parts.push(bulk("SETNAME"));
-                    parts.push(bulk(name));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("HELLO"), bulk(&protover.to_string())];
+            if let Some((user, pass)) = auth {
+                parts.push(bulk("AUTH"));
+                parts.push(bulk(user));
+                parts.push(bulk(pass));
+            }
+            if let Some(name) = setname {
+                parts.push(bulk("SETNAME"));
+                parts.push(bulk(name));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -280,7 +268,7 @@ pub(crate) fn to_resp_hello(cmd: &Command) -> RespValue {
 
 /// 将 Command::Monitor 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::Monitor 变体）
@@ -292,16 +280,14 @@ pub(crate) fn to_resp_hello(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::Monitor 变体，将触发 unreachable!()
 pub(crate) fn to_resp_monitor(cmd: &Command) -> RespValue {
     match cmd {
-        Command::Monitor => {
-                RespValue::Array(vec![bulk("MONITOR")])
-        }
+        Command::Monitor => RespValue::Array(vec![bulk("MONITOR")]),
         _ => unreachable!(),
     }
 }
 
 /// 将 Command::CommandInfo 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::CommandInfo 变体）
@@ -313,16 +299,14 @@ pub(crate) fn to_resp_monitor(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::CommandInfo 变体，将触发 unreachable!()
 pub(crate) fn to_resp_command_info(cmd: &Command) -> RespValue {
     match cmd {
-        Command::CommandInfo => {
-                RespValue::Array(vec![bulk("COMMAND")])
-        }
+        Command::CommandInfo => RespValue::Array(vec![bulk("COMMAND")]),
         _ => unreachable!(),
     }
 }
 
 /// 将 Command::CommandCount 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::CommandCount 变体）
@@ -334,9 +318,7 @@ pub(crate) fn to_resp_command_info(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::CommandCount 变体，将触发 unreachable!()
 pub(crate) fn to_resp_command_count(cmd: &Command) -> RespValue {
     match cmd {
-        Command::CommandCount => {
-                RespValue::Array(vec![bulk("COMMAND"), bulk("COUNT")])
-        }
+        Command::CommandCount => RespValue::Array(vec![bulk("COMMAND"), bulk("COUNT")]),
         _ => unreachable!(),
     }
 }
@@ -356,11 +338,11 @@ pub(crate) fn to_resp_command_count(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_command_list(cmd: &Command) -> RespValue {
     match cmd {
         Command::CommandList(filter) => {
-                let mut parts = vec![bulk("COMMAND"), bulk("LIST")];
-                if let Some(f) = filter {
-                    parts.push(bulk(f));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("COMMAND"), bulk("LIST")];
+            if let Some(f) = filter {
+                parts.push(bulk(f));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -381,9 +363,9 @@ pub(crate) fn to_resp_command_list(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_command_docs(cmd: &Command) -> RespValue {
     match cmd {
         Command::CommandDocs(names) => {
-                let mut parts = vec![bulk("COMMAND"), bulk("DOCS")];
-                parts.extend(names.iter().map(|n| bulk(n)));
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("COMMAND"), bulk("DOCS")];
+            parts.extend(names.iter().map(|n| bulk(n)));
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -404,9 +386,9 @@ pub(crate) fn to_resp_command_docs(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_command_get_keys(cmd: &Command) -> RespValue {
     match cmd {
         Command::CommandGetKeys(args) => {
-                let mut parts = vec![bulk("COMMAND"), bulk("GETKEYS")];
-                parts.extend(args.iter().map(|a| bulk(a)));
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("COMMAND"), bulk("GETKEYS")];
+            parts.extend(args.iter().map(|a| bulk(a)));
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -426,9 +408,7 @@ pub(crate) fn to_resp_command_get_keys(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::Keys 变体，将触发 unreachable!()
 pub(crate) fn to_resp_keys(cmd: &Command) -> RespValue {
     match cmd {
-        Command::Keys(pattern) => {
-                RespValue::Array(vec![bulk("KEYS"), bulk(pattern)])
-        }
+        Command::Keys(pattern) => RespValue::Array(vec![bulk("KEYS"), bulk(pattern)]),
         _ => unreachable!(),
     }
 }
@@ -448,16 +428,16 @@ pub(crate) fn to_resp_keys(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_scan(cmd: &Command) -> RespValue {
     match cmd {
         Command::Scan(cursor, pattern, count) => {
-                let mut parts = vec![bulk("SCAN"), bulk(&cursor.to_string())];
-                if !pattern.is_empty() {
-                    parts.push(bulk("MATCH"));
-                    parts.push(bulk(pattern));
-                }
-                if *count > 0 {
-                    parts.push(bulk("COUNT"));
-                    parts.push(bulk(&count.to_string()));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("SCAN"), bulk(&cursor.to_string())];
+            if !pattern.is_empty() {
+                parts.push(bulk("MATCH"));
+                parts.push(bulk(pattern));
+            }
+            if *count > 0 {
+                parts.push(bulk("COUNT"));
+                parts.push(bulk(&count.to_string()));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -478,7 +458,7 @@ pub(crate) fn to_resp_scan(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_rename(cmd: &Command) -> RespValue {
     match cmd {
         Command::Rename(key, newkey) => {
-                RespValue::Array(vec![bulk("RENAME"), bulk(key), bulk(newkey)])
+            RespValue::Array(vec![bulk("RENAME"), bulk(key), bulk(newkey)])
         }
         _ => unreachable!(),
     }
@@ -498,9 +478,7 @@ pub(crate) fn to_resp_rename(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::Type 变体，将触发 unreachable!()
 pub(crate) fn to_resp_type(cmd: &Command) -> RespValue {
     match cmd {
-        Command::Type(key) => {
-                RespValue::Array(vec![bulk("TYPE"), bulk(key)])
-        }
+        Command::Type(key) => RespValue::Array(vec![bulk("TYPE"), bulk(key)]),
         _ => unreachable!(),
     }
 }
@@ -519,9 +497,7 @@ pub(crate) fn to_resp_type(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::Persist 变体，将触发 unreachable!()
 pub(crate) fn to_resp_persist(cmd: &Command) -> RespValue {
     match cmd {
-        Command::Persist(key) => {
-                RespValue::Array(vec![bulk("PERSIST"), bulk(key)])
-        }
+        Command::Persist(key) => RespValue::Array(vec![bulk("PERSIST"), bulk(key)]),
         _ => unreachable!(),
     }
 }
@@ -541,7 +517,7 @@ pub(crate) fn to_resp_persist(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_p_expire(cmd: &Command) -> RespValue {
     match cmd {
         Command::PExpire(key, ms) => {
-                RespValue::Array(vec![bulk("PEXPIRE"), bulk(key), bulk(&ms.to_string())])
+            RespValue::Array(vec![bulk("PEXPIRE"), bulk(key), bulk(&ms.to_string())])
         }
         _ => unreachable!(),
     }
@@ -561,9 +537,7 @@ pub(crate) fn to_resp_p_expire(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::PTtl 变体，将触发 unreachable!()
 pub(crate) fn to_resp_p_ttl(cmd: &Command) -> RespValue {
     match cmd {
-        Command::PTtl(key) => {
-                RespValue::Array(vec![bulk("PTTL"), bulk(key)])
-        }
+        Command::PTtl(key) => RespValue::Array(vec![bulk("PTTL"), bulk(key)]),
         _ => unreachable!(),
     }
 }
@@ -582,19 +556,17 @@ pub(crate) fn to_resp_p_ttl(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::Info 变体，将触发 unreachable!()
 pub(crate) fn to_resp_info(cmd: &Command) -> RespValue {
     match cmd {
-        Command::Info(section) => {
-                match section {
-                    Some(s) => RespValue::Array(vec![bulk("INFO"), bulk(s)]),
-                    None => RespValue::Array(vec![bulk("INFO")]),
-                }
-        }
+        Command::Info(section) => match section {
+            Some(s) => RespValue::Array(vec![bulk("INFO"), bulk(s)]),
+            None => RespValue::Array(vec![bulk("INFO")]),
+        },
         _ => unreachable!(),
     }
 }
 
 /// 将 Command::BgRewriteAof 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::BgRewriteAof 变体）
@@ -606,9 +578,7 @@ pub(crate) fn to_resp_info(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::BgRewriteAof 变体，将触发 unreachable!()
 pub(crate) fn to_resp_bg_rewrite_aof(cmd: &Command) -> RespValue {
     match cmd {
-        Command::BgRewriteAof => {
-                RespValue::Array(vec![bulk("BGREWRITEAOF")])
-        }
+        Command::BgRewriteAof => RespValue::Array(vec![bulk("BGREWRITEAOF")]),
         _ => unreachable!(),
     }
 }
@@ -627,9 +597,7 @@ pub(crate) fn to_resp_bg_rewrite_aof(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::Select 变体，将触发 unreachable!()
 pub(crate) fn to_resp_select(cmd: &Command) -> RespValue {
     match cmd {
-        Command::Select(index) => {
-                RespValue::Array(vec![bulk("SELECT"), bulk(&index.to_string())])
-        }
+        Command::Select(index) => RespValue::Array(vec![bulk("SELECT"), bulk(&index.to_string())]),
         _ => unreachable!(),
     }
 }
@@ -649,11 +617,11 @@ pub(crate) fn to_resp_select(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_auth(cmd: &Command) -> RespValue {
     match cmd {
         Command::Auth(username, password) => {
-                if username == "default" {
-                    RespValue::Array(vec![bulk("AUTH"), bulk(password)])
-                } else {
-                    RespValue::Array(vec![bulk("AUTH"), bulk(username), bulk(password)])
-                }
+            if username == "default" {
+                RespValue::Array(vec![bulk("AUTH"), bulk(password)])
+            } else {
+                RespValue::Array(vec![bulk("AUTH"), bulk(username), bulk(password)])
+            }
         }
         _ => unreachable!(),
     }
@@ -674,11 +642,11 @@ pub(crate) fn to_resp_auth(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_unlink(cmd: &Command) -> RespValue {
     match cmd {
         Command::Unlink(keys) => {
-                let mut parts = vec![bulk("UNLINK")];
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("UNLINK")];
+            for k in keys {
+                parts.push(bulk(k));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -698,9 +666,7 @@ pub(crate) fn to_resp_unlink(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::Dump 变体，将触发 unreachable!()
 pub(crate) fn to_resp_dump(cmd: &Command) -> RespValue {
     match cmd {
-        Command::Dump(key) => {
-                RespValue::Array(vec![bulk("DUMP"), bulk(key)])
-        }
+        Command::Dump(key) => RespValue::Array(vec![bulk("DUMP"), bulk(key)]),
         _ => unreachable!(),
     }
 }
@@ -720,15 +686,15 @@ pub(crate) fn to_resp_dump(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_eval(cmd: &Command) -> RespValue {
     match cmd {
         Command::Eval(script, keys, args) => {
-                let mut parts = vec![bulk("EVAL"), bulk(script)];
-                parts.push(bulk(&keys.len().to_string()));
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                for a in args {
-                    parts.push(bulk(a));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("EVAL"), bulk(script)];
+            parts.push(bulk(&keys.len().to_string()));
+            for k in keys {
+                parts.push(bulk(k));
+            }
+            for a in args {
+                parts.push(bulk(a));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -749,15 +715,15 @@ pub(crate) fn to_resp_eval(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_eval_sha(cmd: &Command) -> RespValue {
     match cmd {
         Command::EvalSha(sha1, keys, args) => {
-                let mut parts = vec![bulk("EVALSHA"), bulk(sha1)];
-                parts.push(bulk(&keys.len().to_string()));
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                for a in args {
-                    parts.push(bulk(a));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("EVALSHA"), bulk(sha1)];
+            parts.push(bulk(&keys.len().to_string()));
+            for k in keys {
+                parts.push(bulk(k));
+            }
+            for a in args {
+                parts.push(bulk(a));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -778,7 +744,7 @@ pub(crate) fn to_resp_eval_sha(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_script_load(cmd: &Command) -> RespValue {
     match cmd {
         Command::ScriptLoad(script) => {
-                RespValue::Array(vec![bulk("SCRIPT"), bulk("LOAD"), bulk(script)])
+            RespValue::Array(vec![bulk("SCRIPT"), bulk("LOAD"), bulk(script)])
         }
         _ => unreachable!(),
     }
@@ -799,11 +765,11 @@ pub(crate) fn to_resp_script_load(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_script_exists(cmd: &Command) -> RespValue {
     match cmd {
         Command::ScriptExists(sha1s) => {
-                let mut parts = vec![bulk("SCRIPT"), bulk("EXISTS")];
-                for s in sha1s {
-                    parts.push(bulk(s));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("SCRIPT"), bulk("EXISTS")];
+            for s in sha1s {
+                parts.push(bulk(s));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -811,7 +777,7 @@ pub(crate) fn to_resp_script_exists(cmd: &Command) -> RespValue {
 
 /// 将 Command::ScriptFlush 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::ScriptFlush 变体）
@@ -823,9 +789,7 @@ pub(crate) fn to_resp_script_exists(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::ScriptFlush 变体，将触发 unreachable!()
 pub(crate) fn to_resp_script_flush(cmd: &Command) -> RespValue {
     match cmd {
-        Command::ScriptFlush => {
-                RespValue::Array(vec![bulk("SCRIPT"), bulk("FLUSH")])
-        }
+        Command::ScriptFlush => RespValue::Array(vec![bulk("SCRIPT"), bulk("FLUSH")]),
         _ => unreachable!(),
     }
 }
@@ -845,11 +809,16 @@ pub(crate) fn to_resp_script_flush(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_function_load(cmd: &Command) -> RespValue {
     match cmd {
         Command::FunctionLoad(code, replace) => {
-                if *replace {
-                    RespValue::Array(vec![bulk("FUNCTION"), bulk("LOAD"), bulk("REPLACE"), bulk(code)])
-                } else {
-                    RespValue::Array(vec![bulk("FUNCTION"), bulk("LOAD"), bulk(code)])
-                }
+            if *replace {
+                RespValue::Array(vec![
+                    bulk("FUNCTION"),
+                    bulk("LOAD"),
+                    bulk("REPLACE"),
+                    bulk(code),
+                ])
+            } else {
+                RespValue::Array(vec![bulk("FUNCTION"), bulk("LOAD"), bulk(code)])
+            }
         }
         _ => unreachable!(),
     }
@@ -870,7 +839,7 @@ pub(crate) fn to_resp_function_load(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_function_delete(cmd: &Command) -> RespValue {
     match cmd {
         Command::FunctionDelete(lib) => {
-                RespValue::Array(vec![bulk("FUNCTION"), bulk("DELETE"), bulk(lib)])
+            RespValue::Array(vec![bulk("FUNCTION"), bulk("DELETE"), bulk(lib)])
         }
         _ => unreachable!(),
     }
@@ -891,15 +860,15 @@ pub(crate) fn to_resp_function_delete(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_function_list(cmd: &Command) -> RespValue {
     match cmd {
         Command::FunctionList(pattern, withcode) => {
-                let mut parts = vec![bulk("FUNCTION"), bulk("LIST")];
-                if let Some(p) = pattern {
-                    parts.push(bulk("LIBRARYNAME"));
-                    parts.push(bulk(p));
-                }
-                if *withcode {
-                    parts.push(bulk("WITHCODE"));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("FUNCTION"), bulk("LIST")];
+            if let Some(p) = pattern {
+                parts.push(bulk("LIBRARYNAME"));
+                parts.push(bulk(p));
+            }
+            if *withcode {
+                parts.push(bulk("WITHCODE"));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -907,7 +876,7 @@ pub(crate) fn to_resp_function_list(cmd: &Command) -> RespValue {
 
 /// 将 Command::FunctionDump 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::FunctionDump 变体）
@@ -919,9 +888,7 @@ pub(crate) fn to_resp_function_list(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::FunctionDump 变体，将触发 unreachable!()
 pub(crate) fn to_resp_function_dump(cmd: &Command) -> RespValue {
     match cmd {
-        Command::FunctionDump => {
-                RespValue::Array(vec![bulk("FUNCTION"), bulk("DUMP")])
-        }
+        Command::FunctionDump => RespValue::Array(vec![bulk("FUNCTION"), bulk("DUMP")]),
         _ => unreachable!(),
     }
 }
@@ -940,18 +907,19 @@ pub(crate) fn to_resp_function_dump(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::FunctionRestore 变体，将触发 unreachable!()
 pub(crate) fn to_resp_function_restore(cmd: &Command) -> RespValue {
     match cmd {
-        Command::FunctionRestore(data, policy) => {
-                RespValue::Array(vec![
-                    bulk("FUNCTION"), bulk("RESTORE"), bulk(data), bulk(policy),
-                ])
-        }
+        Command::FunctionRestore(data, policy) => RespValue::Array(vec![
+            bulk("FUNCTION"),
+            bulk("RESTORE"),
+            bulk(data),
+            bulk(policy),
+        ]),
         _ => unreachable!(),
     }
 }
 
 /// 将 Command::FunctionStats 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::FunctionStats 变体）
@@ -963,9 +931,7 @@ pub(crate) fn to_resp_function_restore(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::FunctionStats 变体，将触发 unreachable!()
 pub(crate) fn to_resp_function_stats(cmd: &Command) -> RespValue {
     match cmd {
-        Command::FunctionStats => {
-                RespValue::Array(vec![bulk("FUNCTION"), bulk("STATS")])
-        }
+        Command::FunctionStats => RespValue::Array(vec![bulk("FUNCTION"), bulk("STATS")]),
         _ => unreachable!(),
     }
 }
@@ -985,11 +951,11 @@ pub(crate) fn to_resp_function_stats(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_function_flush(cmd: &Command) -> RespValue {
     match cmd {
         Command::FunctionFlush(async_mode) => {
-                if *async_mode {
-                    RespValue::Array(vec![bulk("FUNCTION"), bulk("FLUSH"), bulk("ASYNC")])
-                } else {
-                    RespValue::Array(vec![bulk("FUNCTION"), bulk("FLUSH")])
-                }
+            if *async_mode {
+                RespValue::Array(vec![bulk("FUNCTION"), bulk("FLUSH"), bulk("ASYNC")])
+            } else {
+                RespValue::Array(vec![bulk("FUNCTION"), bulk("FLUSH")])
+            }
         }
         _ => unreachable!(),
     }
@@ -1010,14 +976,14 @@ pub(crate) fn to_resp_function_flush(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_f_call(cmd: &Command) -> RespValue {
     match cmd {
         Command::FCall(name, keys, args) => {
-                let mut parts = vec![bulk("FCALL"), bulk(name), bulk(&keys.len().to_string())];
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                for a in args {
-                    parts.push(bulk(a));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("FCALL"), bulk(name), bulk(&keys.len().to_string())];
+            for k in keys {
+                parts.push(bulk(k));
+            }
+            for a in args {
+                parts.push(bulk(a));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -1038,14 +1004,14 @@ pub(crate) fn to_resp_f_call(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_f_call_r_o(cmd: &Command) -> RespValue {
     match cmd {
         Command::FCallRO(name, keys, args) => {
-                let mut parts = vec![bulk("FCALL_RO"), bulk(name), bulk(&keys.len().to_string())];
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                for a in args {
-                    parts.push(bulk(a));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("FCALL_RO"), bulk(name), bulk(&keys.len().to_string())];
+            for k in keys {
+                parts.push(bulk(k));
+            }
+            for a in args {
+                parts.push(bulk(a));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -1066,15 +1032,15 @@ pub(crate) fn to_resp_f_call_r_o(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_eval_r_o(cmd: &Command) -> RespValue {
     match cmd {
         Command::EvalRO(script, keys, args) => {
-                let mut parts = vec![bulk("EVAL_RO"), bulk(script)];
-                parts.push(bulk(&keys.len().to_string()));
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                for a in args {
-                    parts.push(bulk(a));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("EVAL_RO"), bulk(script)];
+            parts.push(bulk(&keys.len().to_string()));
+            for k in keys {
+                parts.push(bulk(k));
+            }
+            for a in args {
+                parts.push(bulk(a));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -1095,15 +1061,15 @@ pub(crate) fn to_resp_eval_r_o(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_eval_sha_r_o(cmd: &Command) -> RespValue {
     match cmd {
         Command::EvalShaRO(sha1, keys, args) => {
-                let mut parts = vec![bulk("EVALSHA_RO"), bulk(sha1)];
-                parts.push(bulk(&keys.len().to_string()));
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                for a in args {
-                    parts.push(bulk(a));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("EVALSHA_RO"), bulk(sha1)];
+            parts.push(bulk(&keys.len().to_string()));
+            for k in keys {
+                parts.push(bulk(k));
+            }
+            for a in args {
+                parts.push(bulk(a));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -1124,7 +1090,7 @@ pub(crate) fn to_resp_eval_sha_r_o(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_slow_log_get(cmd: &Command) -> RespValue {
     match cmd {
         Command::SlowLogGet(count) => {
-                RespValue::Array(vec![bulk("SLOWLOG"), bulk("GET"), bulk(&count.to_string())])
+            RespValue::Array(vec![bulk("SLOWLOG"), bulk("GET"), bulk(&count.to_string())])
         }
         _ => unreachable!(),
     }
@@ -1132,7 +1098,7 @@ pub(crate) fn to_resp_slow_log_get(cmd: &Command) -> RespValue {
 
 /// 将 Command::SlowLogLen 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::SlowLogLen 变体）
@@ -1144,16 +1110,14 @@ pub(crate) fn to_resp_slow_log_get(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::SlowLogLen 变体，将触发 unreachable!()
 pub(crate) fn to_resp_slow_log_len(cmd: &Command) -> RespValue {
     match cmd {
-        Command::SlowLogLen => {
-                RespValue::Array(vec![bulk("SLOWLOG"), bulk("LEN")])
-        }
+        Command::SlowLogLen => RespValue::Array(vec![bulk("SLOWLOG"), bulk("LEN")]),
         _ => unreachable!(),
     }
 }
 
 /// 将 Command::SlowLogReset 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::SlowLogReset 变体）
@@ -1165,9 +1129,7 @@ pub(crate) fn to_resp_slow_log_len(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::SlowLogReset 变体，将触发 unreachable!()
 pub(crate) fn to_resp_slow_log_reset(cmd: &Command) -> RespValue {
     match cmd {
-        Command::SlowLogReset => {
-                RespValue::Array(vec![bulk("SLOWLOG"), bulk("RESET")])
-        }
+        Command::SlowLogReset => RespValue::Array(vec![bulk("SLOWLOG"), bulk("RESET")]),
         _ => unreachable!(),
     }
 }
@@ -1187,7 +1149,7 @@ pub(crate) fn to_resp_slow_log_reset(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_debug_object(cmd: &Command) -> RespValue {
     match cmd {
         Command::DebugObject(key) => {
-                RespValue::Array(vec![bulk("DEBUG"), bulk("OBJECT"), bulk(key)])
+            RespValue::Array(vec![bulk("DEBUG"), bulk("OBJECT"), bulk(key)])
         }
         _ => unreachable!(),
     }
@@ -1208,11 +1170,11 @@ pub(crate) fn to_resp_debug_object(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_touch(cmd: &Command) -> RespValue {
     match cmd {
         Command::Touch(keys) => {
-                let mut parts = vec![bulk("TOUCH")];
-                for k in keys {
-                    parts.push(bulk(k));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("TOUCH")];
+            for k in keys {
+                parts.push(bulk(k));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
@@ -1233,7 +1195,7 @@ pub(crate) fn to_resp_touch(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_expire_at(cmd: &Command) -> RespValue {
     match cmd {
         Command::ExpireAt(key, ts) => {
-                RespValue::Array(vec![bulk("EXPIREAT"), bulk(key), bulk(&ts.to_string())])
+            RespValue::Array(vec![bulk("EXPIREAT"), bulk(key), bulk(&ts.to_string())])
         }
         _ => unreachable!(),
     }
@@ -1254,7 +1216,7 @@ pub(crate) fn to_resp_expire_at(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_p_expire_at(cmd: &Command) -> RespValue {
     match cmd {
         Command::PExpireAt(key, ts) => {
-                RespValue::Array(vec![bulk("PEXPIREAT"), bulk(key), bulk(&ts.to_string())])
+            RespValue::Array(vec![bulk("PEXPIREAT"), bulk(key), bulk(&ts.to_string())])
         }
         _ => unreachable!(),
     }
@@ -1274,9 +1236,7 @@ pub(crate) fn to_resp_p_expire_at(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::ExpireTime 变体，将触发 unreachable!()
 pub(crate) fn to_resp_expire_time(cmd: &Command) -> RespValue {
     match cmd {
-        Command::ExpireTime(key) => {
-                RespValue::Array(vec![bulk("EXPIRETIME"), bulk(key)])
-        }
+        Command::ExpireTime(key) => RespValue::Array(vec![bulk("EXPIRETIME"), bulk(key)]),
         _ => unreachable!(),
     }
 }
@@ -1295,9 +1255,7 @@ pub(crate) fn to_resp_expire_time(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::PExpireTime 变体，将触发 unreachable!()
 pub(crate) fn to_resp_p_expire_time(cmd: &Command) -> RespValue {
     match cmd {
-        Command::PExpireTime(key) => {
-                RespValue::Array(vec![bulk("PEXPIRETIME"), bulk(key)])
-        }
+        Command::PExpireTime(key) => RespValue::Array(vec![bulk("PEXPIRETIME"), bulk(key)]),
         _ => unreachable!(),
     }
 }
@@ -1317,7 +1275,7 @@ pub(crate) fn to_resp_p_expire_time(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_rename_nx(cmd: &Command) -> RespValue {
     match cmd {
         Command::RenameNx(key, newkey) => {
-                RespValue::Array(vec![bulk("RENAMENX"), bulk(key), bulk(newkey)])
+            RespValue::Array(vec![bulk("RENAMENX"), bulk(key), bulk(newkey)])
         }
         _ => unreachable!(),
     }
@@ -1337,16 +1295,18 @@ pub(crate) fn to_resp_rename_nx(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::SwapDb 变体，将触发 unreachable!()
 pub(crate) fn to_resp_swap_db(cmd: &Command) -> RespValue {
     match cmd {
-        Command::SwapDb(idx1, idx2) => {
-                RespValue::Array(vec![bulk("SWAPDB"), bulk(&idx1.to_string()), bulk(&idx2.to_string())])
-        }
+        Command::SwapDb(idx1, idx2) => RespValue::Array(vec![
+            bulk("SWAPDB"),
+            bulk(&idx1.to_string()),
+            bulk(&idx2.to_string()),
+        ]),
         _ => unreachable!(),
     }
 }
 
 /// 将 Command::FlushDb 序列化为 RESP 数组
 ///
-/// 对应 Redis 命令: 
+/// 对应 Redis 命令:
 ///
 /// # 参数
 /// - `cmd` - Command 枚举引用（预期为 Command::FlushDb 变体）
@@ -1358,9 +1318,7 @@ pub(crate) fn to_resp_swap_db(cmd: &Command) -> RespValue {
 /// 如果传入的 cmd 不是 Command::FlushDb 变体，将触发 unreachable!()
 pub(crate) fn to_resp_flush_db(cmd: &Command) -> RespValue {
     match cmd {
-        Command::FlushDb => {
-                RespValue::Array(vec![bulk("FLUSHDB")])
-        }
+        Command::FlushDb => RespValue::Array(vec![bulk("FLUSHDB")]),
         _ => unreachable!(),
     }
 }
@@ -1380,13 +1338,12 @@ pub(crate) fn to_resp_flush_db(cmd: &Command) -> RespValue {
 pub(crate) fn to_resp_shutdown(cmd: &Command) -> RespValue {
     match cmd {
         Command::Shutdown(opt) => {
-                let mut parts = vec![bulk("SHUTDOWN")];
-                if let Some(s) = opt {
-                    parts.push(bulk(s));
-                }
-                RespValue::Array(parts)
+            let mut parts = vec![bulk("SHUTDOWN")];
+            if let Some(s) = opt {
+                parts.push(bulk(s));
+            }
+            RespValue::Array(parts)
         }
         _ => unreachable!(),
     }
 }
-

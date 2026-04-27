@@ -1,15 +1,15 @@
 //! 事务处理模块（MULTI/EXEC/WATCH）
-use std::collections::HashMap;
-use tokio::io::BufWriter;
-use tokio::net::TcpStream;
+use super::ReplyMode;
+use super::handler::{ConnectionHandler, send_reply, write_resp};
 use crate::command::Command;
 use crate::error::Result;
 use crate::protocol::RespValue;
 use crate::pubsub::PubSubManager;
 use crate::storage::StorageEngine;
-use super::ReplyMode;
-use super::handler::{ConnectionHandler, write_resp, send_reply};
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
+use tokio::io::BufWriter;
+use tokio::net::TcpStream;
 
 /// 在事务中处理命令（已执行 MULTI 后）
 ///
@@ -90,18 +90,14 @@ pub(crate) async fn handle_in_transaction(
             let mut results = Vec::new();
             for queued_cmd in tx_queue.drain(..) {
                 let result = match queued_cmd {
-                    Command::Publish(channel, message) => {
-                        match pubsub.publish(&channel, message) {
-                            Ok(count) => RespValue::Integer(count as i64),
-                            Err(e) => RespValue::Error(format!("ERR {}", e)),
-                        }
-                    }
-                    other => {
-                        match handler.executor.execute(other) {
-                            Ok(resp) => resp,
-                            Err(e) => RespValue::Error(format!("ERR {}", e)),
-                        }
-                    }
+                    Command::Publish(channel, message) => match pubsub.publish(&channel, message) {
+                        Ok(count) => RespValue::Integer(count as i64),
+                        Err(e) => RespValue::Error(format!("ERR {}", e)),
+                    },
+                    other => match handler.executor.execute(other) {
+                        Ok(resp) => resp,
+                        Err(e) => RespValue::Error(format!("ERR {}", e)),
+                    },
                 };
                 results.push(result);
             }
@@ -127,9 +123,7 @@ pub(crate) async fn handle_in_transaction(
             Ok(true)
         }
         Command::Multi => {
-            let resp = RespValue::Error(
-                "ERR MULTI calls can not be nested".to_string()
-            );
+            let resp = RespValue::Error("ERR MULTI calls can not be nested".to_string());
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);
@@ -137,9 +131,7 @@ pub(crate) async fn handle_in_transaction(
             Ok(true)
         }
         Command::Watch(_) => {
-            let resp = RespValue::Error(
-                "ERR WATCH inside MULTI is not allowed".to_string()
-            );
+            let resp = RespValue::Error("ERR WATCH inside MULTI is not allowed".to_string());
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);
@@ -235,9 +227,7 @@ pub(crate) async fn handle_transaction_init(
             Ok(true)
         }
         Command::Exec => {
-            let resp = RespValue::Error(
-                "ERR EXEC without MULTI".to_string()
-            );
+            let resp = RespValue::Error("ERR EXEC without MULTI".to_string());
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);
@@ -245,9 +235,7 @@ pub(crate) async fn handle_transaction_init(
             Ok(true)
         }
         Command::Discard => {
-            let resp = RespValue::Error(
-                "ERR DISCARD without MULTI".to_string()
-            );
+            let resp = RespValue::Error("ERR DISCARD without MULTI".to_string());
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);

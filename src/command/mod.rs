@@ -277,7 +277,17 @@ pub enum Command {
     /// ZUNION numkeys key [key ...] [WEIGHTS weight ...] [AGGREGATE SUM|MIN|MAX] [WITHSCORES]
     ZUnion(Vec<String>, Vec<f64>, String, bool),
     /// ZRANGESTORE dst src min max [BYSCORE|BYLEX] [REV] [LIMIT offset count]
-    ZRangeStore(String, String, String, String, bool, bool, bool, usize, usize),
+    ZRangeStore(
+        String,
+        String,
+        String,
+        String,
+        bool,
+        bool,
+        bool,
+        usize,
+        usize,
+    ),
     /// ZMPOP numkeys key [key ...] MIN|MAX [COUNT count]
     ZMpop(Vec<String>, bool, usize),
     /// BZMPOP timeout numkeys key [key ...] MIN|MAX [COUNT count]
@@ -367,7 +377,14 @@ pub enum Command {
     /// BITFIELD_RO key [GET type offset] ...
     BitFieldRo(String, Vec<crate::storage::BitFieldOp>),
     /// XADD key [NOMKSTREAM] [MAXLEN|MINID [=|~] threshold] *|id field value [field value ...]
-    XAdd(String, String, Vec<(String, String)>, bool, Option<usize>, Option<String>),
+    XAdd(
+        String,
+        String,
+        Vec<(String, String)>,
+        bool,
+        Option<usize>,
+        Option<String>,
+    ),
     /// XLEN key
     XLen(String),
     /// XRANGE key start end [COUNT count]
@@ -393,7 +410,14 @@ pub enum Command {
     /// XGROUP CREATECONSUMER key groupname consumername
     XGroupCreateConsumer(String, String, String),
     /// XREADGROUP GROUP group consumer [COUNT count] [NOACK] STREAMS key [key ...] id [id ...]
-    XReadGroup(String, String, Vec<String>, Vec<String>, Option<usize>, bool),
+    XReadGroup(
+        String,
+        String,
+        Vec<String>,
+        Vec<String>,
+        Option<usize>,
+        bool,
+    ),
     /// XACK key group id [id ...]
     XAck(String, String, Vec<String>),
     /// XCLAIM key group consumer min-idle-time id [id ...] [JUSTID]
@@ -401,7 +425,14 @@ pub enum Command {
     /// XAUTOCLAIM key group consumer min-idle-time start [COUNT count] [JUSTID]
     XAutoClaim(String, String, String, u64, String, usize, bool),
     /// XPENDING key group [[IDLE min-idle-time] start end count [consumer]]
-    XPending(String, String, Option<String>, Option<String>, Option<usize>, Option<String>),
+    XPending(
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<usize>,
+        Option<String>,
+    ),
     /// XINFO STREAM key [FULL]
     XInfoStream(String, bool),
     /// XINFO GROUPS key
@@ -423,19 +454,88 @@ pub enum Command {
     /// GEOPOS key member [member ...]
     GeoPos(String, Vec<String>),
     /// GEOSEARCH key [FROMMEMBER member|FROMLONLAT lon lat] [BYRADIUS radius unit|BYBOX width height unit] [ASC|DESC] [COUNT count] [WITHCOORD] [WITHDIST] [WITHHASH]
-    GeoSearch(String, f64, f64, Option<f64>, Option<(f64, f64)>, Option<String>, usize, bool, bool, bool),
+    GeoSearch(
+        String,
+        f64,
+        f64,
+        Option<f64>,
+        Option<(f64, f64)>,
+        Option<String>,
+        usize,
+        bool,
+        bool,
+        bool,
+    ),
     /// GEOSEARCHSTORE destination source [FROMMEMBER|FROMLONLAT ...] [BYRADIUS|BYBOX ...] [ASC|DESC] [COUNT count] [STOREDIST]
-    GeoSearchStore(String, String, f64, f64, Option<f64>, Option<(f64, f64)>, Option<String>, usize, bool),
+    GeoSearchStore(
+        String,
+        String,
+        f64,
+        f64,
+        Option<f64>,
+        Option<(f64, f64)>,
+        Option<String>,
+        usize,
+        bool,
+    ),
     /// GEORADIUS key longitude latitude radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC] [STORE key] [STOREDIST key]
-    GeoRadius(String, f64, f64, f64, String, bool, bool, bool, usize, Option<String>, Option<String>, Option<String>),
+    GeoRadius(
+        String,
+        f64,
+        f64,
+        f64,
+        String,
+        bool,
+        bool,
+        bool,
+        usize,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ),
     /// GEORADIUSBYMEMBER key member radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC]
-    GeoRadiusByMember(String, String, f64, String, bool, bool, bool, usize, Option<String>),
+    GeoRadiusByMember(
+        String,
+        String,
+        f64,
+        String,
+        bool,
+        bool,
+        bool,
+        usize,
+        Option<String>,
+    ),
     /// GEORADIUS_RO key longitude latitude radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC]
-    GeoRadiusRo(String, f64, f64, f64, String, bool, bool, bool, usize, Option<String>),
+    GeoRadiusRo(
+        String,
+        f64,
+        f64,
+        f64,
+        String,
+        bool,
+        bool,
+        bool,
+        usize,
+        Option<String>,
+    ),
     /// GEORADIUSBYMEMBER_RO key member radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC]
-    GeoRadiusByMemberRo(String, String, f64, String, bool, bool, bool, usize, Option<String>),
+    GeoRadiusByMemberRo(
+        String,
+        String,
+        f64,
+        String,
+        bool,
+        bool,
+        bool,
+        usize,
+        Option<String>,
+    ),
     /// WAITAOF numlocal numreplicas timeout
-    WaitAof { numlocal: i64, numreplicas: i64, timeout: i64 },
+    WaitAof {
+        numlocal: i64,
+        numreplicas: i64,
+        timeout: i64,
+    },
     /// SELECT index
     Select(usize),
     /// AUTH [username] password
@@ -461,7 +561,10 @@ pub enum Command {
     /// ACL LOAD
     AclLoad,
     /// ACL DRYRUN username command [arg ...]
-    AclDryRun { username: String, command: Vec<String> },
+    AclDryRun {
+        username: String,
+        command: Vec<String>,
+    },
     /// CLIENT SETNAME connection-name
     ClientSetName(String),
     /// CLIENT GETNAME
@@ -492,7 +595,15 @@ pub enum Command {
     /// CLIENT UNBLOCK client-id [TIMEOUT|ERROR]
     ClientUnblock(u64, String),
     /// CLIENT TRACKING ON|OFF [REDIRECT client-id] [BCAST] [PREFIX prefix ...] [OPTIN] [OPTOUT] [NOLOOP]
-    ClientTracking { on: bool, redirect: Option<u64>, bcast: bool, prefixes: Vec<String>, optin: bool, optout: bool, noloop: bool },
+    ClientTracking {
+        on: bool,
+        redirect: Option<u64>,
+        bcast: bool,
+        prefixes: Vec<String>,
+        optin: bool,
+        optout: bool,
+        noloop: bool,
+    },
     /// CLIENT CACHING YES|NO
     ClientCaching(bool),
     /// CLIENT GETREDIR
@@ -500,9 +611,26 @@ pub enum Command {
     /// CLIENT TRACKINGINFO
     ClientTrackingInfo,
     /// SORT key [BY pattern] [LIMIT offset count] [GET pattern ...] [ASC|DESC] [ALPHA] [STORE destination]
-    Sort(String, Option<String>, Vec<String>, Option<isize>, Option<isize>, bool, bool, Option<String>),
+    Sort(
+        String,
+        Option<String>,
+        Vec<String>,
+        Option<isize>,
+        Option<isize>,
+        bool,
+        bool,
+        Option<String>,
+    ),
     /// SORT_RO key [BY pattern] [LIMIT offset count] [GET pattern ...] [ASC|DESC] [ALPHA]
-    SortRo(String, Option<String>, Vec<String>, Option<isize>, Option<isize>, bool, bool),
+    SortRo(
+        String,
+        Option<String>,
+        Vec<String>,
+        Option<isize>,
+        Option<isize>,
+        bool,
+        bool,
+    ),
     /// UNLINK key [key ...]
     Unlink(Vec<String>),
     /// COPY source destination [REPLACE]
@@ -634,7 +762,12 @@ pub enum Command {
     /// WAIT numreplicas timeout
     Wait { numreplicas: i64, timeout: i64 },
     /// FAILOVER [TO host port] [TIMEOUT timeout] [FORCE]
-    Failover { host: Option<String>, port: Option<u16>, timeout: i64, force: bool },
+    Failover {
+        host: Option<String>,
+        port: Option<u16>,
+        timeout: i64,
+        force: bool,
+    },
     /// FAILOVER ABORT
     FailoverAbort,
     /// SENTINEL MASTERS
@@ -648,11 +781,20 @@ pub enum Command {
     /// SENTINEL GET-MASTER-ADDR-BY-NAME name
     SentinelGetMasterAddrByName(String),
     /// SENTINEL MONITOR name ip port quorum
-    SentinelMonitor { name: String, ip: String, port: u16, quorum: u32 },
+    SentinelMonitor {
+        name: String,
+        ip: String,
+        port: u16,
+        quorum: u32,
+    },
     /// SENTINEL REMOVE name
     SentinelRemove(String),
     /// SENTINEL SET name option value
-    SentinelSet { name: String, option: String, value: String },
+    SentinelSet {
+        name: String,
+        option: String,
+        value: String,
+    },
     /// SENTINEL FAILOVER name
     SentinelFailover(String),
     /// SENTINEL RESET pattern
@@ -662,7 +804,12 @@ pub enum Command {
     /// SENTINEL MYID
     SentinelMyId,
     /// SENTINEL is-master-down-by-addr ip port current-epoch runid
-    SentinelIsMasterDownByAddr { ip: String, port: u16, current_epoch: u64, runid: String },
+    SentinelIsMasterDownByAddr {
+        ip: String,
+        port: u16,
+        current_epoch: u64,
+        runid: String,
+    },
     /// CLUSTER INFO
     ClusterInfo,
     /// CLUSTER NODES
@@ -680,7 +827,11 @@ pub enum Command {
     /// CLUSTER DELSLOTS slot [slot ...]
     ClusterDelSlots(Vec<usize>),
     /// CLUSTER SETSLOT slot IMPORTING|MIGRATING|STABLE|NODE node-id
-    ClusterSetSlot { slot: usize, state: String, node_id: Option<String> },
+    ClusterSetSlot {
+        slot: usize,
+        state: String,
+        node_id: Option<String>,
+    },
     /// CLUSTER REPLICATE node-id
     ClusterReplicate(String),
     /// CLUSTER FAILOVER [FORCE|TAKEOVER]
@@ -716,28 +867,21 @@ pub enum Command {
     /// MODULE UNLOAD name
     ModuleUnload(String),
     /// MIGRATE host port key|"" destination-db timeout [COPY] [REPLACE] [AUTH password] [KEYS key [key ...]]
-    Migrate { host: String, port: u16, keys: Vec<String>, db: usize, timeout: u64, copy: bool, replace: bool },
+    Migrate {
+        host: String,
+        port: u16,
+        keys: Vec<String>,
+        db: usize,
+        timeout: u64,
+        copy: bool,
+        replace: bool,
+    },
     /// ASKING
     Asking,
     /// 未知命令
     Unknown(String),
 }
 
-pub mod resp;
-pub mod resp_admin;
-pub mod resp_bitmap;
-pub mod resp_geo;
-pub mod resp_hash;
-pub mod resp_hll;
-pub mod resp_list;
-pub mod resp_set;
-pub mod resp_stream;
-pub mod resp_string;
-pub mod resp_zset;
-pub mod parser_key;
-pub mod parser_pubsub;
-pub mod parser_server;
-pub mod parser;
 pub mod executor;
 pub mod executor_admin;
 pub mod executor_bitmap;
@@ -750,19 +894,34 @@ pub mod executor_stream;
 pub mod executor_string;
 pub mod executor_zset;
 pub mod info;
+pub mod parser;
 pub mod parser_bitmap;
 pub mod parser_geo;
 pub mod parser_hash;
 pub mod parser_hll;
+pub mod parser_key;
 pub mod parser_list;
+pub mod parser_pubsub;
+pub mod parser_server;
 pub mod parser_set;
 pub mod parser_stream;
 pub mod parser_string;
 pub mod parser_zset;
+pub mod resp;
+pub mod resp_admin;
+pub mod resp_bitmap;
+pub mod resp_geo;
+pub mod resp_hash;
+pub mod resp_hll;
+pub mod resp_list;
+pub mod resp_set;
+pub mod resp_stream;
+pub mod resp_string;
+pub mod resp_zset;
 
 pub use executor::CommandExecutor;
-pub use parser::CommandParser;
 pub(crate) use info::extract_cmd_info;
+pub use parser::CommandParser;
 
 /// 辅助函数：创建 BulkString
 pub(crate) fn bulk(s: &str) -> RespValue {

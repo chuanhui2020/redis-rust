@@ -114,28 +114,31 @@ impl ScriptEngine {
 
         // redis.call
         let exec_call = executor.clone();
-        let call_fn = lua.create_function(move |lua, (cmd_name, lua_args): (String, Variadic<Value>)| {
-            match execute_redis_command(&exec_call, &cmd_name, &lua_args) {
+        let call_fn = lua.create_function(
+            move |lua, (cmd_name, lua_args): (String, Variadic<Value>)| match execute_redis_command(
+                &exec_call, &cmd_name, &lua_args,
+            ) {
                 Ok(resp) => resp_value_to_lua(lua, &resp),
-                Err(e) => {
-                    Err(mlua::Error::RuntimeError(format!("ERR {}", e)))
-                }
-            }
-        })?;
+                Err(e) => Err(mlua::Error::RuntimeError(format!("ERR {}", e))),
+            },
+        )?;
         redis_table.set("call", call_fn)?;
 
         // redis.pcall
         let exec_pcall = executor.clone();
-        let pcall_fn = lua.create_function(move |lua, (cmd_name, lua_args): (String, Variadic<Value>)| {
-            match execute_redis_command(&exec_pcall, &cmd_name, &lua_args) {
-                Ok(resp) => resp_value_to_lua(lua, &resp),
-                Err(e) => {
-                    let err_table = lua.create_table()?;
-                    err_table.set("err", format!("ERR {}", e))?;
-                    Ok(Value::Table(err_table))
-                }
-            }
-        })?;
+        let pcall_fn =
+            lua.create_function(
+                move |lua, (cmd_name, lua_args): (String, Variadic<Value>)| {
+                    match execute_redis_command(&exec_pcall, &cmd_name, &lua_args) {
+                        Ok(resp) => resp_value_to_lua(lua, &resp),
+                        Err(e) => {
+                            let err_table = lua.create_table()?;
+                            err_table.set("err", format!("ERR {}", e))?;
+                            Ok(Value::Table(err_table))
+                        }
+                    }
+                },
+            )?;
         redis_table.set("pcall", pcall_fn)?;
 
         lua.globals().set("redis", redis_table)?;
@@ -178,9 +181,10 @@ impl ScriptEngine {
         args: Vec<String>,
         storage: StorageEngine,
     ) -> Result<RespValue> {
-        let scripts = self.scripts.lock().map_err(|e| {
-            AppError::Storage(format!("脚本缓存锁中毒: {}", e))
-        })?;
+        let scripts = self
+            .scripts
+            .lock()
+            .map_err(|e| AppError::Storage(format!("脚本缓存锁中毒: {}", e)))?;
         match scripts.get(sha1) {
             Some(script) => {
                 let script = script.clone();
@@ -205,9 +209,10 @@ impl ScriptEngine {
     /// 40 位小写十六进制 SHA1 字符串
     pub fn script_load(&self, script: &str) -> Result<String> {
         let sha1 = compute_sha1(script);
-        let mut scripts = self.scripts.lock().map_err(|e| {
-            AppError::Storage(format!("脚本缓存锁中毒: {}", e))
-        })?;
+        let mut scripts = self
+            .scripts
+            .lock()
+            .map_err(|e| AppError::Storage(format!("脚本缓存锁中毒: {}", e)))?;
         scripts.insert(sha1.clone(), script.to_string());
         Ok(sha1)
     }
@@ -220,17 +225,19 @@ impl ScriptEngine {
     /// # 返回值
     /// 与输入顺序对应的布尔值列表，`true` 表示已缓存
     pub fn script_exists(&self, sha1s: &[String]) -> Result<Vec<bool>> {
-        let scripts = self.scripts.lock().map_err(|e| {
-            AppError::Storage(format!("脚本缓存锁中毒: {}", e))
-        })?;
+        let scripts = self
+            .scripts
+            .lock()
+            .map_err(|e| AppError::Storage(format!("脚本缓存锁中毒: {}", e)))?;
         Ok(sha1s.iter().map(|s| scripts.contains_key(s)).collect())
     }
 
     /// 清空脚本缓存（SCRIPT FLUSH 命令后端）
     pub fn script_flush(&self) -> Result<()> {
-        let mut scripts = self.scripts.lock().map_err(|e| {
-            AppError::Storage(format!("脚本缓存锁中毒: {}", e))
-        })?;
+        let mut scripts = self
+            .scripts
+            .lock()
+            .map_err(|e| AppError::Storage(format!("脚本缓存锁中毒: {}", e)))?;
         scripts.clear();
         Ok(())
     }
@@ -263,15 +270,14 @@ impl ScriptEngine {
         let (engine, lib_name, body) = parse_shebang(code)?;
 
         if engine != "lua" {
-            return Err(AppError::Command(format!(
-                "不支持的函数引擎: {}", engine
-            )));
+            return Err(AppError::Command(format!("不支持的函数引擎: {}", engine)));
         }
 
         {
-            let libs = self.libraries.lock().map_err(|e| {
-                AppError::Storage(format!("函数库锁中毒: {}", e))
-            })?;
+            let libs = self
+                .libraries
+                .lock()
+                .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
             if libs.contains_key(&lib_name) && !replace {
                 return Err(AppError::Command(
                     "函数库已存在，使用 REPLACE 覆盖".to_string(),
@@ -293,28 +299,26 @@ impl ScriptEngine {
             }
             let name = match &args[0] {
                 Value::String(s) => s.to_str()?.to_string(),
-                _ => {
-                    return Err(mlua::Error::RuntimeError(
-                        "函数名必须是字符串".to_string(),
-                    ))
-                }
+                _ => return Err(mlua::Error::RuntimeError("函数名必须是字符串".to_string())),
             };
             let func = match &args[1] {
                 Value::Function(f) => f.clone(),
                 _ => {
                     return Err(mlua::Error::RuntimeError(
                         "第二个参数必须是函数".to_string(),
-                    ))
+                    ));
                 }
             };
             let mut flags = Vec::new();
             for i in 2..args.len() {
-                if let Value::String(s) = &args[i] { flags.push(s.to_str()?.to_string()) }
+                if let Value::String(s) = &args[i] {
+                    flags.push(s.to_str()?.to_string())
+                }
             }
             let bytecode = func.dump(false);
-            let mut r = reg.lock().map_err(|e| {
-                mlua::Error::RuntimeError(format!("锁中毒: {}", e))
-            })?;
+            let mut r = reg
+                .lock()
+                .map_err(|e| mlua::Error::RuntimeError(format!("锁中毒: {}", e)))?;
             r.push((name, bytecode, flags));
             Ok(())
         })?;
@@ -322,14 +326,14 @@ impl ScriptEngine {
         lua.globals().set("redis", redis_table)?;
 
         // 执行库代码
-        lua.load(&body).exec().map_err(|e| {
-            AppError::Command(format!("函数库加载失败: {}", e))
-        })?;
+        lua.load(&body)
+            .exec()
+            .map_err(|e| AppError::Command(format!("函数库加载失败: {}", e)))?;
 
         // 收集注册的函数
-        let mut r = registered.lock().map_err(|e| {
-            AppError::Storage(format!("锁中毒: {}", e))
-        })?;
+        let mut r = registered
+            .lock()
+            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         let mut functions = HashMap::new();
         for (name, bytecode, flags) in r.drain(..) {
             functions.insert(
@@ -342,9 +346,10 @@ impl ScriptEngine {
             );
         }
 
-        let mut libs = self.libraries.lock().map_err(|e| {
-            AppError::Storage(format!("函数库锁中毒: {}", e))
-        })?;
+        let mut libs = self
+            .libraries
+            .lock()
+            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
         libs.insert(
             lib_name.clone(),
             FunctionLibrary {
@@ -366,9 +371,10 @@ impl ScriptEngine {
     /// # 返回值
     /// `true` 表示删除成功，`false` 表示库不存在
     pub fn function_delete(&self, library_name: &str) -> Result<bool> {
-        let mut libs = self.libraries.lock().map_err(|e| {
-            AppError::Storage(format!("函数库锁中毒: {}", e))
-        })?;
+        let mut libs = self
+            .libraries
+            .lock()
+            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
         Ok(libs.remove(library_name).is_some())
     }
 
@@ -385,15 +391,17 @@ impl ScriptEngine {
         library_pattern: Option<&str>,
         withcode: bool,
     ) -> Result<Vec<(String, String, String, Vec<(String, Vec<String>)>)>> {
-        let libs = self.libraries.lock().map_err(|e| {
-            AppError::Storage(format!("函数库锁中毒: {}", e))
-        })?;
+        let libs = self
+            .libraries
+            .lock()
+            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
         let mut result = Vec::new();
         for (name, lib) in libs.iter() {
             if let Some(pattern) = library_pattern
-                && !glob_match(pattern, name) {
-                    continue;
-                }
+                && !glob_match(pattern, name)
+            {
+                continue;
+            }
             let funcs: Vec<(String, Vec<String>)> = lib
                 .functions
                 .iter()
@@ -433,9 +441,10 @@ impl ScriptEngine {
     /// - Redis 7 使用 RDB 风格的二进制格式（FUNCTION DUMP）；
     ///   本实现使用自定义文本格式，仅保证同一实例间可互操作
     pub fn function_dump(&self) -> Result<String> {
-        let libs = self.libraries.lock().map_err(|e| {
-            AppError::Storage(format!("函数库锁中毒: {}", e))
-        })?;
+        let libs = self
+            .libraries
+            .lock()
+            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
         let mut lines = Vec::new();
         lines.push(libs.len().to_string());
         for (name, lib) in libs.iter() {
@@ -475,7 +484,7 @@ impl ScriptEngine {
             _ => {
                 return Err(AppError::Command(
                     "FUNCTION RESTORE policy 必须是 FLUSH/APPEND/REPLACE".to_string(),
-                ))
+                ));
             }
         }
 
@@ -527,14 +536,13 @@ impl ScriptEngine {
                 } else {
                     flags_str.split(',').map(|s| s.to_string()).collect()
                 };
-                let _bc_len: usize = iter
-                    .next()
-                    .unwrap_or("0")
-                    .parse()
-                    .map_err(|_| AppError::Command("FUNCTION RESTORE 数据格式错误".to_string()))?;
-                let bc_hex = iter
-                    .next()
-                    .ok_or_else(|| AppError::Command("FUNCTION RESTORE 数据格式错误".to_string()))?;
+                let _bc_len: usize =
+                    iter.next().unwrap_or("0").parse().map_err(|_| {
+                        AppError::Command("FUNCTION RESTORE 数据格式错误".to_string())
+                    })?;
+                let bc_hex = iter.next().ok_or_else(|| {
+                    AppError::Command("FUNCTION RESTORE 数据格式错误".to_string())
+                })?;
                 let bytecode = hex_decode(bc_hex).map_err(|_| {
                     AppError::Command("FUNCTION RESTORE 字节码格式错误".to_string())
                 })?;
@@ -549,9 +557,10 @@ impl ScriptEngine {
             }
 
             {
-                let mut libs = self.libraries.lock().map_err(|e| {
-                    AppError::Storage(format!("函数库锁中毒: {}", e))
-                })?;
+                let mut libs = self
+                    .libraries
+                    .lock()
+                    .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
                 if policy == "APPEND" && libs.contains_key(&name) {
                     continue;
                 }
@@ -575,9 +584,10 @@ impl ScriptEngine {
     /// # 返回值
     /// `(库数量, 函数数量)`
     pub fn function_stats(&self) -> Result<(usize, usize)> {
-        let libs = self.libraries.lock().map_err(|e| {
-            AppError::Storage(format!("函数库锁中毒: {}", e))
-        })?;
+        let libs = self
+            .libraries
+            .lock()
+            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
         let lib_count = libs.len();
         let func_count = libs.values().map(|l| l.functions.len()).sum();
         Ok((lib_count, func_count))
@@ -592,9 +602,10 @@ impl ScriptEngine {
     }
 
     fn function_flush_lib(&self) -> Result<()> {
-        let mut libs = self.libraries.lock().map_err(|e| {
-            AppError::Storage(format!("函数库锁中毒: {}", e))
-        })?;
+        let mut libs = self
+            .libraries
+            .lock()
+            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
         libs.clear();
         Ok(())
     }
@@ -641,9 +652,10 @@ impl ScriptEngine {
     ///
     /// 遍历所有已加载的库，返回首个匹配的 `FunctionInfo`。
     fn find_function(&self, function_name: &str) -> Result<FunctionInfo> {
-        let libs = self.libraries.lock().map_err(|e| {
-            AppError::Storage(format!("函数库锁中毒: {}", e))
-        })?;
+        let libs = self
+            .libraries
+            .lock()
+            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
         for lib in libs.values() {
             if let Some(info) = lib.functions.get(function_name) {
                 return Ok(info.clone());
@@ -672,28 +684,29 @@ impl ScriptEngine {
         // 注册 redis.call
         let exec_call = executor.clone();
         let call_fn = lua.create_function(
-            move |lua, (cmd_name, lua_args): (String, Variadic<Value>)| {
-                match execute_redis_command(&exec_call, &cmd_name, &lua_args) {
-                    Ok(resp) => resp_value_to_lua(lua, &resp),
-                    Err(e) => Err(mlua::Error::RuntimeError(format!("ERR {}", e))),
-                }
+            move |lua, (cmd_name, lua_args): (String, Variadic<Value>)| match execute_redis_command(
+                &exec_call, &cmd_name, &lua_args,
+            ) {
+                Ok(resp) => resp_value_to_lua(lua, &resp),
+                Err(e) => Err(mlua::Error::RuntimeError(format!("ERR {}", e))),
             },
         )?;
 
         // 注册 redis.pcall
         let exec_pcall = executor.clone();
-        let pcall_fn = lua.create_function(
-            move |lua, (cmd_name, lua_args): (String, Variadic<Value>)| {
-                match execute_redis_command(&exec_pcall, &cmd_name, &lua_args) {
-                    Ok(resp) => resp_value_to_lua(lua, &resp),
-                    Err(e) => {
-                        let err_table = lua.create_table()?;
-                        err_table.set("err", format!("ERR {}", e))?;
-                        Ok(Value::Table(err_table))
+        let pcall_fn =
+            lua.create_function(
+                move |lua, (cmd_name, lua_args): (String, Variadic<Value>)| {
+                    match execute_redis_command(&exec_pcall, &cmd_name, &lua_args) {
+                        Ok(resp) => resp_value_to_lua(lua, &resp),
+                        Err(e) => {
+                            let err_table = lua.create_table()?;
+                            err_table.set("err", format!("ERR {}", e))?;
+                            Ok(Value::Table(err_table))
+                        }
                     }
-                }
-            },
-        )?;
+                },
+            )?;
 
         let redis_table = lua.create_table()?;
         redis_table.set("call", call_fn)?;
@@ -714,14 +727,15 @@ impl ScriptEngine {
         lua.globals().set("ARGV", argv_table.clone())?;
 
         // 加载函数字节码
-        let func: mlua::Function = lua.load(&func_info.bytecode).into_function().map_err(|e| {
-            AppError::Command(format!("函数字节码加载失败: {}", e))
-        })?;
+        let func: mlua::Function = lua
+            .load(&func_info.bytecode)
+            .into_function()
+            .map_err(|e| AppError::Command(format!("函数字节码加载失败: {}", e)))?;
 
         // 调用函数
-        let result: Value = func.call((keys_table, argv_table)).map_err(|e| {
-            AppError::Command(format!("函数执行失败: {}", e))
-        })?;
+        let result: Value = func
+            .call((keys_table, argv_table))
+            .map_err(|e| AppError::Command(format!("函数执行失败: {}", e)))?;
 
         lua_value_to_resp(&result)
     }
@@ -760,7 +774,9 @@ fn execute_redis_command(
     }
 
     // 构建 RESP 数组
-    let mut resp_parts = vec![RespValue::BulkString(Some(Bytes::from(cmd_name.to_ascii_uppercase())))];
+    let mut resp_parts = vec![RespValue::BulkString(Some(Bytes::from(
+        cmd_name.to_ascii_uppercase(),
+    )))];
     for arg in str_args {
         resp_parts.push(RespValue::BulkString(Some(Bytes::from(arg))));
     }
@@ -810,9 +826,9 @@ fn resp_value_to_lua<'a>(lua: &'a Lua, resp: &RespValue) -> mlua::Result<Value<'
         RespValue::SimpleString(s) => Ok(Value::String(lua.create_string(s)?)),
         RespValue::Error(s) => Ok(Value::String(lua.create_string(s)?)),
         RespValue::Integer(i) => Ok(Value::Integer(*i)),
-        RespValue::BulkString(Some(b)) => {
-            Ok(Value::String(lua.create_string(String::from_utf8_lossy(b).as_bytes())?))
-        }
+        RespValue::BulkString(Some(b)) => Ok(Value::String(
+            lua.create_string(String::from_utf8_lossy(b).as_bytes())?,
+        )),
         RespValue::BulkString(None) => Ok(Value::Nil),
         RespValue::Array(arr) => {
             let table = lua.create_table()?;
@@ -838,7 +854,7 @@ fn lua_value_to_resp(value: &Value) -> Result<RespValue> {
         Value::Integer(i) => Ok(RespValue::Integer(*i)),
         Value::Number(n) => Ok(RespValue::Integer(*n as i64)),
         Value::String(s) => Ok(RespValue::BulkString(Some(Bytes::from(
-            s.to_str()?.to_string()
+            s.to_str()?.to_string(),
         )))),
         Value::Boolean(true) => Ok(RespValue::Integer(1)),
         Value::Boolean(false) => Ok(RespValue::BulkString(None)),
@@ -861,7 +877,7 @@ fn lua_value_to_resp(value: &Value) -> Result<RespValue> {
 /// 使用 `sha1` crate 计算，返回 40 位小写十六进制字符串。
 /// 用于 EVALSHA 查找和 SCRIPT LOAD 返回值。
 fn compute_sha1(s: &str) -> String {
-    use sha1::{Sha1, Digest};
+    use sha1::{Digest, Sha1};
     let mut hasher = Sha1::new();
     hasher.update(s.as_bytes());
     format!("{:x}", hasher.finalize())
@@ -877,9 +893,7 @@ fn compute_sha1(s: &str) -> String {
 fn parse_shebang(code: &str) -> Result<(String, String, String)> {
     let trimmed = code.trim_start();
     if !trimmed.starts_with("#!") {
-        return Err(AppError::Command(
-            "函数库代码必须以 #! 开头".to_string(),
-        ));
+        return Err(AppError::Command("函数库代码必须以 #! 开头".to_string()));
     }
     let end = trimmed.find('\n').unwrap_or(trimmed.len());
     let shebang = trimmed[2..end].trim();
@@ -903,9 +917,8 @@ fn parse_shebang(code: &str) -> Result<(String, String, String)> {
         }
     }
 
-    let lib_name = lib_name.ok_or_else(|| {
-        AppError::Command("#! 行必须包含 name=library_name".to_string())
-    })?;
+    let lib_name =
+        lib_name.ok_or_else(|| AppError::Command("#! 行必须包含 name=library_name".to_string()))?;
 
     Ok((engine, lib_name, body))
 }
@@ -1014,24 +1027,32 @@ mod tests {
     #[test]
     fn test_eval_string_return() {
         let (engine, storage) = make_engine();
-        let resp = engine.eval("return 'hello'", vec![], vec![], storage).unwrap();
+        let resp = engine
+            .eval("return 'hello'", vec![], vec![], storage)
+            .unwrap();
         assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("hello"))));
     }
 
     #[test]
     fn test_eval_boolean_return() {
         let (engine, storage) = make_engine();
-        let resp = engine.eval("return true", vec![], vec![], storage.clone()).unwrap();
+        let resp = engine
+            .eval("return true", vec![], vec![], storage.clone())
+            .unwrap();
         assert_eq!(resp, RespValue::Integer(1));
 
-        let resp = engine.eval("return false", vec![], vec![], storage).unwrap();
+        let resp = engine
+            .eval("return false", vec![], vec![], storage)
+            .unwrap();
         assert_eq!(resp, RespValue::BulkString(None));
     }
 
     #[test]
     fn test_eval_table_return() {
         let (engine, storage) = make_engine();
-        let resp = engine.eval("return {1, 2, 3}", vec![], vec![], storage).unwrap();
+        let resp = engine
+            .eval("return {1, 2, 3}", vec![], vec![], storage)
+            .unwrap();
         match resp {
             RespValue::Array(arr) => {
                 assert_eq!(arr.len(), 3);
@@ -1061,7 +1082,14 @@ mod tests {
             redis.call('SET', KEYS[1], ARGV[1])
             return redis.call('GET', KEYS[1])
         "#;
-        let resp = engine.eval(script, vec!["key1".to_string()], vec!["val1".to_string()], storage).unwrap();
+        let resp = engine
+            .eval(
+                script,
+                vec!["key1".to_string()],
+                vec!["val1".to_string()],
+                storage,
+            )
+            .unwrap();
         assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("val1"))));
     }
 
@@ -1094,7 +1122,9 @@ mod tests {
         let exists = engine.script_exists(&[sha1.clone()]).unwrap();
         assert_eq!(exists, vec![true]);
 
-        let exists2 = engine.script_exists(&[sha1.clone(), "nonexistent".to_string()]).unwrap();
+        let exists2 = engine
+            .script_exists(&[sha1.clone(), "nonexistent".to_string()])
+            .unwrap();
         assert_eq!(exists2, vec![true, false]);
     }
 
@@ -1127,9 +1157,21 @@ mod tests {
     fn test_eval_redis_call_del() {
         let (engine, storage) = make_engine();
         // 先设置 key
-        let _ = engine.eval("redis.call('SET', 'delkey', 'val')", vec![], vec![], storage.clone());
+        let _ = engine.eval(
+            "redis.call('SET', 'delkey', 'val')",
+            vec![],
+            vec![],
+            storage.clone(),
+        );
         // 删除并返回结果
-        let resp = engine.eval("return redis.call('DEL', 'delkey')", vec![], vec![], storage).unwrap();
+        let resp = engine
+            .eval(
+                "return redis.call('DEL', 'delkey')",
+                vec![],
+                vec![],
+                storage,
+            )
+            .unwrap();
         assert_eq!(resp, RespValue::Integer(1));
     }
 
@@ -1207,7 +1249,14 @@ end)
 "#;
         engine.function_load(code, false).unwrap();
 
-        let resp = engine.fcall("setget", vec!["mykey".to_string()], vec!["myvalue".to_string()], storage).unwrap();
+        let resp = engine
+            .fcall(
+                "setget",
+                vec!["mykey".to_string()],
+                vec!["myvalue".to_string()],
+                storage,
+            )
+            .unwrap();
         assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("myvalue"))));
     }
 
@@ -1309,7 +1358,9 @@ end)
 "#;
         engine.function_load(code, false).unwrap();
 
-        let resp = engine.fcall_ro("readonly_fn", vec![], vec![], storage).unwrap();
+        let resp = engine
+            .fcall_ro("readonly_fn", vec![], vec![], storage)
+            .unwrap();
         assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("ro"))));
     }
 }

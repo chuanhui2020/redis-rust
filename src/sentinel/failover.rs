@@ -49,15 +49,24 @@ pub fn start_odown_checker(sentinel: Arc<SentinelManager>) -> tokio::task::JoinH
                     if !was_odown {
                         log::warn!(
                             "Sentinel: master {} ({}:{}) 进入客观下线 (ODOWN), 投票 {}/{}，quorum={}",
-                            master.name, master.ip, master.port,
-                            agree_count, total_sentinels, master.quorum
+                            master.name,
+                            master.ip,
+                            master.port,
+                            agree_count,
+                            total_sentinels,
+                            master.quorum
                         );
                         sentinel.set_odown(&master.name, true);
 
                         // 尝试成为 leader 并执行故障转移
                         let is_leader = try_become_leader(
-                            &sentinel, &master.name, &master.ip, master.port, &master.sentinels,
-                        ).await;
+                            &sentinel,
+                            &master.name,
+                            &master.ip,
+                            master.port,
+                            &master.sentinels,
+                        )
+                        .await;
 
                         if is_leader {
                             log::info!(
@@ -73,8 +82,11 @@ pub fn start_odown_checker(sentinel: Arc<SentinelManager>) -> tokio::task::JoinH
                     sentinel.set_odown(&master.name, false);
                     log::info!(
                         "Sentinel: master {} ({}:{}) 退出客观下线, 投票 {}/{}",
-                        master.name, master.ip, master.port,
-                        agree_count, total_sentinels
+                        master.name,
+                        master.ip,
+                        master.port,
+                        agree_count,
+                        total_sentinels
                     );
                 }
             }
@@ -118,7 +130,13 @@ async fn ask_sentinel_is_down(
     // 读取 down_state（整数）
     let mut down_line = String::new();
     tokio::time::timeout(timeout, reader.read_line(&mut down_line)).await??;
-    let down_state = down_line.trim().strip_prefix(':').unwrap_or("0").parse::<i64>().unwrap_or(0) == 1;
+    let down_state = down_line
+        .trim()
+        .strip_prefix(':')
+        .unwrap_or("0")
+        .parse::<i64>()
+        .unwrap_or(0)
+        == 1;
 
     // 读取 leader_runid（bulk string）
     let mut runid_line = String::new();
@@ -143,7 +161,12 @@ async fn ask_sentinel_is_down(
     if array_len >= 3 {
         let mut epoch_line = String::new();
         tokio::time::timeout(timeout, reader.read_line(&mut epoch_line)).await??;
-        leader_epoch = epoch_line.trim().strip_prefix(':').unwrap_or("0").parse::<u64>().unwrap_or(0);
+        leader_epoch = epoch_line
+            .trim()
+            .strip_prefix(':')
+            .unwrap_or("0")
+            .parse::<u64>()
+            .unwrap_or(0);
     }
 
     Ok((down_state, leader_runid, leader_epoch))
@@ -159,7 +182,11 @@ async fn try_become_leader(
 ) -> bool {
     // 递增 epoch
     let epoch = sentinel.incr_epoch();
-    log::info!("Sentinel: 开始 leader 选举，master={}, epoch={}", master_name, epoch);
+    log::info!(
+        "Sentinel: 开始 leader 选举，master={}, epoch={}",
+        master_name,
+        epoch
+    );
 
     if peers.is_empty() {
         // 没有其他 Sentinel，自己就是 leader
@@ -190,12 +217,18 @@ async fn try_become_leader(
     if elected {
         log::info!(
             "Sentinel: leader 选举成功，获得 {}/{} 票（需要 {}），epoch={}",
-            votes, total, majority, epoch
+            votes,
+            total,
+            majority,
+            epoch
         );
     } else {
         log::info!(
             "Sentinel: leader 选举失败，获得 {}/{} 票（需要 {}），epoch={}",
-            votes, total, majority, epoch
+            votes,
+            total,
+            majority,
+            epoch
         );
     }
 
@@ -220,10 +253,14 @@ async fn request_vote(
     let epoch_str = epoch.to_string();
     let cmd = format!(
         "*6\r\n$8\r\nSENTINEL\r\n$25\r\nis-master-down-by-addr\r\n${}\r\n{}\r\n${}\r\n{}\r\n${}\r\n{}\r\n${}\r\n{}\r\n",
-        master_ip.len(), master_ip,
-        master_port.to_string().len(), master_port,
-        epoch_str.len(), epoch_str,
-        my_runid.len(), my_runid
+        master_ip.len(),
+        master_ip,
+        master_port.to_string().len(),
+        master_port,
+        epoch_str.len(),
+        epoch_str,
+        my_runid.len(),
+        my_runid
     );
     write_half.write_all(cmd.as_bytes()).await?;
 
@@ -287,7 +324,9 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) -> 
     }
 
     // 选择最优 replica（offset 最大的）
-    let best_replica = master.replicas.iter()
+    let best_replica = master
+        .replicas
+        .iter()
         .filter(|r| !r.sdown)
         .max_by_key(|r| r.offset);
 
@@ -302,16 +341,25 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) -> 
 
     log::info!(
         "故障转移：选择 replica {}:{} (offset={}) 作为新 master",
-        replica.ip, replica.port, replica.offset
+        replica.ip,
+        replica.port,
+        replica.offset
     );
 
     // 1. 向选中的 replica 发送 REPLICAOF NO ONE
     match send_replicaof_no_one(&replica.ip, replica.port).await {
         Ok(()) => {
-            log::info!("故障转移：已向 {}:{} 发送 REPLICAOF NO ONE", replica.ip, replica.port);
+            log::info!(
+                "故障转移：已向 {}:{} 发送 REPLICAOF NO ONE",
+                replica.ip,
+                replica.port
+            );
         }
         Err(e) => {
-            let msg = format!("故障转移失败：向 {}:{} 发送 REPLICAOF NO ONE 失败: {}", replica.ip, replica.port, e);
+            let msg = format!(
+                "故障转移失败：向 {}:{} 发送 REPLICAOF NO ONE 失败: {}",
+                replica.ip, replica.port, e
+            );
             log::error!("{}", msg);
             return Err(msg);
         }
@@ -323,25 +371,42 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) -> 
     let mut confirmed_master = false;
     loop {
         if start.elapsed() > timeout {
-            log::warn!("故障转移：等待 {}:{} 成为 master 超时", replica.ip, replica.port);
+            log::warn!(
+                "故障转移：等待 {}:{} 成为 master 超时",
+                replica.ip,
+                replica.port
+            );
             break;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
         match check_role_master(&replica.ip, replica.port).await {
             Ok(true) => {
-                log::info!("故障转移：{}:{} 已确认 role=master", replica.ip, replica.port);
+                log::info!(
+                    "故障转移：{}:{} 已确认 role=master",
+                    replica.ip,
+                    replica.port
+                );
                 confirmed_master = true;
                 break;
             }
             Ok(false) => {}
             Err(e) => {
-                log::debug!("故障转移：检查 {}:{} role 失败: {}", replica.ip, replica.port, e);
+                log::debug!(
+                    "故障转移：检查 {}:{} role 失败: {}",
+                    replica.ip,
+                    replica.port,
+                    e
+                );
             }
         }
     }
 
     if !confirmed_master {
-        log::warn!("故障转移：新 master {}:{} 未在超时内确认 role=master，继续执行", replica.ip, replica.port);
+        log::warn!(
+            "故障转移：新 master {}:{} 未在超时内确认 role=master，继续执行",
+            replica.ip,
+            replica.port
+        );
     }
 
     // 2. 向其他 replica 发送 REPLICAOF <new_master_ip> <new_master_port>
@@ -353,13 +418,18 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) -> 
             Ok(()) => {
                 log::info!(
                     "故障转移：已通知 replica {}:{} 指向新 master {}:{}",
-                    other.ip, other.port, replica.ip, replica.port
+                    other.ip,
+                    other.port,
+                    replica.ip,
+                    replica.port
                 );
             }
             Err(e) => {
                 log::warn!(
                     "故障转移：通知 replica {}:{} 失败: {}",
-                    other.ip, other.port, e
+                    other.ip,
+                    other.port,
+                    e
                 );
             }
         }
@@ -376,7 +446,8 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) -> 
             if replica_start.elapsed() > timeout {
                 log::warn!(
                     "故障转移：等待 replica {}:{} 同步超时",
-                    other.ip, other.port
+                    other.ip,
+                    other.port
                 );
                 break;
             }
@@ -385,7 +456,8 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) -> 
                 Ok(true) => {
                     log::info!(
                         "故障转移：replica {}:{} 已确认指向新 master",
-                        other.ip, other.port
+                        other.ip,
+                        other.port
                     );
                     confirmed = true;
                     break;
@@ -394,7 +466,9 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) -> 
                 Err(e) => {
                     log::debug!(
                         "故障转移：检查 replica {}:{} 同步状态失败: {}",
-                        other.ip, other.port, e
+                        other.ip,
+                        other.port,
+                        e
                     );
                 }
             }
@@ -402,7 +476,8 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) -> 
         if !confirmed {
             log::warn!(
                 "故障转移：replica {}:{} 未在超时内确认同步",
-                other.ip, other.port
+                other.ip,
+                other.port
             );
         }
     }
@@ -413,19 +488,26 @@ pub async fn execute_failover(sentinel: &SentinelManager, master_name: &str) -> 
 
     log::info!(
         "故障转移完成：master {} 已切换到 {}:{}",
-        master_name, replica.ip, replica.port
+        master_name,
+        replica.ip,
+        replica.port
     );
     Ok(())
 }
 
 /// 向 replica 发送 REPLICAOF NO ONE
-async fn send_replicaof_no_one(ip: &str, port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn send_replicaof_no_one(
+    ip: &str,
+    port: u16,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = format!("{}:{}", ip, port);
     let timeout = std::time::Duration::from_secs(5);
     let stream = tokio::time::timeout(timeout, TcpStream::connect(&addr)).await??;
     let (read_half, mut write_half) = stream.into_split();
 
-    write_half.write_all(b"*3\r\n$9\r\nREPLICAOF\r\n$2\r\nNO\r\n$3\r\nONE\r\n").await?;
+    write_half
+        .write_all(b"*3\r\n$9\r\nREPLICAOF\r\n$2\r\nNO\r\n$3\r\nONE\r\n")
+        .await?;
 
     let mut reader = tokio::io::BufReader::new(read_half);
     let mut line = String::new();
@@ -439,7 +521,12 @@ async fn send_replicaof_no_one(ip: &str, port: u16) -> Result<(), Box<dyn std::e
 }
 
 /// 向 replica 发送 REPLICAOF host port
-async fn send_replicaof(ip: &str, port: u16, master_ip: &str, master_port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn send_replicaof(
+    ip: &str,
+    port: u16,
+    master_ip: &str,
+    master_port: u16,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = format!("{}:{}", ip, port);
     let timeout = std::time::Duration::from_secs(5);
     let stream = tokio::time::timeout(timeout, TcpStream::connect(&addr)).await??;
@@ -447,8 +534,10 @@ async fn send_replicaof(ip: &str, port: u16, master_ip: &str, master_port: u16) 
 
     let cmd = format!(
         "*3\r\n$9\r\nREPLICAOF\r\n${}\r\n{}\r\n${}\r\n{}\r\n",
-        master_ip.len(), master_ip,
-        master_port.to_string().len(), master_port
+        master_ip.len(),
+        master_ip,
+        master_port.to_string().len(),
+        master_port
     );
     write_half.write_all(cmd.as_bytes()).await?;
 
@@ -464,7 +553,10 @@ async fn send_replicaof(ip: &str, port: u16, master_ip: &str, master_port: u16) 
 }
 
 /// 检查实例的 role 是否为 master
-async fn check_role_master(ip: &str, port: u16) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+async fn check_role_master(
+    ip: &str,
+    port: u16,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
     let info = get_info_replication(ip, port).await?;
     Ok(info.lines().any(|line| line.trim() == "role:master"))
 }
@@ -487,17 +579,23 @@ async fn check_replica_master(
             master_port = stripped.trim().parse::<u16>().ok();
         }
     }
-    Ok(master_host.as_deref() == Some(expected_master_ip) && master_port == Some(expected_master_port))
+    Ok(master_host.as_deref() == Some(expected_master_ip)
+        && master_port == Some(expected_master_port))
 }
 
 /// 向实例发送 INFO replication，返回响应内容
-async fn get_info_replication(ip: &str, port: u16) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+async fn get_info_replication(
+    ip: &str,
+    port: u16,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let addr = format!("{}:{}", ip, port);
     let timeout = Duration::from_secs(2);
     let stream = tokio::time::timeout(timeout, TcpStream::connect(&addr)).await??;
     let (read_half, mut write_half) = stream.into_split();
 
-    write_half.write_all(b"*2\r\n$4\r\nINFO\r\n$11\r\nreplication\r\n").await?;
+    write_half
+        .write_all(b"*2\r\n$4\r\nINFO\r\n$11\r\nreplication\r\n")
+        .await?;
 
     let mut reader = tokio::io::BufReader::new(read_half);
     let mut line = String::new();

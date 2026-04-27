@@ -43,9 +43,10 @@ impl LatencyTracker {
 
     /// 记录一条延迟事件
     pub fn record(&self, event_name: &str, latency_ms: u64) -> Result<()> {
-        let mut inner = self.inner.lock().map_err(|e| {
-            AppError::Storage(format!("延迟追踪器锁中毒: {}", e))
-        })?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| AppError::Storage(format!("延迟追踪器锁中毒: {}", e)))?;
         let entry = LatencyEntry {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -54,7 +55,10 @@ impl LatencyTracker {
             latency_ms,
         };
         let max_len = inner.max_len;
-        let queue = inner.events.entry(event_name.to_string()).or_insert_with(VecDeque::new);
+        let queue = inner
+            .events
+            .entry(event_name.to_string())
+            .or_insert_with(VecDeque::new);
         queue.push_back(entry);
         while queue.len() > max_len {
             queue.pop_front();
@@ -65,14 +69,20 @@ impl LatencyTracker {
     /// 获取所有事件的最新延迟记录
     /// 返回 (event_name, latest_latency_ms, timestamp, all_time_max_ms)
     pub fn latest(&self) -> Result<Vec<(String, u64, u64, u64)>> {
-        let inner = self.inner.lock().map_err(|e| {
-            AppError::Storage(format!("延迟追踪器锁中毒: {}", e))
-        })?;
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|e| AppError::Storage(format!("延迟追踪器锁中毒: {}", e)))?;
         let mut result = Vec::new();
         for (name, queue) in inner.events.iter() {
             if let Some(entry) = queue.back() {
                 let all_time_max = queue.iter().map(|e| e.latency_ms).max().unwrap_or(0);
-                result.push((name.clone(), entry.latency_ms, entry.timestamp, all_time_max));
+                result.push((
+                    name.clone(),
+                    entry.latency_ms,
+                    entry.timestamp,
+                    all_time_max,
+                ));
             }
         }
         Ok(result)
@@ -80,9 +90,10 @@ impl LatencyTracker {
 
     /// 获取指定事件的历史延迟记录
     pub fn history(&self, event_name: &str) -> Result<Vec<(u64, u64)>> {
-        let inner = self.inner.lock().map_err(|e| {
-            AppError::Storage(format!("延迟追踪器锁中毒: {}", e))
-        })?;
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|e| AppError::Storage(format!("延迟追踪器锁中毒: {}", e)))?;
         Ok(inner
             .events
             .get(event_name)
@@ -92,9 +103,10 @@ impl LatencyTracker {
 
     /// 重置指定事件的延迟记录
     pub fn reset(&self, event_names: &[&str]) -> Result<usize> {
-        let mut inner = self.inner.lock().map_err(|e| {
-            AppError::Storage(format!("延迟追踪器锁中毒: {}", e))
-        })?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| AppError::Storage(format!("延迟追踪器锁中毒: {}", e)))?;
         let mut count = 0;
         for name in event_names {
             if let Some(queue) = inner.events.get_mut(*name) {
@@ -107,9 +119,10 @@ impl LatencyTracker {
 
     /// 重置所有延迟记录
     pub fn reset_all(&self) -> Result<usize> {
-        let mut inner = self.inner.lock().map_err(|e| {
-            AppError::Storage(format!("延迟追踪器锁中毒: {}", e))
-        })?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| AppError::Storage(format!("延迟追踪器锁中毒: {}", e)))?;
         let count: usize = inner.events.values().map(|q| q.len()).sum();
         inner.events.clear();
         Ok(count)

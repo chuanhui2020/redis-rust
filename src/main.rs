@@ -10,8 +10,8 @@ use redis_rust::acl::AclManager;
 use redis_rust::aof::{AofReplayer, AofWriter};
 use redis_rust::pubsub::PubSubManager;
 use redis_rust::replication::ReplicationManager;
-use redis_rust::server::Server;
 use redis_rust::sentinel::SentinelManager;
+use redis_rust::server::Server;
 use redis_rust::storage::StorageEngine;
 
 /// 服务器默认监听端口
@@ -50,9 +50,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else if arg == "--sentinel" {
             sentinel_mode = true;
         } else if arg == "--cluster-enabled"
-            && let Some(val) = args.next() {
-                cluster_enabled = val.eq_ignore_ascii_case("yes");
-            }
+            && let Some(val) = args.next()
+        {
+            cluster_enabled = val.eq_ignore_ascii_case("yes");
+        }
     }
     // Sentinel 模式下默认端口为 26379
     if sentinel_mode && port == DEFAULT_PORT {
@@ -83,10 +84,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // 然后加载 AOF（增量数据）
-    if !no_aof
-        && let Err(e) = AofReplayer::replay(AOF_PATH, storage.clone()) {
-            log::error!("AOF 重放失败: {}", e);
-        }
+    if !no_aof && let Err(e) = AofReplayer::replay(AOF_PATH, storage.clone()) {
+        log::error!("AOF 重放失败: {}", e);
+    }
 
     // 创建 AOF 写入器
     let aof = if no_aof {
@@ -97,7 +97,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 启动后台过期键清理任务，每秒扫描并删除一次过期键
     let _cleanup_handle = storage.start_cleanup_task(CLEANUP_INTERVAL_MS);
-    info!("后台过期键清理任务已启动，间隔 {} 毫秒", CLEANUP_INTERVAL_MS);
+    info!(
+        "后台过期键清理任务已启动，间隔 {} 毫秒",
+        CLEANUP_INTERVAL_MS
+    );
 
     // 创建发布订阅管理器
     let pubsub = PubSubManager::new();
@@ -111,12 +114,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 如果 RDB 中包含复制信息，恢复到复制管理器
     if let (Some(replid), Some(offset)) = rdb_repl_info {
         replication.set_replid_and_offset(replid, offset);
-        info!("从 RDB 恢复复制信息: replid={}, offset={}", replication.get_master_replid(), replication.get_master_repl_offset());
+        info!(
+            "从 RDB 恢复复制信息: replid={}, offset={}",
+            replication.get_master_replid(),
+            replication.get_master_repl_offset()
+        );
     }
 
     // 创建 Cluster 状态（仅在 Cluster 模式下）
     let cluster = if cluster_enabled {
-        let c = Arc::new(redis_rust::cluster::ClusterState::new("127.0.0.1".to_string(), port));
+        let c = Arc::new(redis_rust::cluster::ClusterState::new(
+            "127.0.0.1".to_string(),
+            port,
+        ));
         // 尝试加载已有拓扑
         if let Err(e) = c.load_nodes_conf("nodes.conf") {
             log::debug!("nodes.conf 加载失败或不存在: {}", e);
@@ -156,7 +166,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Sentinel 模式下启动 ODOWN 检查任务
     if let Some(ref s) = sentinel {
-        drop(redis_rust::sentinel::failover::start_odown_checker(s.clone()));
+        drop(redis_rust::sentinel::failover::start_odown_checker(
+            s.clone(),
+        ));
     }
 
     // Cluster 模式下启动集群总线监听
@@ -166,7 +178,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let bus_addr_for_task = bus_addr.clone();
         let cluster_for_bus = cluster.clone().unwrap();
         tokio::spawn(async move {
-            if let Err(e) = redis_rust::cluster::bus::start_cluster_bus(&bus_addr_for_task, cluster_for_bus).await {
+            if let Err(e) =
+                redis_rust::cluster::bus::start_cluster_bus(&bus_addr_for_task, cluster_for_bus)
+                    .await
+            {
                 log::error!("集群总线启动失败: {}", e);
             }
         });
@@ -174,31 +189,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Cluster 模式下启动 Gossip 任务
-    if cluster_enabled
-        && let Some(ref c) = cluster {
-            redis_rust::cluster::gossip::start_gossip(c.clone());
-        }
+    if cluster_enabled && let Some(ref c) = cluster {
+        redis_rust::cluster::gossip::start_gossip(c.clone());
+    }
 
     // Cluster 模式下启动故障检测任务
-    if cluster_enabled
-        && let Some(ref c) = cluster {
-            redis_rust::cluster::failover::start_failure_detector(c.clone());
-        }
+    if cluster_enabled && let Some(ref c) = cluster {
+        redis_rust::cluster::failover::start_failure_detector(c.clone());
+    }
 
     // Cluster 模式下定期保存拓扑（每 10 秒）
-    if cluster_enabled
-        && let Some(ref c) = cluster {
-            let cluster_save = c.clone();
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(10));
-                loop {
-                    interval.tick().await;
-                    if let Err(e) = cluster_save.save_nodes_conf("nodes.conf") {
-                        log::warn!("nodes.conf 保存失败: {}", e);
-                    }
+    if cluster_enabled && let Some(ref c) = cluster {
+        let cluster_save = c.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+                if let Err(e) = cluster_save.save_nodes_conf("nodes.conf") {
+                    log::warn!("nodes.conf 保存失败: {}", e);
                 }
-            });
-        }
+            }
+        });
+    }
 
     // 创建 TCP 服务器并启动
     let mut server = Server::new(&addr, storage, aof, pubsub, None)

@@ -197,19 +197,20 @@ impl StorageEngine {
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_key_expired(&db, key) {
-                    match v {
-                        StorageValue::HyperLogLog(hll) => {
-                            merged.merge(&[hll]);
-                            has_data = true;
-                        }
-                        _ => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
-                        }
+                && !Self::is_key_expired(&db, key)
+            {
+                match v {
+                    StorageValue::HyperLogLog(hll) => {
+                        merged.merge(&[hll]);
+                        has_data = true;
+                    }
+                    _ => {
+                        return Err(AppError::Storage(
+                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
+                        ));
                     }
                 }
+            }
         }
 
         if !has_data {
@@ -235,23 +236,27 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_key_expired(&db, key) {
-                    match v {
-                        StorageValue::HyperLogLog(hll) => {
-                            merged.merge(&[hll]);
-                            has_data = true;
-                        }
-                        _ => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ))
-                        }
+                && !Self::is_key_expired(&db, key)
+            {
+                match v {
+                    StorageValue::HyperLogLog(hll) => {
+                        merged.merge(&[hll]);
+                        has_data = true;
+                    }
+                    _ => {
+                        return Err(AppError::Storage(
+                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
+                        ));
                     }
                 }
+            }
         }
 
         if has_data {
-            let mut dst_map = db.inner.get_shard(destkey).write()
+            let mut dst_map = db
+                .inner
+                .get_shard(destkey)
+                .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             dst_map.insert(destkey.to_string(), StorageValue::HyperLogLog(merged));
             self.bump_version(destkey);
@@ -264,6 +269,4 @@ impl StorageEngine {
     }
 
     // ---------- Geo 操作 ----------
-
 }
-

@@ -16,15 +16,9 @@ impl Command {
             Command::Exists(..) => resp_string::to_resp_exists(self),
             Command::FlushAll => resp_string::to_resp_flush_all(self),
             Command::Expire(key, seconds) => {
-                RespValue::Array(vec![
-                    bulk("EXPIRE"),
-                    bulk(key),
-                    bulk(&seconds.to_string()),
-                ])
+                RespValue::Array(vec![bulk("EXPIRE"), bulk(key), bulk(&seconds.to_string())])
             }
-            Command::Ttl(key) => {
-                RespValue::Array(vec![bulk("TTL"), bulk(key)])
-            }
+            Command::Ttl(key) => RespValue::Array(vec![bulk("TTL"), bulk(key)]),
             Command::ConfigGet(..) => resp_admin::to_resp_config_get(self),
             Command::ConfigSet(..) => resp_admin::to_resp_config_set(self),
             Command::ConfigRewrite => resp_admin::to_resp_config_rewrite(self),
@@ -182,7 +176,17 @@ impl Command {
             Command::ZRevRangeByLex(..) => resp_zset::to_resp_z_rev_range_by_lex(self),
             Command::ZMScore(..) => resp_zset::to_resp_z_m_score(self),
             Command::ZLexCount(..) => resp_zset::to_resp_z_lex_count(self),
-            Command::ZRangeUnified(key, min, max, by_score, by_lex, rev, with_scores, limit_offset, limit_count) => {
+            Command::ZRangeUnified(
+                key,
+                min,
+                max,
+                by_score,
+                by_lex,
+                rev,
+                with_scores,
+                limit_offset,
+                limit_count,
+            ) => {
                 let mut parts = vec![bulk("ZRANGE"), bulk(key), bulk(min), bulk(max)];
                 if *by_score {
                     parts.push(bulk("BYSCORE"));
@@ -210,9 +214,7 @@ impl Command {
             Command::Persist(..) => resp_admin::to_resp_persist(self),
             Command::PExpire(..) => resp_admin::to_resp_p_expire(self),
             Command::PTtl(..) => resp_admin::to_resp_p_ttl(self),
-            Command::DbSize => {
-                RespValue::Array(vec![bulk("DBSIZE")])
-            }
+            Command::DbSize => RespValue::Array(vec![bulk("DBSIZE")]),
             Command::Info(..) => resp_admin::to_resp_info(self),
             Command::Subscribe(channels) => {
                 let mut parts = vec![bulk("SUBSCRIBE")];
@@ -229,11 +231,7 @@ impl Command {
                 RespValue::Array(parts)
             }
             Command::Publish(channel, message) => {
-                RespValue::Array(vec![
-                    bulk("PUBLISH"),
-                    bulk(channel),
-                    bulk_bytes(message),
-                ])
+                RespValue::Array(vec![bulk("PUBLISH"), bulk(channel), bulk_bytes(message)])
             }
             Command::PSubscribe(patterns) => {
                 let mut parts = vec![bulk("PSUBSCRIBE")];
@@ -263,9 +261,7 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::PubSubNumPat => {
-                RespValue::Array(vec![bulk("PUBSUB"), bulk("NUMPAT")])
-            }
+            Command::PubSubNumPat => RespValue::Array(vec![bulk("PUBSUB"), bulk("NUMPAT")]),
             Command::SSubscribe(channels) => {
                 let mut parts = vec![bulk("SSUBSCRIBE")];
                 for ch in channels {
@@ -281,11 +277,7 @@ impl Command {
                 RespValue::Array(parts)
             }
             Command::SPublish(channel, message) => {
-                RespValue::Array(vec![
-                    bulk("SPUBLISH"),
-                    bulk(channel),
-                    bulk_bytes(message),
-                ])
+                RespValue::Array(vec![bulk("SPUBLISH"), bulk(channel), bulk_bytes(message)])
             }
             Command::PubSubShardChannels(pattern) => {
                 let mut parts = vec![bulk("PUBSUB"), bulk("SHARDCHANNELS")];
@@ -301,15 +293,9 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::Multi => {
-                RespValue::Array(vec![bulk("MULTI")])
-            }
-            Command::Exec => {
-                RespValue::Array(vec![bulk("EXEC")])
-            }
-            Command::Discard => {
-                RespValue::Array(vec![bulk("DISCARD")])
-            }
+            Command::Multi => RespValue::Array(vec![bulk("MULTI")]),
+            Command::Exec => RespValue::Array(vec![bulk("EXEC")]),
+            Command::Discard => RespValue::Array(vec![bulk("DISCARD")]),
             Command::Watch(keys) => {
                 let mut parts = vec![bulk("WATCH")];
                 for key in keys {
@@ -317,9 +303,7 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::Unwatch => {
-                RespValue::Array(vec![bulk("UNWATCH")])
-            }
+            Command::Unwatch => RespValue::Array(vec![bulk("UNWATCH")]),
             Command::BgRewriteAof => resp_admin::to_resp_bg_rewrite_aof(self),
             Command::SetBit(..) => resp_bitmap::to_resp_set_bit(self),
             Command::GetBit(..) => resp_bitmap::to_resp_get_bit(self),
@@ -381,7 +365,20 @@ impl Command {
             Command::GeoSearchStore(_, _, _, _, _, _, _, _, _) => {
                 RespValue::Array(vec![bulk("GEOSEARCHSTORE")])
             }
-            Command::GeoRadius(key, lon, lat, radius_m, unit, withcoord, withdist, withhash, count, order, store_key, store_dist_key) => {
+            Command::GeoRadius(
+                key,
+                lon,
+                lat,
+                radius_m,
+                unit,
+                withcoord,
+                withdist,
+                withhash,
+                count,
+                order,
+                store_key,
+                store_dist_key,
+            ) => {
                 let original_radius = match unit.as_str() {
                     "m" => *radius_m,
                     "km" => *radius_m / 1000.0,
@@ -390,25 +387,62 @@ impl Command {
                     _ => *radius_m,
                 };
                 let mut parts = vec![
-                    bulk("GEORADIUS"), bulk(key),
-                    bulk(&format!("{:.17}", lon).trim_end_matches('0').trim_end_matches('.')),
-                    bulk(&format!("{:.17}", lat).trim_end_matches('0').trim_end_matches('.')),
-                    bulk(&format!("{:.17}", original_radius).trim_end_matches('0').trim_end_matches('.')),
+                    bulk("GEORADIUS"),
+                    bulk(key),
+                    bulk(
+                        &format!("{:.17}", lon)
+                            .trim_end_matches('0')
+                            .trim_end_matches('.'),
+                    ),
+                    bulk(
+                        &format!("{:.17}", lat)
+                            .trim_end_matches('0')
+                            .trim_end_matches('.'),
+                    ),
+                    bulk(
+                        &format!("{:.17}", original_radius)
+                            .trim_end_matches('0')
+                            .trim_end_matches('.'),
+                    ),
                     bulk(unit),
                 ];
-                if *withcoord { parts.push(bulk("WITHCOORD")); }
-                if *withdist { parts.push(bulk("WITHDIST")); }
-                if *withhash { parts.push(bulk("WITHHASH")); }
+                if *withcoord {
+                    parts.push(bulk("WITHCOORD"));
+                }
+                if *withdist {
+                    parts.push(bulk("WITHDIST"));
+                }
+                if *withhash {
+                    parts.push(bulk("WITHHASH"));
+                }
                 if *count > 0 {
                     parts.push(bulk("COUNT"));
                     parts.push(bulk(&count.to_string()));
                 }
-                if let Some(o) = order { parts.push(bulk(o)); }
-                if let Some(k) = store_key { parts.push(bulk("STORE")); parts.push(bulk(k)); }
-                if let Some(k) = store_dist_key { parts.push(bulk("STOREDIST")); parts.push(bulk(k)); }
+                if let Some(o) = order {
+                    parts.push(bulk(o));
+                }
+                if let Some(k) = store_key {
+                    parts.push(bulk("STORE"));
+                    parts.push(bulk(k));
+                }
+                if let Some(k) = store_dist_key {
+                    parts.push(bulk("STOREDIST"));
+                    parts.push(bulk(k));
+                }
                 RespValue::Array(parts)
             }
-            Command::GeoRadiusByMember(key, member, radius_m, unit, withcoord, withdist, withhash, count, order) => {
+            Command::GeoRadiusByMember(
+                key,
+                member,
+                radius_m,
+                unit,
+                withcoord,
+                withdist,
+                withhash,
+                count,
+                order,
+            ) => {
                 let original_radius = match unit.as_str() {
                     "m" => *radius_m,
                     "km" => *radius_m / 1000.0,
@@ -417,21 +451,46 @@ impl Command {
                     _ => *radius_m,
                 };
                 let mut parts = vec![
-                    bulk("GEORADIUSBYMEMBER"), bulk(key), bulk(member),
-                    bulk(&format!("{:.17}", original_radius).trim_end_matches('0').trim_end_matches('.')),
+                    bulk("GEORADIUSBYMEMBER"),
+                    bulk(key),
+                    bulk(member),
+                    bulk(
+                        &format!("{:.17}", original_radius)
+                            .trim_end_matches('0')
+                            .trim_end_matches('.'),
+                    ),
                     bulk(unit),
                 ];
-                if *withcoord { parts.push(bulk("WITHCOORD")); }
-                if *withdist { parts.push(bulk("WITHDIST")); }
-                if *withhash { parts.push(bulk("WITHHASH")); }
+                if *withcoord {
+                    parts.push(bulk("WITHCOORD"));
+                }
+                if *withdist {
+                    parts.push(bulk("WITHDIST"));
+                }
+                if *withhash {
+                    parts.push(bulk("WITHHASH"));
+                }
                 if *count > 0 {
                     parts.push(bulk("COUNT"));
                     parts.push(bulk(&count.to_string()));
                 }
-                if let Some(o) = order { parts.push(bulk(o)); }
+                if let Some(o) = order {
+                    parts.push(bulk(o));
+                }
                 RespValue::Array(parts)
             }
-            Command::GeoRadiusRo(key, lon, lat, radius_m, unit, withcoord, withdist, withhash, count, order) => {
+            Command::GeoRadiusRo(
+                key,
+                lon,
+                lat,
+                radius_m,
+                unit,
+                withcoord,
+                withdist,
+                withhash,
+                count,
+                order,
+            ) => {
                 let original_radius = match unit.as_str() {
                     "m" => *radius_m,
                     "km" => *radius_m / 1000.0,
@@ -440,23 +499,54 @@ impl Command {
                     _ => *radius_m,
                 };
                 let mut parts = vec![
-                    bulk("GEORADIUS_RO"), bulk(key),
-                    bulk(&format!("{:.17}", lon).trim_end_matches('0').trim_end_matches('.')),
-                    bulk(&format!("{:.17}", lat).trim_end_matches('0').trim_end_matches('.')),
-                    bulk(&format!("{:.17}", original_radius).trim_end_matches('0').trim_end_matches('.')),
+                    bulk("GEORADIUS_RO"),
+                    bulk(key),
+                    bulk(
+                        &format!("{:.17}", lon)
+                            .trim_end_matches('0')
+                            .trim_end_matches('.'),
+                    ),
+                    bulk(
+                        &format!("{:.17}", lat)
+                            .trim_end_matches('0')
+                            .trim_end_matches('.'),
+                    ),
+                    bulk(
+                        &format!("{:.17}", original_radius)
+                            .trim_end_matches('0')
+                            .trim_end_matches('.'),
+                    ),
                     bulk(unit),
                 ];
-                if *withcoord { parts.push(bulk("WITHCOORD")); }
-                if *withdist { parts.push(bulk("WITHDIST")); }
-                if *withhash { parts.push(bulk("WITHHASH")); }
+                if *withcoord {
+                    parts.push(bulk("WITHCOORD"));
+                }
+                if *withdist {
+                    parts.push(bulk("WITHDIST"));
+                }
+                if *withhash {
+                    parts.push(bulk("WITHHASH"));
+                }
                 if *count > 0 {
                     parts.push(bulk("COUNT"));
                     parts.push(bulk(&count.to_string()));
                 }
-                if let Some(o) = order { parts.push(bulk(o)); }
+                if let Some(o) = order {
+                    parts.push(bulk(o));
+                }
                 RespValue::Array(parts)
             }
-            Command::GeoRadiusByMemberRo(key, member, radius_m, unit, withcoord, withdist, withhash, count, order) => {
+            Command::GeoRadiusByMemberRo(
+                key,
+                member,
+                radius_m,
+                unit,
+                withcoord,
+                withdist,
+                withhash,
+                count,
+                order,
+            ) => {
                 let original_radius = match unit.as_str() {
                     "m" => *radius_m,
                     "km" => *radius_m / 1000.0,
@@ -465,46 +555,59 @@ impl Command {
                     _ => *radius_m,
                 };
                 let mut parts = vec![
-                    bulk("GEORADIUSBYMEMBER_RO"), bulk(key), bulk(member),
-                    bulk(&format!("{:.17}", original_radius).trim_end_matches('0').trim_end_matches('.')),
+                    bulk("GEORADIUSBYMEMBER_RO"),
+                    bulk(key),
+                    bulk(member),
+                    bulk(
+                        &format!("{:.17}", original_radius)
+                            .trim_end_matches('0')
+                            .trim_end_matches('.'),
+                    ),
                     bulk(unit),
                 ];
-                if *withcoord { parts.push(bulk("WITHCOORD")); }
-                if *withdist { parts.push(bulk("WITHDIST")); }
-                if *withhash { parts.push(bulk("WITHHASH")); }
+                if *withcoord {
+                    parts.push(bulk("WITHCOORD"));
+                }
+                if *withdist {
+                    parts.push(bulk("WITHDIST"));
+                }
+                if *withhash {
+                    parts.push(bulk("WITHHASH"));
+                }
                 if *count > 0 {
                     parts.push(bulk("COUNT"));
                     parts.push(bulk(&count.to_string()));
                 }
-                if let Some(o) = order { parts.push(bulk(o)); }
+                if let Some(o) = order {
+                    parts.push(bulk(o));
+                }
                 RespValue::Array(parts)
             }
-            Command::WaitAof { numlocal, numreplicas, timeout } => {
-                RespValue::Array(vec![
-                    bulk("WAITAOF"),
-                    bulk(&numlocal.to_string()),
-                    bulk(&numreplicas.to_string()),
-                    bulk(&timeout.to_string()),
-                ])
-            }
+            Command::WaitAof {
+                numlocal,
+                numreplicas,
+                timeout,
+            } => RespValue::Array(vec![
+                bulk("WAITAOF"),
+                bulk(&numlocal.to_string()),
+                bulk(&numreplicas.to_string()),
+                bulk(&timeout.to_string()),
+            ]),
             Command::Select(..) => resp_admin::to_resp_select(self),
             Command::Auth(..) => resp_admin::to_resp_auth(self),
             Command::ClientSetName(name) => {
                 RespValue::Array(vec![bulk("CLIENT"), bulk("SETNAME"), bulk(name)])
             }
-            Command::ClientGetName => {
-                RespValue::Array(vec![bulk("CLIENT"), bulk("GETNAME")])
-            }
-            Command::ClientList => {
-                RespValue::Array(vec![bulk("CLIENT"), bulk("LIST")])
-            }
-            Command::ClientId => {
-                RespValue::Array(vec![bulk("CLIENT"), bulk("ID")])
-            }
-            Command::ClientInfo => {
-                RespValue::Array(vec![bulk("CLIENT"), bulk("INFO")])
-            }
-            Command::ClientKill { id, addr, user, skipme } => {
+            Command::ClientGetName => RespValue::Array(vec![bulk("CLIENT"), bulk("GETNAME")]),
+            Command::ClientList => RespValue::Array(vec![bulk("CLIENT"), bulk("LIST")]),
+            Command::ClientId => RespValue::Array(vec![bulk("CLIENT"), bulk("ID")]),
+            Command::ClientInfo => RespValue::Array(vec![bulk("CLIENT"), bulk("INFO")]),
+            Command::ClientKill {
+                id,
+                addr,
+                user,
+                skipme,
+            } => {
                 let mut parts = vec![bulk("CLIENT"), bulk("KILL")];
                 if let Some(i) = id {
                     parts.push(bulk("ID"));
@@ -524,24 +627,23 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::ClientPause(timeout, mode) => {
-                RespValue::Array(vec![
-                    bulk("CLIENT"), bulk("PAUSE"), bulk(&timeout.to_string()), bulk(mode),
-                ])
-            }
-            Command::ClientUnpause => {
-                RespValue::Array(vec![bulk("CLIENT"), bulk("UNPAUSE")])
-            }
-            Command::ClientNoEvict(flag) => {
-                RespValue::Array(vec![
-                    bulk("CLIENT"), bulk("NO-EVICT"), bulk(if *flag { "ON" } else { "OFF" }),
-                ])
-            }
-            Command::ClientNoTouch(flag) => {
-                RespValue::Array(vec![
-                    bulk("CLIENT"), bulk("NO-TOUCH"), bulk(if *flag { "ON" } else { "OFF" }),
-                ])
-            }
+            Command::ClientPause(timeout, mode) => RespValue::Array(vec![
+                bulk("CLIENT"),
+                bulk("PAUSE"),
+                bulk(&timeout.to_string()),
+                bulk(mode),
+            ]),
+            Command::ClientUnpause => RespValue::Array(vec![bulk("CLIENT"), bulk("UNPAUSE")]),
+            Command::ClientNoEvict(flag) => RespValue::Array(vec![
+                bulk("CLIENT"),
+                bulk("NO-EVICT"),
+                bulk(if *flag { "ON" } else { "OFF" }),
+            ]),
+            Command::ClientNoTouch(flag) => RespValue::Array(vec![
+                bulk("CLIENT"),
+                bulk("NO-TOUCH"),
+                bulk(if *flag { "ON" } else { "OFF" }),
+            ]),
             Command::ClientReply(mode) => {
                 let mode_str = match mode {
                     crate::server::ReplyMode::On => "ON",
@@ -550,13 +652,26 @@ impl Command {
                 };
                 RespValue::Array(vec![bulk("CLIENT"), bulk("REPLY"), bulk(mode_str)])
             }
-            Command::ClientUnblock(id, reason) => {
-                RespValue::Array(vec![
-                    bulk("CLIENT"), bulk("UNBLOCK"), bulk(&id.to_string()), bulk(reason),
-                ])
-            }
-            Command::ClientTracking { on, redirect, bcast, prefixes, optin, optout, noloop } => {
-                let mut parts = vec![bulk("CLIENT"), bulk("TRACKING"), bulk(if *on { "ON" } else { "OFF" })];
+            Command::ClientUnblock(id, reason) => RespValue::Array(vec![
+                bulk("CLIENT"),
+                bulk("UNBLOCK"),
+                bulk(&id.to_string()),
+                bulk(reason),
+            ]),
+            Command::ClientTracking {
+                on,
+                redirect,
+                bcast,
+                prefixes,
+                optin,
+                optout,
+                noloop,
+            } => {
+                let mut parts = vec![
+                    bulk("CLIENT"),
+                    bulk("TRACKING"),
+                    bulk(if *on { "ON" } else { "OFF" }),
+                ];
                 if let Some(r) = redirect {
                     parts.push(bulk("REDIRECT"));
                     parts.push(bulk(&r.to_string()));
@@ -579,12 +694,12 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::ClientCaching(flag) => {
-                RespValue::Array(vec![bulk("CLIENT"), bulk("CACHING"), bulk(if *flag { "YES" } else { "NO" })])
-            }
-            Command::ClientGetRedir => {
-                RespValue::Array(vec![bulk("CLIENT"), bulk("GETREDIR")])
-            }
+            Command::ClientCaching(flag) => RespValue::Array(vec![
+                bulk("CLIENT"),
+                bulk("CACHING"),
+                bulk(if *flag { "YES" } else { "NO" }),
+            ]),
+            Command::ClientGetRedir => RespValue::Array(vec![bulk("CLIENT"), bulk("GETREDIR")]),
             Command::ClientTrackingInfo => {
                 RespValue::Array(vec![bulk("CLIENT"), bulk("TRACKINGINFO")])
             }
@@ -605,9 +720,7 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::AclList => {
-                RespValue::Array(vec![bulk("ACL"), bulk("LIST")])
-            }
+            Command::AclList => RespValue::Array(vec![bulk("ACL"), bulk("LIST")]),
             Command::AclCat(category) => {
                 let mut parts = vec![bulk("ACL"), bulk("CAT")];
                 if let Some(cat) = category {
@@ -615,9 +728,7 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::AclWhoAmI => {
-                RespValue::Array(vec![bulk("ACL"), bulk("WHOAMI")])
-            }
+            Command::AclWhoAmI => RespValue::Array(vec![bulk("ACL"), bulk("WHOAMI")]),
             Command::AclLog(arg) => {
                 let mut parts = vec![bulk("ACL"), bulk("LOG")];
                 if let Some(a) = arg {
@@ -632,12 +743,8 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::AclSave => {
-                RespValue::Array(vec![bulk("ACL"), bulk("SAVE")])
-            }
-            Command::AclLoad => {
-                RespValue::Array(vec![bulk("ACL"), bulk("LOAD")])
-            }
+            Command::AclSave => RespValue::Array(vec![bulk("ACL"), bulk("SAVE")]),
+            Command::AclLoad => RespValue::Array(vec![bulk("ACL"), bulk("LOAD")]),
             Command::AclDryRun { username, command } => {
                 let mut parts = vec![bulk("ACL"), bulk("DRYRUN"), bulk(username)];
                 for arg in command {
@@ -674,9 +781,7 @@ impl Command {
             Command::ScriptDebug(mode) => {
                 RespValue::Array(vec![bulk("SCRIPT"), bulk("DEBUG"), bulk(mode)])
             }
-            Command::ScriptHelp => {
-                RespValue::Array(vec![bulk("SCRIPT"), bulk("HELP")])
-            }
+            Command::ScriptHelp => RespValue::Array(vec![bulk("SCRIPT"), bulk("HELP")]),
             Command::FunctionLoad(..) => resp_admin::to_resp_function_load(self),
             Command::FunctionDelete(..) => resp_admin::to_resp_function_delete(self),
             Command::FunctionList(..) => resp_admin::to_resp_function_list(self),
@@ -688,12 +793,8 @@ impl Command {
             Command::FCallRO(..) => resp_admin::to_resp_f_call_r_o(self),
             Command::EvalRO(..) => resp_admin::to_resp_eval_r_o(self),
             Command::EvalShaRO(..) => resp_admin::to_resp_eval_sha_r_o(self),
-            Command::Save => {
-                RespValue::Array(vec![bulk("SAVE")])
-            }
-            Command::BgSave => {
-                RespValue::Array(vec![bulk("BGSAVE")])
-            }
+            Command::Save => RespValue::Array(vec![bulk("SAVE")]),
+            Command::BgSave => RespValue::Array(vec![bulk("BGSAVE")]),
             Command::SlowLogGet(..) => resp_admin::to_resp_slow_log_get(self),
             Command::SlowLogLen => resp_admin::to_resp_slow_log_len(self),
             Command::SlowLogReset => resp_admin::to_resp_slow_log_reset(self),
@@ -709,25 +810,21 @@ impl Command {
             Command::ObjectFreq(key) => {
                 RespValue::Array(vec![bulk("OBJECT"), bulk("FREQ"), bulk(key)])
             }
-            Command::ObjectHelp => {
-                RespValue::Array(vec![bulk("OBJECT"), bulk("HELP")])
-            }
-            Command::DebugSetActiveExpire(flag) => {
-                RespValue::Array(vec![bulk("DEBUG"), bulk("SET-ACTIVE-EXPIRE"), bulk(if *flag { "1" } else { "0" })])
-            }
-            Command::DebugSleep(seconds) => {
-                RespValue::Array(vec![bulk("DEBUG"), bulk("SLEEP"), bulk(&seconds.to_string())])
-            }
+            Command::ObjectHelp => RespValue::Array(vec![bulk("OBJECT"), bulk("HELP")]),
+            Command::DebugSetActiveExpire(flag) => RespValue::Array(vec![
+                bulk("DEBUG"),
+                bulk("SET-ACTIVE-EXPIRE"),
+                bulk(if *flag { "1" } else { "0" }),
+            ]),
+            Command::DebugSleep(seconds) => RespValue::Array(vec![
+                bulk("DEBUG"),
+                bulk("SLEEP"),
+                bulk(&seconds.to_string()),
+            ]),
             Command::DebugObject(..) => resp_admin::to_resp_debug_object(self),
-            Command::Echo(msg) => {
-                RespValue::Array(vec![bulk("ECHO"), bulk(msg)])
-            }
-            Command::Time => {
-                RespValue::Array(vec![bulk("TIME")])
-            }
-            Command::RandomKey => {
-                RespValue::Array(vec![bulk("RANDOMKEY")])
-            }
+            Command::Echo(msg) => RespValue::Array(vec![bulk("ECHO"), bulk(msg)]),
+            Command::Time => RespValue::Array(vec![bulk("TIME")]),
+            Command::RandomKey => RespValue::Array(vec![bulk("RANDOMKEY")]),
             Command::Touch(..) => resp_admin::to_resp_touch(self),
             Command::ExpireAt(..) => resp_admin::to_resp_expire_at(self),
             Command::PExpireAt(..) => resp_admin::to_resp_p_expire_at(self),
@@ -737,46 +834,42 @@ impl Command {
             Command::SwapDb(..) => resp_admin::to_resp_swap_db(self),
             Command::FlushDb => resp_admin::to_resp_flush_db(self),
             Command::Shutdown(..) => resp_admin::to_resp_shutdown(self),
-            Command::LastSave => {
-                RespValue::Array(vec![bulk("LASTSAVE")])
-            }
-            Command::SubStr(key, start, end) => {
-                RespValue::Array(vec![bulk("SUBSTR"), bulk(key), bulk(&start.to_string()), bulk(&end.to_string())])
-            }
+            Command::LastSave => RespValue::Array(vec![bulk("LASTSAVE")]),
+            Command::SubStr(key, start, end) => RespValue::Array(vec![
+                bulk("SUBSTR"),
+                bulk(key),
+                bulk(&start.to_string()),
+                bulk(&end.to_string()),
+            ]),
             Command::Lcs(..) => resp_string::to_resp_lcs(self),
-            Command::Lmove(source, dest, left_from, left_to) => {
-                RespValue::Array(vec![
-                    bulk("LMOVE"),
-                    bulk(source),
-                    bulk(dest),
-                    bulk(if *left_from { "LEFT" } else { "RIGHT" }),
-                    bulk(if *left_to { "LEFT" } else { "RIGHT" }),
-                ])
-            }
+            Command::Lmove(source, dest, left_from, left_to) => RespValue::Array(vec![
+                bulk("LMOVE"),
+                bulk(source),
+                bulk(dest),
+                bulk(if *left_from { "LEFT" } else { "RIGHT" }),
+                bulk(if *left_to { "LEFT" } else { "RIGHT" }),
+            ]),
             Command::Rpoplpush(source, dest) => {
                 RespValue::Array(vec![bulk("RPOPLPUSH"), bulk(source), bulk(dest)])
             }
             Command::Lmpop(..) => resp_list::to_resp_lmpop(self),
-            Command::BLmove(source, dest, left_from, left_to, timeout) => {
-                RespValue::Array(vec![
-                    bulk("BLMOVE"),
-                    bulk(source),
-                    bulk(dest),
-                    bulk(if *left_from { "LEFT" } else { "RIGHT" }),
-                    bulk(if *left_to { "LEFT" } else { "RIGHT" }),
-                    bulk(&timeout.to_string()),
-                ])
-            }
+            Command::BLmove(source, dest, left_from, left_to, timeout) => RespValue::Array(vec![
+                bulk("BLMOVE"),
+                bulk(source),
+                bulk(dest),
+                bulk(if *left_from { "LEFT" } else { "RIGHT" }),
+                bulk(if *left_to { "LEFT" } else { "RIGHT" }),
+                bulk(&timeout.to_string()),
+            ]),
             Command::BLmpop(..) => resp_list::to_resp_b_lmpop(self),
-            Command::BRpoplpush(source, dest, timeout) => {
-                RespValue::Array(vec![bulk("BRPOPLPUSH"), bulk(source), bulk(dest), bulk(&timeout.to_string())])
-            }
-            Command::Quit => {
-                RespValue::Array(vec![bulk("QUIT")])
-            }
-            Command::Role => {
-                RespValue::Array(vec![bulk("ROLE")])
-            }
+            Command::BRpoplpush(source, dest, timeout) => RespValue::Array(vec![
+                bulk("BRPOPLPUSH"),
+                bulk(source),
+                bulk(dest),
+                bulk(&timeout.to_string()),
+            ]),
+            Command::Quit => RespValue::Array(vec![bulk("QUIT")]),
+            Command::Role => RespValue::Array(vec![bulk("ROLE")]),
             Command::ReplicaOf { host, port } => {
                 RespValue::Array(vec![bulk("REPLICAOF"), bulk(host), bulk(&port.to_string())])
             }
@@ -790,16 +883,24 @@ impl Command {
                 }
                 RespValue::Array(arr)
             }
-            Command::Sync => {
-                RespValue::Array(vec![bulk("SYNC")])
-            }
+            Command::Sync => RespValue::Array(vec![bulk("SYNC")]),
             Command::Psync { replid, offset } => {
                 RespValue::Array(vec![bulk("PSYNC"), bulk(replid), bulk(&offset.to_string())])
             }
-            Command::Wait { numreplicas, timeout } => {
-                RespValue::Array(vec![bulk("WAIT"), bulk(&numreplicas.to_string()), bulk(&timeout.to_string())])
-            }
-            Command::Failover { host, port, timeout, force } => {
+            Command::Wait {
+                numreplicas,
+                timeout,
+            } => RespValue::Array(vec![
+                bulk("WAIT"),
+                bulk(&numreplicas.to_string()),
+                bulk(&timeout.to_string()),
+            ]),
+            Command::Failover {
+                host,
+                port,
+                timeout,
+                force,
+            } => {
                 let mut parts = vec![bulk("FAILOVER")];
                 if let Some(h) = host {
                     parts.push(bulk("TO"));
@@ -817,12 +918,8 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::FailoverAbort => {
-                RespValue::Array(vec![bulk("FAILOVER"), bulk("ABORT")])
-            }
-            Command::SentinelMasters => {
-                RespValue::Array(vec![bulk("SENTINEL"), bulk("MASTERS")])
-            }
+            Command::FailoverAbort => RespValue::Array(vec![bulk("FAILOVER"), bulk("ABORT")]),
+            Command::SentinelMasters => RespValue::Array(vec![bulk("SENTINEL"), bulk("MASTERS")]),
             Command::SentinelMaster(name) => {
                 RespValue::Array(vec![bulk("SENTINEL"), bulk("MASTER"), bulk(name)])
             }
@@ -832,21 +929,38 @@ impl Command {
             Command::SentinelSentinels(name) => {
                 RespValue::Array(vec![bulk("SENTINEL"), bulk("SENTINELS"), bulk(name)])
             }
-            Command::SentinelGetMasterAddrByName(name) => {
-                RespValue::Array(vec![bulk("SENTINEL"), bulk("GET-MASTER-ADDR-BY-NAME"), bulk(name)])
-            }
-            Command::SentinelMonitor { name, ip, port, quorum } => {
-                RespValue::Array(vec![
-                    bulk("SENTINEL"), bulk("MONITOR"), bulk(name), bulk(ip),
-                    bulk(&port.to_string()), bulk(&quorum.to_string()),
-                ])
-            }
+            Command::SentinelGetMasterAddrByName(name) => RespValue::Array(vec![
+                bulk("SENTINEL"),
+                bulk("GET-MASTER-ADDR-BY-NAME"),
+                bulk(name),
+            ]),
+            Command::SentinelMonitor {
+                name,
+                ip,
+                port,
+                quorum,
+            } => RespValue::Array(vec![
+                bulk("SENTINEL"),
+                bulk("MONITOR"),
+                bulk(name),
+                bulk(ip),
+                bulk(&port.to_string()),
+                bulk(&quorum.to_string()),
+            ]),
             Command::SentinelRemove(name) => {
                 RespValue::Array(vec![bulk("SENTINEL"), bulk("REMOVE"), bulk(name)])
             }
-            Command::SentinelSet { name, option, value } => {
-                RespValue::Array(vec![bulk("SENTINEL"), bulk("SET"), bulk(name), bulk(option), bulk(value)])
-            }
+            Command::SentinelSet {
+                name,
+                option,
+                value,
+            } => RespValue::Array(vec![
+                bulk("SENTINEL"),
+                bulk("SET"),
+                bulk(name),
+                bulk(option),
+                bulk(value),
+            ]),
             Command::SentinelFailover(name) => {
                 RespValue::Array(vec![bulk("SENTINEL"), bulk("FAILOVER"), bulk(name)])
             }
@@ -856,33 +970,31 @@ impl Command {
             Command::SentinelCkquorum(name) => {
                 RespValue::Array(vec![bulk("SENTINEL"), bulk("CKQUORUM"), bulk(name)])
             }
-            Command::SentinelMyId => {
-                RespValue::Array(vec![bulk("SENTINEL"), bulk("MYID")])
-            }
-            Command::SentinelIsMasterDownByAddr { ip, port, current_epoch, runid } => {
-                RespValue::Array(vec![
-                    bulk("SENTINEL"), bulk("IS-MASTER-DOWN-BY-ADDR"), bulk(ip),
-                    bulk(&port.to_string()), bulk(&current_epoch.to_string()), bulk(runid),
-                ])
-            }
-            Command::ClusterInfo => {
-                RespValue::Array(vec![bulk("CLUSTER"), bulk("INFO")])
-            }
-            Command::ClusterNodes => {
-                RespValue::Array(vec![bulk("CLUSTER"), bulk("NODES")])
-            }
-            Command::ClusterMyId => {
-                RespValue::Array(vec![bulk("CLUSTER"), bulk("MYID")])
-            }
-            Command::ClusterSlots => {
-                RespValue::Array(vec![bulk("CLUSTER"), bulk("SLOTS")])
-            }
-            Command::ClusterShards => {
-                RespValue::Array(vec![bulk("CLUSTER"), bulk("SHARDS")])
-            }
-            Command::ClusterMeet { ip, port } => {
-                RespValue::Array(vec![bulk("CLUSTER"), bulk("MEET"), bulk(ip), bulk(&port.to_string())])
-            }
+            Command::SentinelMyId => RespValue::Array(vec![bulk("SENTINEL"), bulk("MYID")]),
+            Command::SentinelIsMasterDownByAddr {
+                ip,
+                port,
+                current_epoch,
+                runid,
+            } => RespValue::Array(vec![
+                bulk("SENTINEL"),
+                bulk("IS-MASTER-DOWN-BY-ADDR"),
+                bulk(ip),
+                bulk(&port.to_string()),
+                bulk(&current_epoch.to_string()),
+                bulk(runid),
+            ]),
+            Command::ClusterInfo => RespValue::Array(vec![bulk("CLUSTER"), bulk("INFO")]),
+            Command::ClusterNodes => RespValue::Array(vec![bulk("CLUSTER"), bulk("NODES")]),
+            Command::ClusterMyId => RespValue::Array(vec![bulk("CLUSTER"), bulk("MYID")]),
+            Command::ClusterSlots => RespValue::Array(vec![bulk("CLUSTER"), bulk("SLOTS")]),
+            Command::ClusterShards => RespValue::Array(vec![bulk("CLUSTER"), bulk("SHARDS")]),
+            Command::ClusterMeet { ip, port } => RespValue::Array(vec![
+                bulk("CLUSTER"),
+                bulk("MEET"),
+                bulk(ip),
+                bulk(&port.to_string()),
+            ]),
             Command::ClusterAddSlots(slots) => {
                 let mut parts = vec![bulk("CLUSTER"), bulk("ADDSLOTS")];
                 for slot in slots {
@@ -897,8 +1009,17 @@ impl Command {
                 }
                 RespValue::Array(parts)
             }
-            Command::ClusterSetSlot { slot, state, node_id } => {
-                let mut parts = vec![bulk("CLUSTER"), bulk("SETSLOT"), bulk(&slot.to_string()), bulk(state)];
+            Command::ClusterSetSlot {
+                slot,
+                state,
+                node_id,
+            } => {
+                let mut parts = vec![
+                    bulk("CLUSTER"),
+                    bulk("SETSLOT"),
+                    bulk(&slot.to_string()),
+                    bulk(state),
+                ];
                 if let Some(id) = node_id {
                     parts.push(bulk(id));
                 }
@@ -924,31 +1045,44 @@ impl Command {
             Command::ClusterKeySlot(key) => {
                 RespValue::Array(vec![bulk("CLUSTER"), bulk("KEYSLOT"), bulk(key)])
             }
-            Command::ClusterCountKeysInSlot(slot) => {
-                RespValue::Array(vec![bulk("CLUSTER"), bulk("COUNTKEYSINSLOT"), bulk(&slot.to_string())])
-            }
-            Command::ClusterGetKeysInSlot(slot, count) => {
-                RespValue::Array(vec![bulk("CLUSTER"), bulk("GETKEYSINSLOT"), bulk(&slot.to_string()), bulk(&count.to_string())])
-            }
-            Command::ClusterLinks => {
-                RespValue::Array(vec![bulk("CLUSTER"), bulk("LINKS")])
-            }
-            Command::ClusterCountFailureReports(node_id) => {
-                RespValue::Array(vec![bulk("CLUSTER"), bulk("COUNTFAILUREREPORTS"), bulk(node_id)])
-            }
+            Command::ClusterCountKeysInSlot(slot) => RespValue::Array(vec![
+                bulk("CLUSTER"),
+                bulk("COUNTKEYSINSLOT"),
+                bulk(&slot.to_string()),
+            ]),
+            Command::ClusterGetKeysInSlot(slot, count) => RespValue::Array(vec![
+                bulk("CLUSTER"),
+                bulk("GETKEYSINSLOT"),
+                bulk(&slot.to_string()),
+                bulk(&count.to_string()),
+            ]),
+            Command::ClusterLinks => RespValue::Array(vec![bulk("CLUSTER"), bulk("LINKS")]),
+            Command::ClusterCountFailureReports(node_id) => RespValue::Array(vec![
+                bulk("CLUSTER"),
+                bulk("COUNTFAILUREREPORTS"),
+                bulk(node_id),
+            ]),
             Command::ClusterFlushSlots => {
                 RespValue::Array(vec![bulk("CLUSTER"), bulk("FLUSHSLOTS")])
             }
             Command::ClusterSaveConfig => {
                 RespValue::Array(vec![bulk("CLUSTER"), bulk("SAVECONFIG")])
             }
-            Command::ClusterSetConfigEpoch(epoch) => {
-                RespValue::Array(vec![bulk("CLUSTER"), bulk("SET-CONFIG-EPOCH"), bulk(&epoch.to_string())])
-            }
-            Command::ClusterMyShardId => {
-                RespValue::Array(vec![bulk("CLUSTER"), bulk("MYSHARDID")])
-            }
-            Command::Migrate { host, port, keys, db, timeout, copy, replace } => {
+            Command::ClusterSetConfigEpoch(epoch) => RespValue::Array(vec![
+                bulk("CLUSTER"),
+                bulk("SET-CONFIG-EPOCH"),
+                bulk(&epoch.to_string()),
+            ]),
+            Command::ClusterMyShardId => RespValue::Array(vec![bulk("CLUSTER"), bulk("MYSHARDID")]),
+            Command::Migrate {
+                host,
+                port,
+                keys,
+                db,
+                timeout,
+                copy,
+                replace,
+            } => {
                 let mut parts = vec![bulk("MIGRATE"), bulk(host), bulk(&port.to_string())];
                 if keys.len() == 1 {
                     parts.push(bulk(&keys[0]));
@@ -957,35 +1091,31 @@ impl Command {
                 }
                 parts.push(bulk(&db.to_string()));
                 parts.push(bulk(&timeout.to_string()));
-                if *copy { parts.push(bulk("COPY")); }
-                if *replace { parts.push(bulk("REPLACE")); }
+                if *copy {
+                    parts.push(bulk("COPY"));
+                }
+                if *replace {
+                    parts.push(bulk("REPLACE"));
+                }
                 if keys.len() > 1 {
                     parts.push(bulk("KEYS"));
-                    for k in keys { parts.push(bulk(k)); }
+                    for k in keys {
+                        parts.push(bulk(k));
+                    }
                 }
                 RespValue::Array(parts)
             }
-            Command::Asking => {
-                RespValue::Array(vec![bulk("ASKING")])
-            }
-            Command::ReadOnly => {
-                RespValue::Array(vec![bulk("READONLY")])
-            }
-            Command::ReadWrite => {
-                RespValue::Array(vec![bulk("READWRITE")])
-            }
-            Command::ModuleList => {
-                RespValue::Array(vec![bulk("MODULE"), bulk("LIST")])
-            }
+            Command::Asking => RespValue::Array(vec![bulk("ASKING")]),
+            Command::ReadOnly => RespValue::Array(vec![bulk("READONLY")]),
+            Command::ReadWrite => RespValue::Array(vec![bulk("READWRITE")]),
+            Command::ModuleList => RespValue::Array(vec![bulk("MODULE"), bulk("LIST")]),
             Command::ModuleLoad(path) => {
                 RespValue::Array(vec![bulk("MODULE"), bulk("LOAD"), bulk(path)])
             }
             Command::ModuleUnload(name) => {
                 RespValue::Array(vec![bulk("MODULE"), bulk("UNLOAD"), bulk(name)])
             }
-            Command::Unknown(cmd_name) => {
-                RespValue::Array(vec![bulk(cmd_name)])
-            }
+            Command::Unknown(cmd_name) => RespValue::Array(vec![bulk(cmd_name)]),
         }
     }
 
