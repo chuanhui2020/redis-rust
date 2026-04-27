@@ -229,7 +229,7 @@ pub(crate) fn execute_l_set(
     value: Bytes,
 ) -> Result<RespValue> {
     executor.storage.lset(&key, index, value)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
 }
 
 /// 执行 L_INSERT 命令
@@ -290,7 +290,7 @@ pub(crate) fn execute_l_trim(
     stop: i64,
 ) -> Result<RespValue> {
     executor.storage.ltrim(&key, start, stop)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
 }
 
 /// 执行 L_POS 命令

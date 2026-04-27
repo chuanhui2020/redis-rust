@@ -9,9 +9,9 @@ use crate::error::{AppError, Result};
 #[derive(Debug, Clone, PartialEq)]
 pub enum RespValue {
     /// 简单字符串，以 + 开头，例如：+OK\r\n
-    SimpleString(String),
+    SimpleString(Bytes),
     /// 错误信息，以 - 开头，例如：-ERR unknown command\r\n
-    Error(String),
+    Error(Bytes),
     /// 整数，以 : 开头，例如：:1000\r\n
     Integer(i64),
     /// 批量字符串，以 $ 开头，例如：$6\r\nfoobar\r\n 或 $-1\r\n（Null）
@@ -124,8 +124,9 @@ impl RespParser {
             None => return Ok(None),
         };
 
-        let content = String::from_utf8_lossy(&buf[1..end]).to_string();
-        buf.advance(end + 2);
+        buf.advance(1);
+        let content = buf.split_to(end - 1).freeze();
+        buf.advance(2);
         Ok(Some(RespValue::SimpleString(content)))
     }
 
@@ -136,8 +137,9 @@ impl RespParser {
             None => return Ok(None),
         };
 
-        let content = String::from_utf8_lossy(&buf[1..end]).to_string();
-        buf.advance(end + 2);
+        buf.advance(1);
+        let content = buf.split_to(end - 1).freeze();
+        buf.advance(2);
         Ok(Some(RespValue::Error(content)))
     }
 
@@ -182,8 +184,9 @@ impl RespParser {
             return Ok(None);
         }
 
-        let data = Bytes::copy_from_slice(&buf[data_start..data_start + len]);
-        buf.advance(total_needed);
+        buf.advance(data_start);
+        let data = buf.split_to(len).freeze();
+        buf.advance(2);
         Ok(Some(RespValue::BulkString(Some(data))))
     }
 
@@ -261,12 +264,12 @@ impl RespParser {
         match value {
             RespValue::SimpleString(s) => {
                 out.push(b'+');
-                out.extend_from_slice(s.as_bytes());
+                out.extend_from_slice(s);
                 out.extend_from_slice(b"\r\n");
             }
             RespValue::Error(e) => {
                 out.push(b'-');
-                out.extend_from_slice(e.as_bytes());
+                out.extend_from_slice(e);
                 out.extend_from_slice(b"\r\n");
             }
             RespValue::Integer(i) => {
@@ -309,14 +312,14 @@ mod tests {
     #[test]
     fn test_encode_simple_string() {
         let parser = RespParser::new();
-        let val = RespValue::SimpleString("OK".to_string());
+        let val = RespValue::SimpleString(Bytes::from_static(b"OK"));
         assert_eq!(parser.encode(&val), Bytes::from_static(b"+OK\r\n"));
     }
 
     #[test]
     fn test_encode_error() {
         let parser = RespParser::new();
-        let val = RespValue::Error("ERR unknown command".to_string());
+        let val = RespValue::Error(Bytes::from_static(b"ERR unknown command"));
         assert_eq!(
             parser.encode(&val),
             Bytes::from_static(b"-ERR unknown command\r\n")
@@ -363,7 +366,7 @@ mod tests {
         let mut buf = BytesMut::from("+OK\r\n");
         assert_eq!(
             parser.parse(&mut buf).unwrap(),
-            Some(RespValue::SimpleString("OK".to_string()))
+            Some(RespValue::SimpleString(Bytes::from_static(b"OK")))
         );
         assert!(buf.is_empty());
     }
@@ -402,7 +405,7 @@ mod tests {
         buf.extend_from_slice(b"\r\n");
         assert_eq!(
             parser.parse(&mut buf).unwrap(),
-            Some(RespValue::SimpleString("OK".to_string()))
+            Some(RespValue::SimpleString(Bytes::from_static(b"OK")))
         );
     }
 

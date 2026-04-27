@@ -40,13 +40,13 @@ pub(crate) fn execute_set(
 ) -> Result<RespValue> {
     if options.is_plain() {
         executor.storage.set_plain(key, value)?;
-        return Ok(RespValue::SimpleString("OK".to_string()));
+        return Ok(RespValue::SimpleString(Bytes::from_static(b"OK")));
     }
     let (ok, old_value) = executor.storage.set_with_options(key, value, &options)?;
     if options.get {
         Ok(RespValue::BulkString(old_value))
     } else if ok {
-        Ok(RespValue::SimpleString("OK".to_string()))
+        Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
     } else {
         Ok(RespValue::BulkString(None))
     }
@@ -69,7 +69,7 @@ pub(crate) fn execute_set_ex(
     ttl_ms: u64,
 ) -> Result<RespValue> {
     executor.storage.set_with_ttl(key, value, ttl_ms)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
 }
 
 /// 执行 DEL 命令
@@ -124,7 +124,7 @@ pub(crate) fn execute_exists(executor: &CommandExecutor, keys: Vec<String>) -> R
 /// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_flush_all(executor: &CommandExecutor) -> Result<RespValue> {
     executor.storage.flush()?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
 }
 
 /// 执行 LCS 命令
@@ -233,7 +233,7 @@ pub(crate) fn execute_m_set(
     pairs: Vec<(String, Bytes)>,
 ) -> Result<RespValue> {
     executor.storage.mset(&pairs)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
 }
 
 /// 执行 INCR 命令
@@ -363,7 +363,7 @@ pub(crate) fn execute_set_ex_cmd(
     seconds: u64,
 ) -> Result<RespValue> {
     executor.storage.setex(key, seconds, value)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
 }
 
 /// 执行 P_SET_EX 命令
@@ -383,7 +383,7 @@ pub(crate) fn execute_p_set_ex(
     ms: u64,
 ) -> Result<RespValue> {
     executor.storage.psetex(key, ms, value)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
 }
 
 /// 执行 GET_SET 命令

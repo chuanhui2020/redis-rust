@@ -137,12 +137,12 @@ fn test_execute_ping() {
     let executor = CommandExecutor::new(storage);
 
     let resp = executor.execute(Command::Ping(None)).unwrap();
-    assert_eq!(resp, RespValue::SimpleString("PONG".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"PONG")));
 
     let resp = executor
         .execute(Command::Ping(Some("hi".to_string())))
         .unwrap();
-    assert_eq!(resp, RespValue::SimpleString("hi".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"hi")));
 }
 
 #[test]
@@ -227,7 +227,7 @@ fn test_execute_unknown() {
         .unwrap();
     assert_eq!(
         resp,
-        RespValue::Error("ERR unknown command 'FOOBAR'".to_string())
+        RespValue::Error(Bytes::from_static(b"ERR unknown command 'FOOBAR'"))
     );
 }
 
@@ -244,7 +244,7 @@ fn test_execute_flushall() {
         ))
         .unwrap();
     let resp = executor.execute(Command::FlushAll).unwrap();
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
 
     let resp = executor.execute(Command::Get("k".to_string())).unwrap();
     assert_eq!(resp, RespValue::BulkString(None));
@@ -860,7 +860,7 @@ fn test_execute_hmset_hmget() {
             ],
         ))
         .unwrap();
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
 
     let resp = executor
         .execute(Command::HMGet(
@@ -2049,7 +2049,7 @@ fn test_execute_pfmerge() {
             vec!["hll1".to_string(), "hll2".to_string()],
         ))
         .unwrap();
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
 
     let resp = executor
         .execute(Command::PfCount(vec!["merged".to_string()]))
@@ -2448,17 +2448,17 @@ fn test_execute_keys_scan_rename_type_persist_pexpire_pttl_dbsize_info() {
     let resp = executor
         .execute(Command::Rename("hello".to_string(), "hello2".to_string()))
         .unwrap();
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
 
     // TYPE
     let resp = executor
         .execute(Command::Type("hello2".to_string()))
         .unwrap();
-    assert_eq!(resp, RespValue::SimpleString("string".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"string")));
     let resp = executor
         .execute(Command::Type("missing".to_string()))
         .unwrap();
-    assert_eq!(resp, RespValue::SimpleString("none".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"none")));
 
     // PERSIST / PEXPIRE / PTTL
     executor
@@ -2932,7 +2932,7 @@ fn test_execute_list_tail_commands() {
     let resp = executor
         .execute(Command::LSet("list".to_string(), 1, Bytes::from("x")))
         .unwrap();
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
     let resp = executor
         .execute(Command::LIndex("list".to_string(), 1))
         .unwrap();
@@ -2976,7 +2976,7 @@ fn test_execute_list_tail_commands() {
     let resp = executor
         .execute(Command::LTrim("list3".to_string(), 1, 2))
         .unwrap();
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
     let resp = executor
         .execute(Command::LLen("list3".to_string()))
         .unwrap();
@@ -3432,12 +3432,12 @@ fn test_execute_select() {
     assert_eq!(executor.storage().current_db(), 0);
 
     let resp = executor.execute(Command::Select(2)).unwrap();
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
     assert_eq!(executor.storage().current_db(), 2);
 
     // 切换回 db 0
     let resp = executor.execute(Command::Select(0)).unwrap();
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
     assert_eq!(executor.storage().current_db(), 0);
 }
 
@@ -3689,7 +3689,7 @@ fn test_execute_dump_restore() {
     let restore_resp = executor
         .execute(Command::Restore("restored".to_string(), 0, data, false))
         .unwrap();
-    assert_eq!(restore_resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(restore_resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
 
     let get_resp = executor
         .execute(Command::Get("restored".to_string()))
@@ -3832,7 +3832,7 @@ fn test_execute_script_load_exists_flush() {
     }
 
     let flush_resp = executor.execute(Command::ScriptFlush).unwrap();
-    assert_eq!(flush_resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(flush_resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
 
     let exists_resp2 = executor.execute(Command::ScriptExists(vec![sha1])).unwrap();
     match exists_resp2 {
@@ -4019,7 +4019,7 @@ fn test_execute_swapdb() {
         ))
         .unwrap();
     let resp = executor.execute(Command::SwapDb(0, 1)).unwrap();
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
     executor.select_db(0).unwrap();
     assert_eq!(
         executor.execute(Command::Get("k".to_string())).unwrap(),
@@ -4038,7 +4038,7 @@ fn test_execute_flushdb() {
         ))
         .unwrap();
     let resp = executor.execute(Command::FlushDb).unwrap();
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
     assert_eq!(
         executor.execute(Command::Get("k".to_string())).unwrap(),
         RespValue::BulkString(None)
@@ -4107,7 +4107,7 @@ fn test_set_nx_success() {
     let resp = executor
         .execute(Command::Set("k".to_string(), Bytes::from("v"), opts))
         .unwrap();
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
     assert_eq!(
         executor.execute(Command::Get("k".to_string())).unwrap(),
         RespValue::BulkString(Some(Bytes::from("v")))
@@ -4155,7 +4155,7 @@ fn test_set_xx_success() {
     let resp = executor
         .execute(Command::Set("k".to_string(), Bytes::from("new"), opts))
         .unwrap();
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
     assert_eq!(
         executor.execute(Command::Get("k".to_string())).unwrap(),
         RespValue::BulkString(Some(Bytes::from("new")))
@@ -4498,7 +4498,7 @@ fn test_execute_function_load_and_fcall() {
     let load_resp = executor
         .execute(Command::FunctionLoad(code.to_string(), false))
         .unwrap();
-    assert_eq!(load_resp, RespValue::SimpleString("mylib".to_string()));
+    assert_eq!(load_resp, RespValue::SimpleString(Bytes::from_static(b"mylib")));
 
     let fcall_resp = executor
         .execute(Command::FCall("hello".to_string(), vec![], vec![]))
@@ -4598,7 +4598,7 @@ fn test_execute_function_flush() {
         .unwrap();
 
     let flush_resp = executor.execute(Command::FunctionFlush(false)).unwrap();
-    assert_eq!(flush_resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(flush_resp, RespValue::SimpleString(Bytes::from_static(b"OK")));
 
     let list_resp = executor
         .execute(Command::FunctionList(None, false))

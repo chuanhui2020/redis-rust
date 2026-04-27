@@ -218,9 +218,9 @@ pub(crate) fn execute_x_set_id(
     let sid = crate::storage::StreamId::parse(&id)?;
     let ok = executor.storage.xsetid(&key, sid)?;
     if ok {
-        Ok(RespValue::SimpleString("OK".to_string()))
+        Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
     } else {
-        Ok(RespValue::Error("ERR 键不存在".to_string()))
+        Ok(RespValue::Error(bytes::Bytes::from("ERR 键不存在")))
     }
 }
 
@@ -244,7 +244,7 @@ pub(crate) fn execute_x_group_create(
     executor
         .storage
         .xgroup_create(&key, &group, &id, mkstream)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
 }
 
 /// 执行 X_GROUP_DESTROY 命令
@@ -283,7 +283,7 @@ pub(crate) fn execute_x_group_set_id(
     id: String,
 ) -> Result<RespValue> {
     executor.storage.xgroup_setid(&key, &group, &id)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
 }
 
 /// 执行 X_GROUP_DEL_CONSUMER 命令
@@ -599,7 +599,7 @@ pub(crate) fn execute_x_info_stream(
             ];
             Ok(RespValue::Array(resp))
         }
-        None => Ok(RespValue::Error("ERR no such key".to_string())),
+        None => Ok(RespValue::Error(bytes::Bytes::from_static(b"ERR no such key"))),
     }
 }
 

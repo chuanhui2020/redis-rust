@@ -14,7 +14,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     let mut set = HashSet::new();
                     let mut count = 0i64;
@@ -23,11 +23,11 @@ impl StorageEngine {
                             count += 1;
                         }
                     }
-                    map.insert(key.to_string(), StorageValue::Set(set));
+                    map.insert(key.to_string(), Entry::new(StorageValue::Set(set)));
                     Ok(count)
                 } else {
-                    Self::check_set_type(v)?;
-                    let set = Self::as_set_mut(v).unwrap();
+                    Self::check_set_type(&v.value)?;
+                    let set = Self::as_set_mut(&mut v.value).unwrap();
                     let mut count = 0i64;
                     for m in members {
                         if set.insert(m) {
@@ -45,7 +45,7 @@ impl StorageEngine {
                         count += 1;
                     }
                 }
-                map.insert(key.to_string(), StorageValue::Set(set));
+                map.insert(key.to_string(), Entry::new(StorageValue::Set(set)));
                 Ok(count)
             }
         }
@@ -64,12 +64,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_set_type(v)?;
-                    let set = Self::as_set_mut(v).unwrap();
+                    Self::check_set_type(&v.value)?;
+                    let set = Self::as_set_mut(&mut v.value).unwrap();
                     let mut count = 0i64;
                     for m in members {
                         if set.remove(m) {
@@ -97,12 +97,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_set_type(v)?;
-                    match v {
+                    Self::check_set_type(&v.value)?;
+                    match &v.value {
                         StorageValue::Set(s) => Ok(s.iter().cloned().collect()),
                         _ => unreachable!(),
                     }
@@ -123,12 +123,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(false)
                 } else {
-                    Self::check_set_type(v)?;
-                    match v {
+                    Self::check_set_type(&v.value)?;
+                    match &v.value {
                         StorageValue::Set(s) => Ok(s.contains(member)),
                         _ => unreachable!(),
                     }
@@ -149,12 +149,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_set_type(v)?;
-                    match v {
+                    Self::check_set_type(&v.value)?;
+                    match &v.value {
                         StorageValue::Set(s) => Ok(s.len()),
                         _ => unreachable!(),
                     }
@@ -177,12 +177,12 @@ impl StorageEngine {
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             match map.get(key) {
                 Some(v) => {
-                    if Self::is_key_expired(&db, key) {
+                    if v.is_expired() {
                         map.remove(key);
                         return Ok(vec![]);
                     }
-                    Self::check_set_type(v)?;
-                    match v {
+                    Self::check_set_type(&v.value)?;
+                    match &v.value {
                         StorageValue::Set(s) => sets.push(s.clone()),
                         _ => unreachable!(),
                     }
@@ -215,12 +215,12 @@ impl StorageEngine {
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             match map.get(key) {
                 Some(v) => {
-                    if Self::is_key_expired(&db, key) {
+                    if v.is_expired() {
                         map.remove(key);
                         continue;
                     }
-                    Self::check_set_type(v)?;
-                    match v {
+                    Self::check_set_type(&v.value)?;
+                    match &v.value {
                         StorageValue::Set(s) => {
                             for m in s {
                                 result.insert(m.clone());
@@ -252,15 +252,15 @@ impl StorageEngine {
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             match map.get(key) {
                 Some(v) => {
-                    if Self::is_key_expired(&db, key) {
+                    if v.is_expired() {
                         map.remove(key);
                         if i == 0 {
                             return Ok(vec![]);
                         }
                         continue;
                     }
-                    Self::check_set_type(v)?;
-                    match v {
+                    Self::check_set_type(&v.value)?;
+                    match &v.value {
                         StorageValue::Set(s) => {
                             if i == 0 {
                                 first_set = Some(s.clone());
@@ -298,12 +298,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     return Ok(vec![]);
                 }
-                Self::check_set_type(v)?;
-                match v {
+                Self::check_set_type(&v.value)?;
+                match &mut v.value {
                     StorageValue::Set(s) => {
                         if s.is_empty() {
                             map.remove(key);
@@ -358,12 +358,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     return Ok(vec![]);
                 }
-                Self::check_set_type(v)?;
-                match v {
+                Self::check_set_type(&v.value)?;
+                match &v.value {
                     StorageValue::Set(s) => {
                         if s.is_empty() {
                             return Ok(vec![]);
@@ -405,12 +405,12 @@ impl StorageEngine {
         // 检查 source
         let removed = match src_map.get_mut(source) {
             Some(v) => {
-                if Self::is_key_expired(&db, source) {
+                if v.is_expired() {
                     src_map.remove(source);
                     return Ok(false);
                 }
-                Self::check_set_type(v)?;
-                match v {
+                Self::check_set_type(&v.value)?;
+                match &mut v.value {
                     StorageValue::Set(s) => {
                         let existed = s.remove(&member);
                         if s.is_empty() {
@@ -438,14 +438,14 @@ impl StorageEngine {
         // 添加到 destination
         match dst_map.get_mut(destination) {
             Some(v) => {
-                if Self::is_key_expired(&db, destination) {
+                if v.is_expired() {
                     dst_map.remove(destination);
                     let mut s = HashSet::new();
                     s.insert(member);
-                    dst_map.insert(destination.to_string(), StorageValue::Set(s));
+                    dst_map.insert(destination.to_string(), Entry::new(StorageValue::Set(s)));
                 } else {
-                    Self::check_set_type(v)?;
-                    match v {
+                    Self::check_set_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::Set(s) => {
                             s.insert(member);
                         }
@@ -456,7 +456,7 @@ impl StorageEngine {
             None => {
                 let mut s = HashSet::new();
                 s.insert(member);
-                dst_map.insert(destination.to_string(), StorageValue::Set(s));
+                dst_map.insert(destination.to_string(), Entry::new(StorageValue::Set(s)));
             }
         }
 
@@ -485,7 +485,7 @@ impl StorageEngine {
             for member in result {
                 set.insert(member);
             }
-            map.insert(destination.to_string(), StorageValue::Set(set));
+            map.insert(destination.to_string(), Entry::new(StorageValue::Set(set)));
         }
         self.bump_version(destination);
         Ok(len)
@@ -511,7 +511,7 @@ impl StorageEngine {
             for member in result {
                 set.insert(member);
             }
-            map.insert(destination.to_string(), StorageValue::Set(set));
+            map.insert(destination.to_string(), Entry::new(StorageValue::Set(set)));
         }
         self.bump_version(destination);
         Ok(len)
@@ -537,7 +537,7 @@ impl StorageEngine {
             for member in result {
                 set.insert(member);
             }
-            map.insert(destination.to_string(), StorageValue::Set(set));
+            map.insert(destination.to_string(), Entry::new(StorageValue::Set(set)));
         }
         self.bump_version(destination);
         Ok(len)
@@ -561,9 +561,9 @@ impl StorageEngine {
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             let current: HashSet<Bytes> = if let Some(v) = map.get(key) {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     HashSet::new()
-                } else if let StorageValue::Set(s) = v {
+                } else if let StorageValue::Set(s) = &v.value {
                     s.clone()
                 } else {
                     HashSet::new()
@@ -598,12 +598,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![0; members.len()])
                 } else {
-                    Self::check_set_type(v)?;
-                    match v {
+                    Self::check_set_type(&v.value)?;
+                    match &v.value {
                         StorageValue::Set(s) => Ok(members
                             .iter()
                             .map(|m| if s.contains(m) { 1 } else { 0 })
@@ -633,12 +633,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     return Ok((0, vec![]));
                 }
-                Self::check_set_type(v)?;
-                match v {
+                Self::check_set_type(&v.value)?;
+                match &v.value {
                     StorageValue::Set(s) => {
                         let mut members: Vec<Bytes> = s.iter().cloned().collect();
                         members.sort();

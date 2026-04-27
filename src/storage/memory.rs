@@ -18,7 +18,7 @@ impl StorageEngine {
                 for (key, value) in map.iter() {
                     total += ENTRY_OVERHEAD;
                     total += key.len();
-                    total += Self::estimate_value_size(value);
+                    total += Self::estimate_value_size(&value.value);
                 }
             }
         }
@@ -35,10 +35,10 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     return Ok(None);
                 }
-                let size = 64 + key.len() + Self::estimate_value_size(v);
+                let size = 64 + key.len() + Self::estimate_value_size(&v.value);
                 Ok(Some(size))
             }
             None => Ok(None),

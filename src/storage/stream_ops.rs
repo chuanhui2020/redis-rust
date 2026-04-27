@@ -281,7 +281,7 @@ impl StorageEngine {
 
         let stream = match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     if nomkstream {
                         return Ok(None);
@@ -289,8 +289,8 @@ impl StorageEngine {
                     create_new = true;
                     None
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::Stream(s) => Some(s),
                         _ => unreachable!(),
                     }
@@ -307,9 +307,12 @@ impl StorageEngine {
 
         let stream = if create_new {
             let s = StreamData::new();
-            map.insert(key.to_string(), StorageValue::Stream(s));
+            map.insert(key.to_string(), Entry::new(StorageValue::Stream(s)));
             match map.get_mut(key) {
-                Some(StorageValue::Stream(s)) => s,
+                Some(entry) => match &mut entry.value {
+                    StorageValue::Stream(s) => s,
+                    _ => unreachable!(),
+                },
                 _ => unreachable!(),
             }
         } else {
@@ -383,7 +386,6 @@ impl StorageEngine {
         }
 
         self.bump_version(key);
-        self.touch(key);
         Ok(Some(new_id.to_string()))
     }
 
@@ -407,12 +409,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &v.value {
                         StorageValue::Stream(s) => Ok(s.length),
                         _ => unreachable!(),
                     }
@@ -455,12 +457,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &v.value {
                         StorageValue::Stream(s) => {
                             let start_id = StreamId::parse_range(start)?;
                             let end_id = StreamId::parse_range(end)?;
@@ -515,12 +517,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &v.value {
                         StorageValue::Stream(s) => {
                             let start_id = StreamId::parse_range(start)?;
                             let end_id = StreamId::parse_range(end)?;
@@ -577,12 +579,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::Stream(s) => {
                             let before = s.length;
                             let strategy_upper = strategy.to_ascii_uppercase();
@@ -657,12 +659,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::Stream(s) => {
                             let mut removed = 0usize;
                             for id in ids {
@@ -720,7 +722,7 @@ impl StorageEngine {
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             let start_id = if ids[idx] == "$" {
                 // 找到该 stream 的 last_id
-                if let Some(StorageValue::Stream(s)) = map.get(key) {
+                if let Some(StorageValue::Stream(s)) = map.get(key).map(|e| &e.value) {
                     StreamId::new(s.last_id.ms_time, s.last_id.seq)
                 } else {
                     continue;
@@ -730,10 +732,10 @@ impl StorageEngine {
             };
 
             if let Some(v) = map.get(key) {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     continue;
                 }
-                if let StorageValue::Stream(s) = v {
+                if let StorageValue::Stream(s) = &v.value {
                     let mut stream_result = Vec::new();
                     // 找到 start_id 之后的所有消息（不包括 start_id）
                     for (id, fields) in s.entries.range((
@@ -783,12 +785,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(false)
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::Stream(s) => {
                             if id <= s.last_id {
                                 return Err(AppError::Command(format!(

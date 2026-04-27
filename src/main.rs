@@ -1,6 +1,13 @@
 //! redis-rust 服务器入口，解析命令行参数并启动各子系统
 // 程序入口，启动 Redis-like 缓存服务器
 
+#[cfg(unix)]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(unix)]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

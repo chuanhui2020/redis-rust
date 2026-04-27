@@ -141,7 +141,7 @@ impl StorageEngine {
         let mut updated = false;
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     let mut hll = HyperLogLog::new();
                     for element in elements {
@@ -149,10 +149,10 @@ impl StorageEngine {
                             updated = true;
                         }
                     }
-                    map.insert(key.to_string(), StorageValue::HyperLogLog(hll));
+                    map.insert(key.to_string(), Entry::new(StorageValue::HyperLogLog(hll)));
                 } else {
-                    Self::check_hll_type(v)?;
-                    match v {
+                    Self::check_hll_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::HyperLogLog(hll) => {
                             for element in elements {
                                 if hll.add(element) {
@@ -171,12 +171,11 @@ impl StorageEngine {
                         updated = true;
                     }
                 }
-                map.insert(key.to_string(), StorageValue::HyperLogLog(hll));
+                map.insert(key.to_string(), Entry::new(StorageValue::HyperLogLog(hll)));
             }
         }
 
         self.bump_version(key);
-        self.touch(key);
         drop(map);
         self.evict_if_needed()?;
         Ok(if updated { 1 } else { 0 })
@@ -197,9 +196,9 @@ impl StorageEngine {
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_key_expired(&db, key)
+                && !v.is_expired()
             {
-                match v {
+                match &v.value {
                     StorageValue::HyperLogLog(hll) => {
                         merged.merge(&[hll]);
                         has_data = true;
@@ -236,9 +235,9 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_key_expired(&db, key)
+                && !v.is_expired()
             {
-                match v {
+                match &v.value {
                     StorageValue::HyperLogLog(hll) => {
                         merged.merge(&[hll]);
                         has_data = true;
@@ -258,9 +257,8 @@ impl StorageEngine {
                 .get_shard(destkey)
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            dst_map.insert(destkey.to_string(), StorageValue::HyperLogLog(merged));
+            dst_map.insert(destkey.to_string(), Entry::new(StorageValue::HyperLogLog(merged)));
             self.bump_version(destkey);
-            self.touch(destkey);
             drop(dst_map);
         }
 

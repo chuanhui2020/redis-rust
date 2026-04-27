@@ -64,7 +64,7 @@ async fn test_ping() {
 
     let mut stream = TcpStream::connect(addr).await.unwrap();
     let resp = exec(&mut stream, &["PING"]).await;
-    assert_eq!(resp, RespValue::SimpleString("PONG".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"PONG")));
 }
 
 #[tokio::test]
@@ -75,7 +75,7 @@ async fn test_ping_with_message() {
 
     let mut stream = TcpStream::connect(addr).await.unwrap();
     let resp = exec(&mut stream, &["PING", "hello"]).await;
-    assert_eq!(resp, RespValue::SimpleString("hello".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"hello")));
 }
 
 #[tokio::test]
@@ -87,7 +87,7 @@ async fn test_set_and_get() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["SET", "name", "redis"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", "name"]).await;
     assert_eq!(
@@ -144,7 +144,7 @@ async fn test_set_with_ex_and_expire() {
 
     // SET with EX 1（1 秒后过期）
     let resp = exec(&mut stream, &["SET", "temp", "data", "EX", "1"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", "temp"]).await;
     assert_eq!(
@@ -215,7 +215,7 @@ async fn test_empty_key_and_value() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["SET", "", ""]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", ""]).await;
     assert_eq!(
@@ -234,7 +234,7 @@ async fn test_long_key() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["SET", &long_key, "val"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", &long_key]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("val"))));
@@ -272,7 +272,7 @@ async fn test_invalid_command() {
     let resp = exec(&mut stream, &["UNKNOWNCMD"]).await;
     assert_eq!(
         resp,
-        RespValue::Error("ERR unknown command 'UNKNOWNCMD'".to_string())
+        RespValue::Error(bytes::Bytes::from_static(b"ERR unknown command 'UNKNOWNCMD'"))
     );
 }
 
@@ -287,7 +287,7 @@ async fn test_wrong_number_of_args() {
     // SET 只有 key 没有 value
     let resp = exec(&mut stream, &["SET", "key"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("SET")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("SET")),
         "期望 SET 参数错误，得到 {:?}",
         resp
     );
@@ -309,7 +309,7 @@ async fn test_concurrent_clients() {
             let value = format!("value{}", i);
 
             let resp = exec(&mut stream, &["SET", &key, &value]).await;
-            assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+            assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
             let resp = exec(&mut stream, &["GET", &key]).await;
             assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from(value))));
@@ -384,15 +384,15 @@ async fn test_keys_scan_rename_type_persist_pexpire_pttl_dbsize_info() {
 
     // RENAME
     let resp = exec(&mut stream, &["RENAME", "hello", "hello2"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["GET", "hello2"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v1"))));
 
     // TYPE
     let resp = exec(&mut stream, &["TYPE", "hello2"]).await;
-    assert_eq!(resp, RespValue::SimpleString("string".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"string")));
     let resp = exec(&mut stream, &["TYPE", "missing"]).await;
-    assert_eq!(resp, RespValue::SimpleString("none".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"none")));
 
     // PEXPIRE + PTTL + PERSIST
     exec(&mut stream, &["SET", "temp", "v"]).await;
@@ -426,7 +426,7 @@ async fn test_keys_scan_rename_type_persist_pexpire_pttl_dbsize_info() {
             assert!(s.contains("redis_version"), "INFO 应包含 redis_version");
         }
         RespValue::SimpleString(s) => {
-            assert!(s.contains("redis_version"), "INFO 应包含 redis_version");
+            assert!(std::str::from_utf8(&s).unwrap().contains("redis_version"), "INFO 应包含 redis_version");
         }
         _ => panic!("期望 BulkString 或 SimpleString INFO, 得到 {:?}", resp),
     }
@@ -590,7 +590,7 @@ async fn test_pubsub_ping_in_subscribed_mode() {
     // 订阅模式下 PING
     send_cmd(&mut stream, &["PING"]).await;
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("PONG".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"PONG")));
 
     // 订阅模式下不允许普通命令
     send_cmd(&mut stream, &["GET", "k"]).await;
@@ -598,7 +598,7 @@ async fn test_pubsub_ping_in_subscribed_mode() {
     match resp {
         RespValue::Error(msg) => {
             assert!(
-                msg.contains("allowed in this context"),
+                std::str::from_utf8(&msg).unwrap().contains("allowed in this context"),
                 "错误信息应提示仅允许 pub/sub 命令"
             );
         }
@@ -616,17 +616,17 @@ async fn test_multi_exec() {
     // MULTI
     send_cmd(&mut stream, &["MULTI"]).await;
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // SET 入队
     send_cmd(&mut stream, &["SET", "a", "1"]).await;
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("QUEUED".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"QUEUED")));
 
     // SET 入队
     send_cmd(&mut stream, &["SET", "b", "2"]).await;
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("QUEUED".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"QUEUED")));
 
     // EXEC
     send_cmd(&mut stream, &["EXEC"]).await;
@@ -634,8 +634,8 @@ async fn test_multi_exec() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 2);
-            assert_eq!(arr[0], RespValue::SimpleString("OK".to_string()));
-            assert_eq!(arr[1], RespValue::SimpleString("OK".to_string()));
+            assert_eq!(arr[0], RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
+            assert_eq!(arr[1], RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
         }
         _ => panic!("期望 EXEC 结果数组, 得到 {:?}", resp),
     }
@@ -662,12 +662,12 @@ async fn test_multi_discard() {
 
     send_cmd(&mut stream, &["SET", "x", "1"]).await;
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("QUEUED".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"QUEUED")));
 
     // DISCARD
     send_cmd(&mut stream, &["DISCARD"]).await;
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 验证值未设置
     send_cmd(&mut stream, &["GET", "x"]).await;
@@ -689,7 +689,7 @@ async fn test_watch_exec_success() {
     // WATCH
     send_cmd(&mut stream, &["WATCH", "w"]).await;
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // MULTI → SET → EXEC（无其他连接修改，应成功）
     send_cmd(&mut stream, &["MULTI"]).await;
@@ -703,7 +703,7 @@ async fn test_watch_exec_success() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 1);
-            assert_eq!(arr[0], RespValue::SimpleString("OK".to_string()));
+            assert_eq!(arr[0], RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
         }
         _ => panic!("期望 EXEC 成功, 得到 {:?}", resp),
     }
@@ -770,7 +770,7 @@ async fn test_nested_multi_error() {
     let resp = recv_resp(&mut stream).await;
     match resp {
         RespValue::Error(msg) => {
-            assert!(msg.contains("nested"), "嵌套 MULTI 应报错");
+            assert!(std::str::from_utf8(&msg).unwrap().contains("nested"), "嵌套 MULTI 应报错");
         }
         _ => panic!("期望错误响应, 得到 {:?}", resp),
     }
@@ -787,7 +787,7 @@ async fn test_exec_without_multi_error() {
     let resp = recv_resp(&mut stream).await;
     match resp {
         RespValue::Error(msg) => {
-            assert!(msg.contains("without MULTI"), "EXEC without MULTI 应报错");
+            assert!(std::str::from_utf8(&msg).unwrap().contains("without MULTI"), "EXEC without MULTI 应报错");
         }
         _ => panic!("期望错误响应, 得到 {:?}", resp),
     }
@@ -803,7 +803,7 @@ async fn test_config_maxmemory() {
     // CONFIG SET maxmemory
     send_cmd(&mut stream, &["CONFIG", "SET", "maxmemory", "100"]).await;
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // CONFIG GET maxmemory
     send_cmd(&mut stream, &["CONFIG", "GET", "maxmemory"]).await;
@@ -861,19 +861,19 @@ async fn test_string_tail_commands_tcp() {
 
     // SETEX + GET
     let resp = exec(&mut stream, &["SETEX", "k1", "3600", "v1"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["GET", "k1"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v1"))));
 
     // PSETEX + GET
     let resp = exec(&mut stream, &["PSETEX", "k2", "3600000", "v2"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["GET", "k2"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v2"))));
 
     // GETSET
     let resp = exec(&mut stream, &["SET", "k3", "old"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["GETSET", "k3", "new"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("old"))));
     let resp = exec(&mut stream, &["GET", "k3"]).await;
@@ -881,7 +881,7 @@ async fn test_string_tail_commands_tcp() {
 
     // GETDEL
     let resp = exec(&mut stream, &["SET", "k4", "v4"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["GETDEL", "k4"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v4"))));
     let resp = exec(&mut stream, &["GET", "k4"]).await;
@@ -889,7 +889,7 @@ async fn test_string_tail_commands_tcp() {
 
     // GETEX PERSIST
     let resp = exec(&mut stream, &["SETEX", "k5", "3600", "v5"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["GETEX", "k5", "PERSIST"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v5"))));
     let resp = exec(&mut stream, &["TTL", "k5"]).await;
@@ -923,7 +923,7 @@ async fn test_string_tail_commands_tcp() {
 
     // SETRANGE
     let resp = exec(&mut stream, &["SET", "s", "Hello World"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["SETRANGE", "s", "6", "Redis"]).await;
     assert_eq!(resp, RespValue::Integer(11));
     let resp = exec(&mut stream, &["GET", "s"]).await;
@@ -944,7 +944,7 @@ async fn test_list_tail_commands_tcp() {
     let resp = exec(&mut stream, &["RPUSH", "list", "a", "b", "c"]).await;
     assert_eq!(resp, RespValue::Integer(3));
     let resp = exec(&mut stream, &["LSET", "list", "1", "x"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["LINDEX", "list", "1"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("x"))));
 
@@ -966,7 +966,7 @@ async fn test_list_tail_commands_tcp() {
     let resp = exec(&mut stream, &["RPUSH", "list3", "a", "b", "c", "d", "e"]).await;
     assert_eq!(resp, RespValue::Integer(5));
     let resp = exec(&mut stream, &["LTRIM", "list3", "1", "3"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["LLEN", "list3"]).await;
     assert_eq!(resp, RespValue::Integer(3));
 
@@ -1377,7 +1377,7 @@ async fn test_hll_commands_tcp() {
     let resp = exec(&mut stream, &["PFADD", "hll2", "c", "d", "e"]).await;
     assert_eq!(resp, RespValue::Integer(1));
     let resp = exec(&mut stream, &["PFMERGE", "merged", "hll", "hll2"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["PFCOUNT", "merged"]).await;
     match resp {
@@ -1483,11 +1483,11 @@ async fn test_select_db_isolation() {
 
     // 在 db 0 设置 key
     let resp = exec(&mut stream, &["SET", "mykey", "db0value"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 切换到 db 1
     let resp = exec(&mut stream, &["SELECT", "1"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // db 1 中不应该有 mykey
     let resp = exec(&mut stream, &["GET", "mykey"]).await;
@@ -1495,14 +1495,14 @@ async fn test_select_db_isolation() {
 
     // 在 db 1 设置同名 key
     let resp = exec(&mut stream, &["SET", "mykey", "db1value"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", "mykey"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("db1value"))));
 
     // 切换回 db 0，验证数据隔离
     let resp = exec(&mut stream, &["SELECT", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", "mykey"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("db0value"))));
@@ -1525,24 +1525,24 @@ async fn test_auth_required() {
     let resp = exec(&mut stream, &["GET", "key"]).await;
     assert_eq!(
         resp,
-        RespValue::Error("NOAUTH Authentication required.".to_string())
+        RespValue::Error(bytes::Bytes::from_static(b"NOAUTH Authentication required."))
     );
 
     // 未认证时 PING 应该成功
     let resp = exec(&mut stream, &["PING"]).await;
-    assert_eq!(resp, RespValue::SimpleString("PONG".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"PONG")));
 
     // 错误密码
     let resp = exec(&mut stream, &["AUTH", "wrong"]).await;
-    assert_eq!(resp, RespValue::Error("ERR invalid password".to_string()));
+    assert_eq!(resp, RespValue::Error(bytes::Bytes::from_static(b"ERR invalid password")));
 
     // 正确密码
     let resp = exec(&mut stream, &["AUTH", "secret"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 认证后 GET 应该成功
     let resp = exec(&mut stream, &["SET", "key", "value"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", "key"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("value"))));
@@ -1564,7 +1564,7 @@ async fn test_client_commands() {
 
     // CLIENT SETNAME
     let resp = exec(&mut stream, &["CLIENT", "SETNAME", "my-connection"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // CLIENT GETNAME
     let resp = exec(&mut stream, &["CLIENT", "GETNAME"]).await;
@@ -1594,7 +1594,7 @@ async fn test_quit_command() {
 
     // QUIT 应该返回 OK
     let resp = exec(&mut stream, &["QUIT"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 // ---------- 阶段 46 测试 ----------
@@ -1687,11 +1687,11 @@ async fn test_config_rewrite_resetstat() {
 
     // CONFIG REWRITE
     let resp = exec(&mut stream, &["CONFIG", "REWRITE"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // CONFIG RESETSTAT
     let resp = exec(&mut stream, &["CONFIG", "RESETSTAT"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -1709,7 +1709,7 @@ async fn test_reset_command() {
 
     // 认证
     let resp = exec(&mut stream, &["AUTH", "secret"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 设置客户端名称
     exec(&mut stream, &["CLIENT", "SETNAME", "test-client"]).await;
@@ -1719,11 +1719,11 @@ async fn test_reset_command() {
 
     // RESET
     let resp = exec(&mut stream, &["RESET"]).await;
-    assert_eq!(resp, RespValue::SimpleString("RESET".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"RESET")));
 
     // RESET 后认证应被清除，需要重新认证
     let resp = exec(&mut stream, &["AUTH", "secret"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // RESET 后客户端名称应被清除
     let resp = exec(&mut stream, &["CLIENT", "GETNAME"]).await;
@@ -1774,7 +1774,7 @@ async fn test_monitor_command() {
     // monitor 客户端
     let mut monitor_stream = TcpStream::connect(addr).await.unwrap();
     let resp = exec(&mut monitor_stream, &["MONITOR"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 另一个客户端执行命令
     let mut cmd_stream = TcpStream::connect(addr).await.unwrap();
@@ -1802,8 +1802,8 @@ async fn test_monitor_command() {
 
     match resp {
         RespValue::SimpleString(s) => {
-            assert!(s.contains("SET"), "MONITOR 消息应包含 SET 命令: {}", s);
-            assert!(s.contains("mon_key"), "MONITOR 消息应包含 key: {}", s);
+            assert!(std::str::from_utf8(&s).unwrap().contains("SET"), "MONITOR 消息应包含 SET 命令: {}", std::str::from_utf8(&s).unwrap());
+            assert!(std::str::from_utf8(&s).unwrap().contains("mon_key"), "MONITOR 消息应包含 key: {}", std::str::from_utf8(&s).unwrap());
         }
         other => panic!("期望 SimpleString，得到 {:?}", other),
     }
@@ -1834,7 +1834,7 @@ async fn test_config_keyspace_events() {
         &["CONFIG", "SET", "notify-keyspace-events", "KEA"],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 验证配置已生效
     let resp = exec(&mut stream, &["CONFIG", "GET", "notify-keyspace-events"]).await;
@@ -1870,7 +1870,7 @@ async fn test_config_aof_use_rdb_preamble() {
         &["CONFIG", "SET", "aof-use-rdb-preamble", "yes"],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["CONFIG", "GET", "aof-use-rdb-preamble"]).await;
     match resp {
@@ -1894,7 +1894,7 @@ async fn test_keyspace_notification_set() {
         &["CONFIG", "SET", "notify-keyspace-events", "KE$"],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 订阅 keyspace 频道
     let mut sub_stream = TcpStream::connect(addr).await.unwrap();
@@ -1912,7 +1912,7 @@ async fn test_keyspace_notification_set() {
     // 另一个客户端执行 SET
     let mut cmd_stream = TcpStream::connect(addr).await.unwrap();
     let resp = exec(&mut cmd_stream, &["SET", "mykey", "myval"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 订阅客户端应收到消息
     let parser = RespParser::new();
@@ -1960,7 +1960,7 @@ async fn test_keyspace_notification_keyevent() {
         &["CONFIG", "SET", "notify-keyspace-events", "E$"],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 订阅 keyevent 频道
     let mut sub_stream = TcpStream::connect(addr).await.unwrap();
@@ -1978,7 +1978,7 @@ async fn test_keyspace_notification_keyevent() {
     // 另一个客户端执行 SET
     let mut cmd_stream = TcpStream::connect(addr).await.unwrap();
     let resp = exec(&mut cmd_stream, &["SET", "testkey", "testval"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 订阅客户端应收到消息
     let parser = RespParser::new();
@@ -2039,7 +2039,7 @@ async fn test_aof_rdb_preamble_integration() {
 
     // 写入数据
     let resp = exec(&mut stream, &["SET", "mix_key1", "val1"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["LPUSH", "mix_list", "a", "b"]).await;
     assert_eq!(resp, RespValue::Integer(2));
 
@@ -2049,7 +2049,7 @@ async fn test_aof_rdb_preamble_integration() {
         &["CONFIG", "SET", "aof-use-rdb-preamble", "yes"],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["BGREWRITEAOF"]).await;
     assert!(
@@ -2097,7 +2097,7 @@ async fn test_xgroup_create_and_xreadgroup() {
 
     // 创建消费者组，从头开始读
     let resp = exec(&mut stream, &["XGROUP", "CREATE", "mystream", "grp1", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // XREADGROUP 读取
     let resp = exec(
@@ -2285,7 +2285,7 @@ async fn test_xgroup_setid() {
 
     // SETID 回到 0，这样可以重新读取
     let resp = exec(&mut stream, &["XGROUP", "SETID", "s5", "g1", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(
         &mut stream,
@@ -2465,7 +2465,7 @@ async fn test_xgroup_create_mkstream() {
         &["XGROUP", "CREATE", "newstream", "g1", "$", "MKSTREAM"],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 验证 stream 已创建
     let resp = exec(&mut stream, &["XLEN", "newstream"]).await;
@@ -2482,11 +2482,11 @@ async fn test_wrongtype_set_then_lpush() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["SET", "mixed", "value"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["LPUSH", "mixed", "item"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("WRONGTYPE")),
         "期望 WRONGTYPE 错误，得到 {:?}",
         resp
     );
@@ -2504,7 +2504,7 @@ async fn test_wrongtype_lpush_then_get() {
 
     let resp = exec(&mut stream, &["GET", "listkey"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("WRONGTYPE")),
         "期望 WRONGTYPE 错误，得到 {:?}",
         resp
     );
@@ -2522,7 +2522,7 @@ async fn test_wrongtype_hset_then_sadd() {
 
     let resp = exec(&mut stream, &["SADD", "hashkey", "member"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("WRONGTYPE")),
         "期望 WRONGTYPE 错误，得到 {:?}",
         resp
     );
@@ -2537,7 +2537,7 @@ async fn test_set_missing_args() {
 
     let resp = exec(&mut stream, &["SET", "key"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("SET") && e.contains("至少")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("SET") && std::str::from_utf8(e).unwrap().contains("至少")),
         "期望 SET 参数错误，得到 {:?}",
         resp
     );
@@ -2552,7 +2552,7 @@ async fn test_get_extra_args() {
 
     let resp = exec(&mut stream, &["GET", "key", "extra"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("GET") && e.contains("参数")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("GET") && std::str::from_utf8(e).unwrap().contains("参数")),
         "期望 GET 参数错误，得到 {:?}",
         resp
     );
@@ -2567,7 +2567,7 @@ async fn test_expire_missing_seconds() {
 
     let resp = exec(&mut stream, &["EXPIRE", "key"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("EXPIRE") && e.contains("参数")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("EXPIRE") && std::str::from_utf8(e).unwrap().contains("参数")),
         "期望 EXPIRE 参数错误，得到 {:?}",
         resp
     );
@@ -2603,7 +2603,7 @@ async fn test_ttl_precision_px() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["SET", "pxkey", "pxval", "PX", "500"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 立即 GET 应该有值
     let resp = exec(&mut stream, &["GET", "pxkey"]).await;
@@ -2634,7 +2634,7 @@ async fn test_empty_key_and_value_explicit() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["SET", "", ""]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", ""]).await;
     assert_eq!(
@@ -2652,7 +2652,7 @@ async fn test_crlf_in_value() {
 
     let value = "line1\r\nline2\r\nline3";
     let resp = exec(&mut stream, &["SET", "crlfkey", value]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", "crlfkey"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from(value))));
@@ -2699,7 +2699,7 @@ async fn test_rename_success_and_missing() {
 
     exec(&mut stream, &["SET", "src", "value"]).await;
     let resp = exec(&mut stream, &["RENAME", "src", "dst"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", "dst"]).await;
     assert_eq!(
@@ -2712,7 +2712,7 @@ async fn test_rename_success_and_missing() {
 
     let resp = exec(&mut stream, &["RENAME", "nonexistent", "dst2"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("不存在") || e.contains("过期")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("不存在") || std::str::from_utf8(e).unwrap().contains("过期")),
         "期望 RENAME 不存在的 key 报错，得到 {:?}",
         resp
     );
@@ -2728,31 +2728,31 @@ async fn test_type_various() {
     // string
     exec(&mut stream, &["SET", "t_str", "v"]).await;
     let resp = exec(&mut stream, &["TYPE", "t_str"]).await;
-    assert_eq!(resp, RespValue::SimpleString("string".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"string")));
 
     // list
     exec(&mut stream, &["LPUSH", "t_list", "v"]).await;
     let resp = exec(&mut stream, &["TYPE", "t_list"]).await;
-    assert_eq!(resp, RespValue::SimpleString("list".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"list")));
 
     // hash
     exec(&mut stream, &["HSET", "t_hash", "f", "v"]).await;
     let resp = exec(&mut stream, &["TYPE", "t_hash"]).await;
-    assert_eq!(resp, RespValue::SimpleString("hash".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"hash")));
 
     // set
     exec(&mut stream, &["SADD", "t_set", "m"]).await;
     let resp = exec(&mut stream, &["TYPE", "t_set"]).await;
-    assert_eq!(resp, RespValue::SimpleString("set".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"set")));
 
     // zset
     exec(&mut stream, &["ZADD", "t_zset", "1", "m"]).await;
     let resp = exec(&mut stream, &["TYPE", "t_zset"]).await;
-    assert_eq!(resp, RespValue::SimpleString("zset".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"zset")));
 
     // none
     let resp = exec(&mut stream, &["TYPE", "t_none"]).await;
-    assert_eq!(resp, RespValue::SimpleString("none".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"none")));
 }
 
 // ---------- 并发压力测试 ----------
@@ -2794,7 +2794,7 @@ async fn test_concurrent_set_get() {
                         }
                     }
                 };
-                assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+                assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
                 // GET
                 let cmd = format!("*2\r\n$3\r\nGET\r\n${}\r\n{}\r\n", key.len(), key);
@@ -2846,7 +2846,7 @@ async fn test_concurrent_incr() {
                 }
             }
         };
-        assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+        assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     }
 
     let mut handles = vec![];
@@ -3007,7 +3007,7 @@ async fn test_concurrent_mixed_operations() {
                             }
                         }
                     };
-                    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+                    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
                 }
             }));
         }
@@ -3066,20 +3066,20 @@ async fn test_multi_exec_basic() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["MULTI"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["SET", "a", "1"]).await;
-    assert_eq!(resp, RespValue::SimpleString("QUEUED".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"QUEUED")));
 
     let resp = exec(&mut stream, &["SET", "b", "2"]).await;
-    assert_eq!(resp, RespValue::SimpleString("QUEUED".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"QUEUED")));
 
     let resp = exec(&mut stream, &["EXEC"]).await;
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 2);
-            assert_eq!(arr[0], RespValue::SimpleString("OK".to_string()));
-            assert_eq!(arr[1], RespValue::SimpleString("OK".to_string()));
+            assert_eq!(arr[0], RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
+            assert_eq!(arr[1], RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
         }
         _ => panic!("期望 EXEC 返回数组, 得到 {:?}", resp),
     }
@@ -3099,7 +3099,7 @@ async fn test_multi_empty() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["MULTI"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["EXEC"]).await;
     match resp {
@@ -3146,7 +3146,7 @@ async fn test_incr_not_integer() {
 
     let resp = exec(&mut stream, &["INCR", "notnum"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("整数") || e.contains("integer")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("整数") || std::str::from_utf8(e).unwrap().contains("integer")),
         "期望 INCR 非整数报错，得到 {:?}",
         resp
     );
@@ -3160,7 +3160,7 @@ async fn test_mset_mget() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["MSET", "a", "1", "b", "2", "c", "3"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["MGET", "a", "b", "c"]).await;
     match resp {
@@ -3212,7 +3212,7 @@ async fn test_dbsize_and_flushdb() {
     }
 
     let resp = exec(&mut stream, &["FLUSHDB"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["DBSIZE"]).await;
     match resp {
@@ -3231,13 +3231,13 @@ async fn test_select_db() {
     exec(&mut stream, &["SET", "selkey", "selval"]).await;
 
     let resp = exec(&mut stream, &["SELECT", "1"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", "selkey"]).await;
     assert_eq!(resp, RespValue::BulkString(None));
 
     let resp = exec(&mut stream, &["SELECT", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", "selkey"]).await;
     assert_eq!(
@@ -3293,7 +3293,7 @@ async fn test_persist() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["SET", "perkey", "perval", "EX", "100"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["TTL", "perkey"]).await;
     match resp {
@@ -3345,7 +3345,7 @@ async fn test_replication_basic() {
     // 连接 master 写入数据
     let mut master_stream = TcpStream::connect(master_addr).await.unwrap();
     let resp = exec(&mut master_stream, &["SET", "key1", "value1"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // replica 执行 REPLICAOF
     let mut replica_stream = TcpStream::connect(replica_addr).await.unwrap();
@@ -3354,7 +3354,7 @@ async fn test_replication_basic() {
         &["REPLICAOF", "127.0.0.1", &master_port.to_string()],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 等待同步完成：轮询 INFO replication 检查 master_link_status:up
     let mut synced = false;
@@ -3377,7 +3377,7 @@ async fn test_replication_basic() {
 
     // master 再写入一条数据，验证实时复制
     let resp = exec(&mut master_stream, &["SET", "key2", "value2"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     sleep(Duration::from_millis(200)).await;
     let resp = exec(&mut replica_stream, &["GET", "key2"]).await;
@@ -3581,7 +3581,7 @@ async fn test_migrate_to_target() {
 
     // 在源节点写入 key
     let resp = exec(&mut source_stream, &["SET", "mig_key", "mig_val"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // MIGRATE 到目标节点
     let resp = exec(
@@ -3597,7 +3597,7 @@ async fn test_migrate_to_target() {
         ],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 源节点上 key 应已被删除
     let resp = exec(&mut source_stream, &["GET", "mig_key"]).await;
@@ -3648,7 +3648,7 @@ async fn test_migrate_copy_mode() {
 
     // 在源节点写入 key
     let resp = exec(&mut source_stream, &["SET", "copy_key", "copy_val"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // COPY 模式 MIGRATE
     let resp = exec(
@@ -3665,7 +3665,7 @@ async fn test_migrate_copy_mode() {
         ],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 源节点上 key 应仍然存在
     let resp = exec(&mut source_stream, &["GET", "copy_key"]).await;
@@ -4212,7 +4212,7 @@ async fn test_acl_setuser_getuser() {
         ],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // GETUSER 查询用户
     let resp = exec(&mut stream, &["ACL", "GETUSER", "alice"]).await;
@@ -4242,7 +4242,7 @@ async fn test_acl_deluser() {
 
     // 创建用户
     let resp = exec(&mut stream, &["ACL", "SETUSER", "bob", "on", "nopass"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 删除用户
     let resp = exec(&mut stream, &["ACL", "DELUSER", "bob"]).await;
@@ -4291,7 +4291,7 @@ async fn test_acl_whoami() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["ACL", "WHOAMI"]).await;
-    assert_eq!(resp, RespValue::SimpleString("default".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"default")));
 }
 
 #[tokio::test]
@@ -4317,27 +4317,27 @@ async fn test_acl_auth() {
         ],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 连接 1：正确密码认证
     let mut conn1 = TcpStream::connect(addr).await.unwrap();
     let resp = exec(&mut conn1, &["AUTH", "carol", "mypassword"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 连接 2：错误密码
     let mut conn2 = TcpStream::connect(addr).await.unwrap();
     let resp = exec(&mut conn2, &["AUTH", "carol", "wrongpass"]).await;
-    assert_eq!(resp, RespValue::Error("ERR invalid password".to_string()));
+    assert_eq!(resp, RespValue::Error(bytes::Bytes::from_static(b"ERR invalid password")));
 
     // 连接 3：不存在的用户
     let mut conn3 = TcpStream::connect(addr).await.unwrap();
     let resp = exec(&mut conn3, &["AUTH", "nobody", "pass"]).await;
-    assert_eq!(resp, RespValue::Error("ERR invalid password".to_string()));
+    assert_eq!(resp, RespValue::Error(bytes::Bytes::from_static(b"ERR invalid password")));
 
     // 连接 4：default 用户是 nopass，任意密码都能通过
     let mut conn4 = TcpStream::connect(addr).await.unwrap();
     let resp = exec(&mut conn4, &["AUTH", "default", "anything"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 // ---------- Transaction 边界测试 ----------
@@ -4399,12 +4399,12 @@ async fn test_unwatch() {
     // WATCH
     send_cmd(&mut stream, &["WATCH", "k"]).await;
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // UNWATCH 取消监视
     send_cmd(&mut stream, &["UNWATCH"]).await;
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // MULTI → SET → EXEC（应成功，因为 UNWATCH 取消了监视）
     send_cmd(&mut stream, &["MULTI"]).await;
@@ -4418,7 +4418,7 @@ async fn test_unwatch() {
     match resp {
         RespValue::Array(arr) => {
             assert_eq!(arr.len(), 1);
-            assert_eq!(arr[0], RespValue::SimpleString("OK".to_string()));
+            assert_eq!(arr[0], RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
         }
         _ => panic!("期望 EXEC 成功, 得到 {:?}", resp),
     }
@@ -4876,7 +4876,7 @@ async fn test_script_flush() {
 
     // FLUSH
     let resp = exec(&mut stream, &["SCRIPT", "FLUSH"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // 确认已清空
     let resp = exec(&mut stream, &["SCRIPT", "EXISTS", &sha1]).await;
@@ -4915,12 +4915,12 @@ async fn test_eval_error() {
     match resp {
         RespValue::Error(e) => {
             assert!(
-                e.contains("ERR")
-                    || e.contains("syntax")
-                    || e.contains("eval")
-                    || e.contains("script"),
+                std::str::from_utf8(&e).unwrap().contains("ERR")
+                    || std::str::from_utf8(&e).unwrap().contains("syntax")
+                    || std::str::from_utf8(&e).unwrap().contains("eval")
+                    || std::str::from_utf8(&e).unwrap().contains("script"),
                 "错误信息应包含脚本错误提示: {}",
-                e
+                std::str::from_utf8(&e).unwrap()
             );
         }
         _ => panic!("期望 Error，得到 {:?}", resp),
@@ -4957,7 +4957,7 @@ async fn test_dbsize_after_operations() {
 
     for i in 0..5 {
         let resp = exec(&mut stream, &["SET", &format!("key{}", i), "val"]).await;
-        assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+        assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     }
 
     let resp = exec(&mut stream, &["DBSIZE"]).await;
@@ -4990,7 +4990,7 @@ async fn test_dump_restore() {
     }
     stream.write_all(&header).await.unwrap();
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", "dst"]).await;
     assert_eq!(
@@ -5011,8 +5011,8 @@ async fn test_debug_object() {
     let resp = exec(&mut stream, &["DEBUG", "OBJECT", "dbg"]).await;
     match resp {
         RespValue::SimpleString(s) => {
-            assert!(s.contains("refcount:"), "DEBUG OBJECT 应包含 refcount");
-            assert!(s.contains("encoding:"), "DEBUG OBJECT 应包含 encoding");
+            assert!(std::str::from_utf8(&s).unwrap().contains("refcount:"), "DEBUG OBJECT 应包含 refcount");
+            assert!(std::str::from_utf8(&s).unwrap().contains("encoding:"), "DEBUG OBJECT 应包含 encoding");
         }
         _ => panic!("期望 SimpleString，得到 {:?}", resp),
     }
@@ -5042,7 +5042,7 @@ async fn test_bgrewriteaof() {
 
     let resp = exec(&mut stream, &["BGREWRITEAOF"]).await;
     assert!(
-        matches!(resp, RespValue::SimpleString(ref s) if s.contains("Background") || s == "OK"),
+        matches!(resp, RespValue::SimpleString(ref s) if std::str::from_utf8(s).unwrap().contains("Background") || s == "OK"),
         "BGREWRITEAOF 应返回 SimpleString，得到 {:?}",
         resp
     );
@@ -5200,7 +5200,7 @@ async fn test_client_tracking_and_caching() {
 
     // CLIENT TRACKING ON 应返回 OK
     let resp = exec(&mut stream, &["CLIENT", "TRACKING", "ON"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // CLIENT TRACKINGINFO 应包含 on
     let resp = exec(&mut stream, &["CLIENT", "TRACKINGINFO"]).await;
@@ -5216,15 +5216,15 @@ async fn test_client_tracking_and_caching() {
 
     // CLIENT CACHING YES 应返回 OK
     let resp = exec(&mut stream, &["CLIENT", "CACHING", "YES"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // CLIENT CACHING NO 应返回 OK
     let resp = exec(&mut stream, &["CLIENT", "CACHING", "NO"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // CLIENT TRACKING OFF 应返回 OK
     let resp = exec(&mut stream, &["CLIENT", "TRACKING", "OFF"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 // ---------- String 命令边界条件测试 ----------
@@ -5238,7 +5238,7 @@ async fn test_set_nx_xx_get() {
 
     // SET NX on non-existent key → OK
     let resp = exec(&mut stream, &["SET", "nxkey", "val", "NX"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // SET NX on existing key → nil
     let resp = exec(&mut stream, &["SET", "nxkey", "new", "NX"]).await;
@@ -5248,7 +5248,7 @@ async fn test_set_nx_xx_get() {
 
     // SET XX on existing key → OK
     let resp = exec(&mut stream, &["SET", "nxkey", "updated", "XX"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // SET XX on non-existent key → nil
     let resp = exec(&mut stream, &["SET", "xxkey", "val", "XX"]).await;
@@ -5308,14 +5308,14 @@ async fn test_set_ex_px_exat_pxat() {
 
     // SET EX 1 → expires after 1.5s
     let resp = exec(&mut stream, &["SET", "exkey", "v1", "EX", "1"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     sleep(Duration::from_millis(1500)).await;
     let resp = exec(&mut stream, &["GET", "exkey"]).await;
     assert_eq!(resp, RespValue::BulkString(None));
 
     // SET PX 100 → expires after 200ms
     let resp = exec(&mut stream, &["SET", "pxkey", "v2", "PX", "100"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     sleep(Duration::from_millis(200)).await;
     let resp = exec(&mut stream, &["GET", "pxkey"]).await;
     assert_eq!(resp, RespValue::BulkString(None));
@@ -5327,7 +5327,7 @@ async fn test_set_ex_px_exat_pxat() {
         &["SET", "exatkey", "v3", "EXAT", &future_ts.to_string()],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["GET", "exatkey"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("v3"))));
     let resp = exec(&mut stream, &["TTL", "exatkey"]).await;
@@ -5338,7 +5338,7 @@ async fn test_set_ex_px_exat_pxat() {
 
     // SET PXAT with past timestamp → key immediately expired
     let resp = exec(&mut stream, &["SET", "pxatkey", "v4", "PXAT", "1"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["GET", "pxatkey"]).await;
     assert_eq!(resp, RespValue::BulkString(None));
 }
@@ -5352,11 +5352,11 @@ async fn test_set_keepttl() {
 
     // Set key with TTL
     let resp = exec(&mut stream, &["SET", "ktl", "old", "EX", "100"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // SET KEEPTTL should preserve TTL
     let resp = exec(&mut stream, &["SET", "ktl", "new", "KEEPTTL"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["GET", "ktl"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(bytes::Bytes::from("new"))));
@@ -5369,7 +5369,7 @@ async fn test_set_keepttl() {
 
     // SET without KEEPTTL should clear TTL
     let resp = exec(&mut stream, &["SET", "ktl", "no_ttl"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["TTL", "ktl"]).await;
     assert_eq!(resp, RespValue::Integer(-1));
@@ -5633,7 +5633,7 @@ async fn test_mset_mget_large() {
     }
 
     let resp = exec(&mut stream, &mset_args).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // MGET all 50 keys
     let mut mget_args = vec!["MGET"];
@@ -5709,7 +5709,7 @@ async fn test_wrongtype_string_ops() {
     // GET on list → WRONGTYPE
     let resp = exec(&mut stream, &["GET", "listkey"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("WRONGTYPE")),
         "期望 WRONGTYPE 错误，得到 {:?}",
         resp
     );
@@ -5717,7 +5717,7 @@ async fn test_wrongtype_string_ops() {
     // APPEND on list → WRONGTYPE
     let resp = exec(&mut stream, &["APPEND", "listkey", "val"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("WRONGTYPE")),
         "期望 WRONGTYPE 错误，得到 {:?}",
         resp
     );
@@ -5725,7 +5725,7 @@ async fn test_wrongtype_string_ops() {
     // INCR on list → WRONGTYPE
     let resp = exec(&mut stream, &["INCR", "listkey"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("WRONGTYPE")),
         "期望 WRONGTYPE 错误，得到 {:?}",
         resp
     );
@@ -5733,7 +5733,7 @@ async fn test_wrongtype_string_ops() {
     // INCRBYFLOAT on list → WRONGTYPE
     let resp = exec(&mut stream, &["INCRBYFLOAT", "listkey", "1.0"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("WRONGTYPE")),
         "期望 WRONGTYPE 错误，得到 {:?}",
         resp
     );
@@ -5741,7 +5741,7 @@ async fn test_wrongtype_string_ops() {
     // SETRANGE on list → WRONGTYPE
     let resp = exec(&mut stream, &["SETRANGE", "listkey", "0", "val"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("WRONGTYPE")),
         "期望 WRONGTYPE 错误，得到 {:?}",
         resp
     );
@@ -5749,7 +5749,7 @@ async fn test_wrongtype_string_ops() {
     // GETRANGE on list → WRONGTYPE
     let resp = exec(&mut stream, &["GETRANGE", "listkey", "0", "3"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("WRONGTYPE")),
         "期望 WRONGTYPE 错误，得到 {:?}",
         resp
     );
@@ -5757,7 +5757,7 @@ async fn test_wrongtype_string_ops() {
     // STRLEN on list → WRONGTYPE
     let resp = exec(&mut stream, &["STRLEN", "listkey"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("WRONGTYPE")),
         "期望 WRONGTYPE 错误，得到 {:?}",
         resp
     );
@@ -5765,7 +5765,7 @@ async fn test_wrongtype_string_ops() {
     // GETEX on list → WRONGTYPE
     let resp = exec(&mut stream, &["GETEX", "listkey", "EX", "10"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("WRONGTYPE")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("WRONGTYPE")),
         "期望 WRONGTYPE 错误，得到 {:?}",
         resp
     );
@@ -6085,7 +6085,7 @@ async fn test_bitcount_range() {
 
     // SET key "foobar"
     let resp = exec(&mut stream, &["SET", "key", "foobar"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // BITCOUNT key -> 总位数 = 26
     let resp = exec(&mut stream, &["BITCOUNT", "key"]).await;
@@ -6381,13 +6381,13 @@ async fn test_bitop_and_or_xor_not() {
         .await
         .unwrap();
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     stream
         .write_all(b"*3\r\n$3\r\nSET\r\n$1\r\nb\r\n$2\r\n\x0F\xF0\r\n")
         .await
         .unwrap();
     let resp = recv_resp(&mut stream).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // BITOP AND dest a b
     let resp = exec(&mut stream, &["BITOP", "AND", "dest", "a", "b"]).await;
@@ -6435,7 +6435,7 @@ async fn test_rename_nonexistent() {
 
     let resp = exec(&mut stream, &["RENAME", "nonexistent", "newkey"]).await;
     assert!(
-        matches!(resp, RespValue::Error(ref e) if e.contains("键不存在")),
+        matches!(resp, RespValue::Error(ref e) if std::str::from_utf8(e).unwrap().contains("键不存在")),
         "期望键不存在错误，得到 {:?}",
         resp
     );
@@ -6480,23 +6480,23 @@ async fn test_type_all_types() {
 
     exec(&mut stream, &["SET", "type_str", "v"]).await;
     let resp = exec(&mut stream, &["TYPE", "type_str"]).await;
-    assert_eq!(resp, RespValue::SimpleString("string".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"string")));
 
     exec(&mut stream, &["LPUSH", "type_list", "v"]).await;
     let resp = exec(&mut stream, &["TYPE", "type_list"]).await;
-    assert_eq!(resp, RespValue::SimpleString("list".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"list")));
 
     exec(&mut stream, &["HSET", "type_hash", "f", "v"]).await;
     let resp = exec(&mut stream, &["TYPE", "type_hash"]).await;
-    assert_eq!(resp, RespValue::SimpleString("hash".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"hash")));
 
     exec(&mut stream, &["SADD", "type_set", "m"]).await;
     let resp = exec(&mut stream, &["TYPE", "type_set"]).await;
-    assert_eq!(resp, RespValue::SimpleString("set".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"set")));
 
     exec(&mut stream, &["ZADD", "type_zset", "1", "m"]).await;
     let resp = exec(&mut stream, &["TYPE", "type_zset"]).await;
-    assert_eq!(resp, RespValue::SimpleString("zset".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"zset")));
 }
 
 #[tokio::test]
@@ -6615,7 +6615,7 @@ async fn test_pfadd_pfcount_pfmerge() {
     exec(&mut stream, &["PFADD", "key1", "x", "y"]).await;
     exec(&mut stream, &["PFADD", "key2", "y", "z"]).await;
     let resp = exec(&mut stream, &["PFMERGE", "dst", "key1", "key2"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
     let resp = exec(&mut stream, &["PFCOUNT", "dst"]).await;
     assert_eq!(resp, RespValue::Integer(3));
 }
@@ -7134,7 +7134,7 @@ async fn test_xgroup_lifecycle() {
     );
 
     let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["XGROUP", "DESTROY", "s", "g"]).await;
     assert_eq!(resp, RespValue::Integer(1));
@@ -7292,7 +7292,7 @@ async fn test_flushdb() {
 
     exec(&mut stream, &["SET", "key", "val"]).await;
     let resp = exec(&mut stream, &["FLUSHDB"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["DBSIZE"]).await;
     assert_eq!(resp, RespValue::Integer(0));
@@ -7322,7 +7322,7 @@ async fn test_function_load_list() {
 
     let code = "#!lua name=mylib\nredis.register_function('f1', function(k, a) return 1 end)\n";
     let resp = exec(&mut stream, &["FUNCTION", "LOAD", code]).await;
-    assert_eq!(resp, RespValue::SimpleString("mylib".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"mylib")));
 
     let resp = exec(&mut stream, &["FUNCTION", "LIST"]).await;
     match resp {
@@ -7378,7 +7378,7 @@ async fn test_client_getname_setname() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["CLIENT", "SETNAME", "myconn"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["CLIENT", "GETNAME"]).await;
     assert_eq!(resp, RespValue::BulkString(Some(Bytes::from("myconn"))));
@@ -7421,7 +7421,7 @@ async fn test_select_basic() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["SELECT", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -7435,9 +7435,9 @@ async fn test_module_load_unload() {
     match resp {
         RespValue::Error(msg) => {
             assert!(
-                msg.contains("Module loading is not supported"),
+                std::str::from_utf8(&msg).unwrap().contains("Module loading is not supported"),
                 "MODULE LOAD 错误信息不符: {}",
-                msg
+                std::str::from_utf8(&msg).unwrap()
             );
         }
         other => panic!("期望 Error，得到 {:?}", other),
@@ -7447,9 +7447,9 @@ async fn test_module_load_unload() {
     match resp {
         RespValue::Error(msg) => {
             assert!(
-                msg.contains("No such module"),
+                std::str::from_utf8(&msg).unwrap().contains("No such module"),
                 "MODULE UNLOAD 错误信息不符: {}",
-                msg
+                std::str::from_utf8(&msg).unwrap()
             );
         }
         other => panic!("期望 Error，得到 {:?}", other),
@@ -7464,7 +7464,7 @@ async fn test_config_rewrite_resetstat_basic() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["CONFIG", "RESETSTAT"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -7481,7 +7481,7 @@ async fn test_slowlog_len_reset() {
     }
 
     let resp = exec(&mut stream, &["SLOWLOG", "RESET"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -7544,7 +7544,7 @@ async fn test_reset_command_basic() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["RESET"]).await;
-    assert_eq!(resp, RespValue::SimpleString("RESET".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"RESET")));
 }
 
 // ---------- Sorted Set 高级命令测试 ----------
@@ -7767,10 +7767,10 @@ async fn test_client_pause_unpause() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["CLIENT", "PAUSE", "100"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["CLIENT", "UNPAUSE"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -7781,7 +7781,7 @@ async fn test_client_reply_off() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["CLIENT", "REPLY", "OFF"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -7792,7 +7792,7 @@ async fn test_client_no_evict() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["CLIENT", "NO-EVICT", "ON"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -7803,7 +7803,7 @@ async fn test_client_no_touch() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["CLIENT", "NO-TOUCH", "ON"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -7814,10 +7814,10 @@ async fn test_client_tracking_on_off() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["CLIENT", "TRACKING", "ON"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["CLIENT", "TRACKING", "OFF"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -7844,7 +7844,7 @@ async fn test_config_get_set_maxmemory() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["CONFIG", "SET", "maxmemory", "104857600"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["CONFIG", "GET", "maxmemory"]).await;
     match resp {
@@ -7871,7 +7871,7 @@ async fn test_debug_set_active_expire() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["DEBUG", "SET-ACTIVE-EXPIRE", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -8018,7 +8018,7 @@ async fn test_xinfo_groups_basic() {
 
     exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
     let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["XINFO", "GROUPS", "s"]).await;
     match resp {
@@ -8043,7 +8043,7 @@ async fn test_xreadgroup_basic() {
 
     exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
     let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(
         &mut stream,
@@ -8086,7 +8086,7 @@ async fn test_xack_basic() {
 
     exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
     let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(
         &mut stream,
@@ -8131,7 +8131,7 @@ async fn test_xclaim_basic() {
 
     exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
     let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(
         &mut stream,
@@ -8189,7 +8189,7 @@ async fn test_xpending_basic() {
 
     exec(&mut stream, &["XADD", "s", "*", "f", "v"]).await;
     let resp = exec(&mut stream, &["XGROUP", "CREATE", "s", "g", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(
         &mut stream,
@@ -8355,10 +8355,10 @@ async fn test_acl_save_load() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["ACL", "SAVE"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["ACL", "LOAD"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -8370,7 +8370,7 @@ async fn test_acl_dryrun() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["ACL", "DRYRUN", "default", "GET", "key"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -8381,7 +8381,7 @@ async fn test_function_flush_stats() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["FUNCTION", "FLUSH"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["FUNCTION", "STATS"]).await;
     match resp {
@@ -8830,7 +8830,7 @@ async fn test_expireat_basic() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["SET", "key", "val"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let future_ts = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -8857,7 +8857,7 @@ async fn test_pexpireat_basic() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["SET", "key", "val"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let future_ms = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -8884,7 +8884,7 @@ async fn test_renamenx_basic() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["SET", "key1", "val"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["RENAMENX", "key1", "key2"]).await;
     assert_eq!(resp, RespValue::Integer(1));
@@ -8901,7 +8901,7 @@ async fn test_move_basic() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["SET", "key", "val"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     let resp = exec(&mut stream, &["MOVE", "key", "1"]).await;
     assert_eq!(resp, RespValue::Integer(1));
@@ -8915,7 +8915,7 @@ async fn test_debug_sleep() {
     let mut stream = TcpStream::connect(addr).await.unwrap();
 
     let resp = exec(&mut stream, &["DEBUG", "SLEEP", "0"]).await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 }
 
 #[tokio::test]
@@ -8938,7 +8938,7 @@ async fn test_xautoclaim_basic() {
         &["XGROUP", "CREATE", "stream", "g1", "0", "MKSTREAM"],
     )
     .await;
-    assert_eq!(resp, RespValue::SimpleString("OK".to_string()));
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
 
     // XREADGROUP (c1 读取，消息进入 pending)
     let resp = exec(

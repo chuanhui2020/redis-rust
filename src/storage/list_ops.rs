@@ -20,15 +20,14 @@ impl StorageEngine {
     /// 与 Redis 7 行为一致。
     pub fn lpush(&self, key: &str, values: Vec<Bytes>) -> Result<usize> {
         self.evict_if_needed()?;
-        let db = self.db();
         let len = {
             let mut map = self.write_shard(key)?;
 
-            self.check_and_remove_expired(&db, &mut map, key);
+            self.check_and_remove_expired(&mut map, key);
             match map.get_mut(key) {
                 Some(v) => {
-                    Self::check_list_type(v)?;
-                    let list = Self::as_list_mut(v).unwrap();
+                    Self::check_list_type(&v.value)?;
+                    let list = Self::as_list_mut(&mut v.value).unwrap();
                     for value in values {
                         list.push_front(value);
                     }
@@ -41,7 +40,7 @@ impl StorageEngine {
                         list.push_front(value);
                     }
                     let len = list.len();
-                    map.insert(key.to_string(), StorageValue::List(list));
+                    map.insert(key.to_string(), Entry::new(StorageValue::List(list)));
                     self.bump_version(key);
                     len
                 }
@@ -69,15 +68,14 @@ impl StorageEngine {
     /// 与 Redis 7 行为一致。
     pub fn rpush(&self, key: &str, values: Vec<Bytes>) -> Result<usize> {
         self.evict_if_needed()?;
-        let db = self.db();
         let len = {
             let mut map = self.write_shard(key)?;
 
-            self.check_and_remove_expired(&db, &mut map, key);
+            self.check_and_remove_expired(&mut map, key);
             match map.get_mut(key) {
                 Some(v) => {
-                    Self::check_list_type(v)?;
-                    let list = Self::as_list_mut(v).unwrap();
+                    Self::check_list_type(&v.value)?;
+                    let list = Self::as_list_mut(&mut v.value).unwrap();
                     for value in values {
                         list.push_back(value);
                     }
@@ -90,7 +88,7 @@ impl StorageEngine {
                         list.push_back(value);
                     }
                     let len = list.len();
-                    map.insert(key.to_string(), StorageValue::List(list));
+                    map.insert(key.to_string(), Entry::new(StorageValue::List(list)));
                     self.bump_version(key);
                     len
                 }
@@ -125,11 +123,11 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_list_type(v)?;
-                let list = Self::as_list_mut(v).unwrap();
+                Self::check_list_type(&v.value)?;
+                let list = Self::as_list_mut(&mut v.value).unwrap();
                 let result = list.pop_front();
                 if list.is_empty() {
                     map.remove(key);
@@ -166,11 +164,11 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_list_type(v)?;
-                let list = Self::as_list_mut(v).unwrap();
+                Self::check_list_type(&v.value)?;
+                let list = Self::as_list_mut(&mut v.value).unwrap();
                 let result = list.pop_back();
                 if list.is_empty() {
                     map.remove(key);
@@ -205,11 +203,11 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                Self::check_list_type(v)?;
-                match v {
+                Self::check_list_type(&v.value)?;
+                match &v.value {
                     StorageValue::List(list) => Ok(list.len()),
                     _ => unreachable!(),
                 }
@@ -245,11 +243,11 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         let list = match map.get(key) {
             Some(v) => {
-                Self::check_list_type(v)?;
-                match v {
+                Self::check_list_type(&v.value)?;
+                match &v.value {
                     StorageValue::List(l) => l,
                     _ => unreachable!(),
                 }
@@ -312,11 +310,11 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         let list = match map.get(key) {
             Some(v) => {
-                Self::check_list_type(v)?;
-                match v {
+                Self::check_list_type(&v.value)?;
+                match &v.value {
                     StorageValue::List(l) => l,
                     _ => unreachable!(),
                 }
@@ -365,11 +363,11 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_list_type(v)?;
-                let list = Self::as_list_mut(v).unwrap();
+                Self::check_list_type(&v.value)?;
+                let list = Self::as_list_mut(&mut v.value).unwrap();
                 let len = list.len() as i64;
                 let mut idx = index;
                 if idx < 0 {
@@ -422,11 +420,11 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_list_type(v)?;
-                let list = Self::as_list_mut(v).unwrap();
+                Self::check_list_type(&v.value)?;
+                let list = Self::as_list_mut(&mut v.value).unwrap();
                 let mut found = false;
                 for i in 0..list.len() {
                     if list[i] == pivot {
@@ -482,11 +480,11 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_list_type(v)?;
-                let list = Self::as_list_mut(v).unwrap();
+                Self::check_list_type(&v.value)?;
+                let list = Self::as_list_mut(&mut v.value).unwrap();
                 let mut removed = 0i64;
                 if count == 0 {
                     // 删除全部匹配的元素
@@ -573,11 +571,11 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_list_type(v)?;
-                let list = Self::as_list_mut(v).unwrap();
+                Self::check_list_type(&v.value)?;
+                let list = Self::as_list_mut(&mut v.value).unwrap();
                 let len = list.len() as i64;
                 let mut s = start;
                 let mut e = stop;
@@ -649,11 +647,11 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                Self::check_list_type(v)?;
-                let list = match v {
+                Self::check_list_type(&v.value)?;
+                let list = match &v.value {
                     StorageValue::List(l) => l,
                     _ => unreachable!(),
                 };
@@ -922,15 +920,14 @@ impl StorageEngine {
         left_to: bool,
     ) -> Result<Option<Bytes>> {
         self.evict_if_needed()?;
-        let db = self.db();
         let mut src_map = self.write_shard(source)?;
 
         // 从 source 弹出
-        self.check_and_remove_expired(&db, &mut src_map, source);
+        self.check_and_remove_expired(&mut src_map, source);
         let popped = match src_map.get_mut(source) {
             Some(v) => {
-                Self::check_list_type(v)?;
-                let list = Self::as_list_mut(v).unwrap();
+                Self::check_list_type(&v.value)?;
+                let list = Self::as_list_mut(&mut v.value).unwrap();
                 let result = if left_from {
                     list.pop_front()
                 } else {
@@ -953,11 +950,11 @@ impl StorageEngine {
         let mut dst_map = self.write_shard(destination)?;
 
         // 推入 destination
-        self.check_and_remove_expired(&db, &mut dst_map, destination);
+        self.check_and_remove_expired(&mut dst_map, destination);
         match dst_map.get_mut(destination) {
             Some(v) => {
-                Self::check_list_type(v)?;
-                let list = Self::as_list_mut(v).unwrap();
+                Self::check_list_type(&v.value)?;
+                let list = Self::as_list_mut(&mut v.value).unwrap();
                 if left_to {
                     list.push_front(value.clone());
                 } else {
@@ -971,7 +968,7 @@ impl StorageEngine {
                 } else {
                     list.push_back(value.clone());
                 }
-                dst_map.insert(destination.to_string(), StorageValue::List(list));
+                dst_map.insert(destination.to_string(), Entry::new(StorageValue::List(list)));
             }
         };
 
@@ -1027,15 +1024,14 @@ impl StorageEngine {
         count: usize,
     ) -> Result<Option<(String, Vec<Bytes>)>> {
         self.evict_if_needed()?;
-        let db = self.db();
 
         for key in keys {
             let mut map = self.write_shard(key)?;
-            self.check_and_remove_expired(&db, &mut map, key);
+            self.check_and_remove_expired(&mut map, key);
             let popped = match map.get_mut(key) {
                 Some(v) => {
-                    Self::check_list_type(v)?;
-                    let list = Self::as_list_mut(v).unwrap();
+                    Self::check_list_type(&v.value)?;
+                    let list = Self::as_list_mut(&mut v.value).unwrap();
                     let mut results = Vec::new();
                     for _ in 0..count {
                         match if left {

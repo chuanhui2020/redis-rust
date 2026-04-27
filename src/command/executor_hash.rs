@@ -162,7 +162,7 @@ pub(crate) fn execute_h_m_set(
     pairs: Vec<(String, Bytes)>,
 ) -> Result<RespValue> {
     executor.storage.hmset(&key, &pairs)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
 }
 
 /// 执行 H_M_GET 命令

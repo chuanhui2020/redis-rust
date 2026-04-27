@@ -119,13 +119,11 @@ pub fn save_to_writer_with_repl(
             let map = shard
                 .read()
                 .map_err(|e| AppError::Storage(format!("RDB 保存时锁中毒: {}", e)))?;
-            for (key, value) in map.iter() {
-                let expires = db.expires.get_shard(key).read().unwrap();
-                let ttl = expires.get(key).copied();
-                drop(expires);
+            for (key, entry) in map.iter() {
+                let ttl = entry.expire_at;
                 let is_expired = ttl.map_or(false, |expire_at| now >= expire_at);
                 if !is_expired {
-                    valid_entries.push((key.clone(), value.clone(), ttl));
+                    valid_entries.push((key.clone(), entry.value.clone(), ttl));
                 }
             }
         }
@@ -600,11 +598,7 @@ fn read_key_value(
         .get_shard(&key)
         .write()
         .map_err(|e| AppError::Storage(format!("RDB 加载时锁中毒: {}", e)))?;
-    map.insert(key.clone(), value);
-    if let Some(expire_at) = ttl {
-        let mut expires = db.expires.get_shard(&key).write().unwrap();
-        expires.insert(key, expire_at);
-    }
+    map.insert(key, crate::storage::Entry::with_expire(value, ttl));
     Ok(())
 }
 

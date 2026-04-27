@@ -581,7 +581,7 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     let mut zset = ZSetData::new();
                     let mut count = 0i64;
@@ -590,12 +590,12 @@ impl StorageEngine {
                             count += 1;
                         }
                     }
-                    map.insert(key.to_string(), StorageValue::ZSet(zset));
+                    map.insert(key.to_string(), Entry::new(StorageValue::ZSet(zset)));
                     self.notify_blocking_waiters(key);
                     Ok(count)
                 } else {
-                    Self::check_zset_type(v)?;
-                    let zset = Self::as_zset_mut(v).unwrap();
+                    Self::check_zset_type(&v.value)?;
+                    let zset = Self::as_zset_mut(&mut v.value).unwrap();
                     let mut count = 0i64;
                     for (score, member) in pairs {
                         if zset.add(member, score) {
@@ -614,7 +614,7 @@ impl StorageEngine {
                         count += 1;
                     }
                 }
-                map.insert(key.to_string(), StorageValue::ZSet(zset));
+                map.insert(key.to_string(), Entry::new(StorageValue::ZSet(zset)));
                 self.notify_blocking_waiters(key);
                 Ok(count)
             }
@@ -634,12 +634,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_zset_type(v)?;
-                    let zset = Self::as_zset_mut(v).unwrap();
+                    Self::check_zset_type(&v.value)?;
+                    let zset = Self::as_zset_mut(&mut v.value).unwrap();
                     let mut count = 0i64;
                     for member in members {
                         if zset.remove(member) {
@@ -667,12 +667,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(None)
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => Ok(z.score(member)),
                         _ => unreachable!(),
                     }
@@ -693,12 +693,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(None)
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => Ok(z.rank(member)),
                         _ => unreachable!(),
                     }
@@ -726,12 +726,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => Ok(z.range_by_rank(start, stop)),
                         _ => unreachable!(),
                     }
@@ -759,12 +759,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => Ok(z.range_by_score(min, max)),
                         _ => unreachable!(),
                     }
@@ -785,12 +785,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => Ok(z.member_to_score.len()),
                         _ => unreachable!(),
                     }
@@ -817,12 +817,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => Ok(z.rev_range_by_rank(start, stop)),
                         _ => unreachable!(),
                     }
@@ -843,12 +843,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(None)
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => Ok(z.rev_rank(member)),
                         _ => unreachable!(),
                     }
@@ -870,24 +870,22 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     let mut zset = ZSetData::new();
                     zset.add(member.clone(), increment);
-                    map.insert(key.to_string(), StorageValue::ZSet(zset));
+                    map.insert(key.to_string(), Entry::new(StorageValue::ZSet(zset)));
                     self.bump_version(key);
-                    self.touch(key);
                     self.notify_blocking_waiters(key);
                     Ok(format!("{}", increment))
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::ZSet(z) => {
                             let new_score = z.score(&member).unwrap_or(0.0) + increment;
                             z.add(member, new_score);
                             self.bump_version(key);
-                            self.touch(key);
-                            self.notify_blocking_waiters(key);
+                                    self.notify_blocking_waiters(key);
                             Ok(format!("{}", new_score))
                         }
                         _ => unreachable!(),
@@ -897,9 +895,8 @@ impl StorageEngine {
             None => {
                 let mut zset = ZSetData::new();
                 zset.add(member.clone(), increment);
-                map.insert(key.to_string(), StorageValue::ZSet(zset));
+                map.insert(key.to_string(), Entry::new(StorageValue::ZSet(zset)));
                 self.bump_version(key);
-                self.touch(key);
                 self.notify_blocking_waiters(key);
                 Ok(format!("{}", increment))
             }
@@ -917,12 +914,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => Ok(z.count_by_score(min, max)),
                         _ => unreachable!(),
                     }
@@ -943,20 +940,19 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::ZSet(z) => {
                             let result = z.pop_min(count);
                             if z.member_to_score.is_empty() {
                                 map.remove(key);
                             }
                             self.bump_version(key);
-                            self.touch(key);
-                            Ok(result)
+                                    Ok(result)
                         }
                         _ => unreachable!(),
                     }
@@ -977,20 +973,19 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::ZSet(z) => {
                             let result = z.pop_max(count);
                             if z.member_to_score.is_empty() {
                                 map.remove(key);
                             }
                             self.bump_version(key);
-                            self.touch(key);
-                            Ok(result)
+                                    Ok(result)
                         }
                         _ => unreachable!(),
                     }
@@ -1019,12 +1014,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     return Ok((0, vec![]));
                 }
-                Self::check_zset_type(v)?;
-                match v {
+                Self::check_zset_type(&v.value)?;
+                match &v.value {
                     StorageValue::ZSet(z) => {
                         let items: Vec<(String, f64)> = z
                             .score_to_member
@@ -1064,12 +1059,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => z.range_by_lex(min, max),
                         _ => unreachable!(),
                     }
@@ -1095,12 +1090,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => Ok(z.rand_member(count, with_scores)),
                         _ => unreachable!(),
                     }
@@ -1139,12 +1134,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => {
                             let max_key = (OrderedFloat(max), String::from("\u{10FFFF}"));
                             let min_key = (OrderedFloat(min), String::new());
@@ -1189,12 +1184,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => {
                             let mut result = z.rev_range_by_lex(min, max)?;
                             if limit_count > 0 {
@@ -1225,12 +1220,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![None; members.len()])
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => Ok(members.iter().map(|m| z.score(m)).collect()),
                         _ => unreachable!(),
                     }
@@ -1251,12 +1246,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => z.lex_count(min, max),
                         _ => unreachable!(),
                     }
@@ -1278,12 +1273,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::ZSet(z) => {
                             let to_remove = z.range_by_lex(min, max)?;
                             let count = to_remove.len();
@@ -1294,8 +1289,7 @@ impl StorageEngine {
                                 map.remove(key);
                             }
                             self.bump_version(key);
-                            self.touch(key);
-                            Ok(count)
+                                    Ok(count)
                         }
                         _ => unreachable!(),
                     }
@@ -1317,12 +1311,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::ZSet(z) => {
                             let to_remove: Vec<String> = z
                                 .range_by_rank(start, stop)
@@ -1337,8 +1331,7 @@ impl StorageEngine {
                                 map.remove(key);
                             }
                             self.bump_version(key);
-                            self.touch(key);
-                            Ok(count)
+                                    Ok(count)
                         }
                         _ => unreachable!(),
                     }
@@ -1360,12 +1353,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::ZSet(z) => {
                             let to_remove: Vec<String> = z
                                 .range_by_score(min, max)
@@ -1380,8 +1373,7 @@ impl StorageEngine {
                                 map.remove(key);
                             }
                             self.bump_version(key);
-                            self.touch(key);
-                            Ok(count)
+                                    Ok(count)
                         }
                         _ => unreachable!(),
                     }
@@ -1414,12 +1406,12 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_zset_type(v)?;
-                    match v {
+                    Self::check_zset_type(&v.value)?;
+                    match &v.value {
                         StorageValue::ZSet(z) => {
                             let mut result: Vec<(String, f64)> = if by_score {
                                 let min_score: f64 = min.parse().map_err(|_| {

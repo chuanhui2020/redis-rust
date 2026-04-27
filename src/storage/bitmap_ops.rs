@@ -2,12 +2,11 @@
 
 use super::*;
 
-/// 从字节数组中按大端序读取指定位域（返回无符号值）
 fn read_bitfield_unsigned(bytes: &[u8], offset: usize, bits: usize) -> u64 {
     let mut value: u64 = 0;
     for i in 0..bits {
         let byte_idx = (offset + i) / 8;
-        let bit_idx = 7 - ((offset + i) % 8); // 大端序：MSB 在前
+        let bit_idx = 7 - ((offset + i) % 8);
         let bit = if byte_idx < bytes.len() {
             (bytes[byte_idx] >> bit_idx) & 1
         } else {
@@ -18,18 +17,15 @@ fn read_bitfield_unsigned(bytes: &[u8], offset: usize, bits: usize) -> u64 {
     value
 }
 
-/// 将有符号位域值从无符号表示转换为 i64
 fn unsigned_to_signed(value: u64, bits: usize) -> i64 {
     let sign_bit = 1u64 << (bits - 1);
     if value & sign_bit != 0 {
-        // 负数：补码转换
         (value as i64) - (1i64 << bits)
     } else {
         value as i64
     }
 }
 
-/// 将 i64 转换为指定宽度的无符号表示
 fn signed_to_unsigned(value: i64, bits: usize) -> u64 {
     let mask = if bits == 64 {
         !0u64
@@ -39,7 +35,6 @@ fn signed_to_unsigned(value: i64, bits: usize) -> u64 {
     (value as u64) & mask
 }
 
-/// 向字节数组中按大端序写入指定位域
 fn write_bitfield(bytes: &mut Vec<u8>, offset: usize, bits: usize, value: u64) {
     let needed = (offset + bits).div_ceil(8);
     if bytes.len() < needed {
@@ -48,7 +43,7 @@ fn write_bitfield(bytes: &mut Vec<u8>, offset: usize, bits: usize, value: u64) {
     for i in 0..bits {
         let byte_idx = (offset + i) / 8;
         let bit_idx = 7 - ((offset + i) % 8);
-        let bit_pos = bits - 1 - i; // 从高位到低位
+        let bit_pos = bits - 1 - i;
         let bit = ((value >> bit_pos) & 1) as u8;
         if bit == 1 {
             bytes[byte_idx] |= 1 << bit_idx;
@@ -58,7 +53,6 @@ fn write_bitfield(bytes: &mut Vec<u8>, offset: usize, bits: usize, value: u64) {
     }
 }
 
-/// 读取指定位域的值
 fn read_field(bytes: &[u8], encoding: &BitFieldEncoding, offset: usize) -> i64 {
     let raw = read_bitfield_unsigned(bytes, offset, encoding.bits);
     if encoding.signed {
@@ -68,7 +62,6 @@ fn read_field(bytes: &[u8], encoding: &BitFieldEncoding, offset: usize) -> i64 {
     }
 }
 
-/// 写入指定位域的值
 fn write_field(bytes: &mut Vec<u8>, encoding: &BitFieldEncoding, offset: usize, value: i64) {
     let raw = if encoding.signed {
         signed_to_unsigned(value, encoding.bits)
@@ -78,7 +71,6 @@ fn write_field(bytes: &mut Vec<u8>, encoding: &BitFieldEncoding, offset: usize, 
     write_bitfield(bytes, offset, encoding.bits, raw);
 }
 
-/// 执行 INCRBY 并处理溢出
 fn incr_with_overflow(
     old_value: i64,
     increment: i64,
@@ -91,7 +83,6 @@ fn incr_with_overflow(
 
     match overflow {
         BitFieldOverflow::Wrap => {
-            // 回绕：直接截断
             let wrapped = if encoding.signed {
                 let range = 1i64 << encoding.bits;
                 let mut v = new_value % range;
@@ -108,7 +99,6 @@ fn incr_with_overflow(
             BitFieldResult::Value(wrapped)
         }
         BitFieldOverflow::Sat => {
-            // 饱和
             if new_value > max_val {
                 BitFieldResult::Value(max_val)
             } else if new_value < min_val {
@@ -118,13 +108,31 @@ fn incr_with_overflow(
             }
         }
         BitFieldOverflow::Fail => {
-            // 失败：溢出时返回 nil
             if new_value > max_val || new_value < min_val {
                 BitFieldResult::Nil
             } else {
                 BitFieldResult::Value(new_value)
             }
         }
+    }
+}
+
+fn get_string_bytes(map: &mut HashMap<String, Entry>, key: &str) -> Result<Vec<u8>> {
+    match map.get(key) {
+        Some(entry) => {
+            if entry.is_expired() {
+                map.remove(key);
+                Ok(Vec::new())
+            } else {
+                match &entry.value {
+                    StorageValue::String(b) => Ok(b.to_vec()),
+                    _ => Err(AppError::Storage(
+                        "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
+                    )),
+                }
+            }
+        }
+        None => Ok(Vec::new()),
     }
 }
 
@@ -138,31 +146,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        let mut bytes = match map.get(key) {
-            Some(v) => {
-                if Self::is_key_expired(&db, key) {
-                    map.remove(key);
-                    let mut expires = db.expires.get_shard(key).write().unwrap();
-                    expires.remove(key);
-                    Vec::new()
-                } else {
-                    match v {
-                        StorageValue::String(b) => b.to_vec(),
-                        StorageValue::List(_)
-                        | StorageValue::Hash(_)
-                        | StorageValue::Set(_)
-                        | StorageValue::ZSet(_)
-                        | StorageValue::HyperLogLog(_)
-                        | StorageValue::Stream(_) => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ));
-                        }
-                    }
-                }
-            }
-            None => Vec::new(),
-        };
+        let mut bytes = get_string_bytes(&mut map, key)?;
 
         let byte_index = offset / 8;
         let bit_index = 7 - (offset % 8);
@@ -178,18 +162,13 @@ impl StorageEngine {
             bytes[byte_index] &= !(1 << bit_index);
         }
 
-        map.insert(key.to_string(), StorageValue::String(Bytes::from(bytes)));
-        let mut expires = db.expires.get_shard(key).write().unwrap();
-        expires.remove(key);
+        map.insert(key.to_string(), Entry::new(StorageValue::String(Bytes::from(bytes))));
         self.bump_version(key);
-        self.touch(key);
         drop(map);
         self.evict_if_needed()?;
         Ok(old_bit as i64)
     }
 
-    /// 获取指定偏移量的位值
-    /// 键不存在或偏移量超出范围返回 0
     pub fn getbit(&self, key: &str, offset: usize) -> Result<i64> {
         let db = self.db();
         let map = db
@@ -199,11 +178,11 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
         match map.get(key) {
-            Some(v) => {
-                if Self::is_key_expired(&db, key) {
+            Some(entry) => {
+                if entry.is_expired() {
                     Ok(0)
                 } else {
-                    match v {
+                    match &entry.value {
                         StorageValue::String(b) => {
                             let byte_index = offset / 8;
                             if byte_index >= b.len() {
@@ -213,12 +192,7 @@ impl StorageEngine {
                                 Ok(((b[byte_index] >> bit_index) & 1) as i64)
                             }
                         }
-                        StorageValue::List(_)
-                        | StorageValue::Hash(_)
-                        | StorageValue::Set(_)
-                        | StorageValue::ZSet(_)
-                        | StorageValue::HyperLogLog(_)
-                        | StorageValue::Stream(_) => Err(AppError::Storage(
+                        _ => Err(AppError::Storage(
                             "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
                         )),
                     }
@@ -228,9 +202,6 @@ impl StorageEngine {
         }
     }
 
-    /// 统计值为 1 的位数
-    /// is_byte 为 true 时 start/end 是字节索引，否则是位索引
-    /// start/end 支持负数索引（从末尾开始）
     pub fn bitcount(&self, key: &str, start: isize, end: isize, is_byte: bool) -> Result<usize> {
         let db = self.db();
         let mut map = db
@@ -240,21 +211,14 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
         let bytes = match map.get(key) {
-            Some(v) => {
-                if Self::is_key_expired(&db, key) {
+            Some(entry) => {
+                if entry.is_expired() {
                     map.remove(key);
-                    let mut expires = db.expires.get_shard(key).write().unwrap();
-                    expires.remove(key);
                     return Ok(0);
                 } else {
-                    match v {
+                    match &entry.value {
                         StorageValue::String(b) => b.clone(),
-                        StorageValue::List(_)
-                        | StorageValue::Hash(_)
-                        | StorageValue::Set(_)
-                        | StorageValue::ZSet(_)
-                        | StorageValue::HyperLogLog(_)
-                        | StorageValue::Stream(_) => {
+                        _ => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
                             ));
@@ -314,13 +278,10 @@ impl StorageEngine {
         }
     }
 
-    /// 对多个 key 做位运算，结果存入 destkey
-    /// 返回结果字节长度
     pub fn bitop(&self, operation: &str, destkey: &str, keys: &[String]) -> Result<usize> {
         self.evict_if_needed()?;
         let db = self.db();
 
-        // 收集所有有效字符串的字节数组
         let mut byte_arrays: Vec<Vec<u8>> = Vec::new();
         let mut max_len = 0usize;
 
@@ -328,18 +289,15 @@ impl StorageEngine {
             let map = db
                 .inner
                 .get_shard(key)
-                .write()
+                .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            if let Some(v) = map.get(key)
-                && !Self::is_key_expired(&db, key)
-            {
-                match v {
-                    StorageValue::String(b) => {
+            if let Some(entry) = map.get(key) {
+                if !entry.is_expired() {
+                    if let StorageValue::String(b) = &entry.value {
                         let vec = b.to_vec();
                         max_len = max_len.max(vec.len());
                         byte_arrays.push(vec);
                     }
-                    _ => {}
                 }
             }
         }
@@ -359,13 +317,11 @@ impl StorageEngine {
         let mut result = vec![0u8; max_len];
 
         if op == "NOT" {
-            // NOT 只接受一个 key
             let src = &byte_arrays[0];
             for i in 0..max_len {
                 result[i] = !src[i];
             }
         } else {
-            // AND / OR / XOR
             for i in 0..max_len {
                 let mut val = if op == "AND" { 0xFFu8 } else { 0u8 };
                 for arr in &byte_arrays {
@@ -388,19 +344,14 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         dst_map.insert(
             destkey.to_string(),
-            StorageValue::String(Bytes::from(result)),
+            Entry::new(StorageValue::String(Bytes::from(result))),
         );
-        let mut expires = db.expires.get_shard(destkey).write().unwrap();
-        expires.remove(destkey);
         self.bump_version(destkey);
-        self.touch(destkey);
         drop(dst_map);
         self.evict_if_needed()?;
         Ok(max_len)
     }
 
-    /// 查找第一个值为 bit（0 或 1）的位的位置
-    /// is_byte 为 true 时 start/end 是字节索引，否则是位索引
     pub fn bitpos(
         &self,
         key: &str,
@@ -417,21 +368,14 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
         let bytes = match map.get(key) {
-            Some(v) => {
-                if Self::is_key_expired(&db, key) {
+            Some(entry) => {
+                if entry.is_expired() {
                     map.remove(key);
-                    let mut expires = db.expires.get_shard(key).write().unwrap();
-                    expires.remove(key);
                     return Ok(-1);
                 } else {
-                    match v {
+                    match &entry.value {
                         StorageValue::String(b) => b.clone(),
-                        StorageValue::List(_)
-                        | StorageValue::Hash(_)
-                        | StorageValue::Set(_)
-                        | StorageValue::ZSet(_)
-                        | StorageValue::HyperLogLog(_)
-                        | StorageValue::Stream(_) => {
+                        _ => {
                             return Err(AppError::Storage(
                                 "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
                             ));
@@ -495,8 +439,6 @@ impl StorageEngine {
         Ok(-1)
     }
 
-    /// 执行 BITFIELD 操作
-    /// 返回每个操作的结果数组
     pub fn bitfield(&self, key: &str, ops: &[BitFieldOp]) -> Result<Vec<BitFieldResult>> {
         self.evict_if_needed()?;
         let db = self.db();
@@ -506,26 +448,7 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        let mut bytes = match map.get(key) {
-            Some(v) => {
-                if Self::is_key_expired(&db, key) {
-                    map.remove(key);
-                    let mut expires = db.expires.get_shard(key).write().unwrap();
-                    expires.remove(key);
-                    Vec::new()
-                } else {
-                    match v {
-                        StorageValue::String(b) => b.to_vec(),
-                        _ => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ));
-                        }
-                    }
-                }
-            }
-            None => Vec::new(),
-        };
+        let mut bytes = get_string_bytes(&mut map, key)?;
 
         let mut results = Vec::new();
         let mut overflow = BitFieldOverflow::Wrap;
@@ -567,17 +490,13 @@ impl StorageEngine {
         }
 
         if modified {
-            map.insert(key.to_string(), StorageValue::String(Bytes::from(bytes)));
-            let mut expires = db.expires.get_shard(key).write().unwrap();
-            expires.remove(key);
+            map.insert(key.to_string(), Entry::new(StorageValue::String(Bytes::from(bytes))));
             self.bump_version(key);
-            self.touch(key);
         }
 
         Ok(results)
     }
 
-    /// 执行 BITFIELD_RO 操作（只读版本，只支持 GET）
     pub fn bitfield_ro(&self, key: &str, ops: &[BitFieldOp]) -> Result<Vec<BitFieldResult>> {
         let db = self.db();
         let map = db
@@ -587,11 +506,11 @@ impl StorageEngine {
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
         let bytes = match map.get(key) {
-            Some(v) => {
-                if Self::is_key_expired(&db, key) {
+            Some(entry) => {
+                if entry.is_expired() {
                     return Ok(vec![BitFieldResult::Value(0); ops.len()]);
                 }
-                match v {
+                match &entry.value {
                     StorageValue::String(b) => b.to_vec(),
                     _ => {
                         return Err(AppError::Storage(
@@ -618,6 +537,4 @@ impl StorageEngine {
         }
         Ok(results)
     }
-
-    // ---------- HyperLogLog 操作 ----------
 }

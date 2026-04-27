@@ -25,20 +25,23 @@ impl StorageEngine {
 
         let stream = match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     if !mkstream {
                         return Err(AppError::Storage("XGROUP CREATE 键不存在".to_string()));
                     }
                     let s = StreamData::new();
-                    map.insert(key.to_string(), StorageValue::Stream(s));
+                    map.insert(key.to_string(), Entry::new(StorageValue::Stream(s)));
                     match map.get_mut(key) {
-                        Some(StorageValue::Stream(s)) => s,
+                        Some(entry) => match &mut entry.value {
+                            StorageValue::Stream(s) => s,
+                            _ => unreachable!(),
+                        },
                         _ => unreachable!(),
                     }
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::Stream(s) => s,
                         _ => unreachable!(),
                     }
@@ -49,9 +52,12 @@ impl StorageEngine {
                     return Err(AppError::Storage("XGROUP CREATE 键不存在".to_string()));
                 }
                 let s = StreamData::new();
-                map.insert(key.to_string(), StorageValue::Stream(s));
+                map.insert(key.to_string(), Entry::new(StorageValue::Stream(s)));
                 match map.get_mut(key) {
-                    Some(StorageValue::Stream(s)) => s,
+                    Some(entry) => match &mut entry.value {
+                        StorageValue::Stream(s) => s,
+                        _ => unreachable!(),
+                    },
                     _ => unreachable!(),
                 }
             }
@@ -74,7 +80,6 @@ impl StorageEngine {
             ConsumerGroup::new(group_name.to_string(), last_id),
         );
         self.bump_version(key);
-        self.touch(key);
         Ok(true)
     }
 
@@ -90,12 +95,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(false)
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::Stream(s) => {
                             let removed = s.groups.remove(group_name).is_some();
                             if s.length == 0 && s.groups.is_empty() {
@@ -123,12 +128,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     return Err(AppError::Storage("XGROUP SETID 键不存在".to_string()));
                 }
-                Self::check_stream_type(v)?;
-                match v {
+                Self::check_stream_type(&v.value)?;
+                match &mut v.value {
                     StorageValue::Stream(s) => {
                         let group = s.groups.get_mut(group_name).ok_or_else(|| {
                             AppError::Storage("XGROUP SETID 消费者组不存在".to_string())
@@ -165,12 +170,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::Stream(s) => {
                             let group = s.groups.get_mut(group_name).ok_or_else(|| {
                                 AppError::Storage("XGROUP DELCONSUMER 消费者组不存在".to_string())
@@ -207,12 +212,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(false)
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::Stream(s) => {
                             let group = s.groups.get_mut(group_name).ok_or_else(|| {
                                 AppError::Storage(
@@ -264,10 +269,10 @@ impl StorageEngine {
 
             let stream = match map.get_mut(key) {
                 Some(v) => {
-                    if Self::is_key_expired(&db, key) {
+                    if v.is_expired() {
                         continue;
                     }
-                    match v {
+                    match &mut v.value {
                         StorageValue::Stream(s) => s,
                         _ => continue,
                     }
@@ -360,12 +365,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(0)
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::Stream(s) => {
                             let group = match s.groups.get_mut(group_name) {
                                 Some(g) => g,
@@ -414,12 +419,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok(vec![])
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::Stream(s) => {
                             let group = s.groups.get_mut(group_name).ok_or_else(|| {
                                 AppError::Storage("XCLAIM 消费者组不存在".to_string())
@@ -490,12 +495,12 @@ impl StorageEngine {
 
         match map.get_mut(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     map.remove(key);
                     Ok((start, vec![]))
                 } else {
-                    Self::check_stream_type(v)?;
-                    match v {
+                    Self::check_stream_type(&v.value)?;
+                    match &mut v.value {
                         StorageValue::Stream(s) => {
                             let group = s.groups.get_mut(group_name).ok_or_else(|| {
                                 AppError::Storage("XAUTOCLAIM 消费者组不存在".to_string())
@@ -581,10 +586,10 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     return Ok((0, None, None, vec![], vec![]));
                 }
-                match v {
+                match &v.value {
                     StorageValue::Stream(s) => {
                         let group = match s.groups.get(group_name) {
                             Some(g) => g,
@@ -646,10 +651,10 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     Ok(None)
                 } else {
-                    match v {
+                    match &v.value {
                         StorageValue::Stream(s) => {
                             let first_id = s.entries.keys().next().copied();
                             let group_names: Vec<String> = s.groups.keys().cloned().collect();
@@ -680,10 +685,10 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     Ok(vec![])
                 } else {
-                    match v {
+                    match &v.value {
                         StorageValue::Stream(s) => {
                             let mut result = Vec::new();
                             for (name, group) in &s.groups {
@@ -720,10 +725,10 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     Ok(vec![])
                 } else {
-                    match v {
+                    match &v.value {
                         StorageValue::Stream(s) => {
                             let group = match s.groups.get(group_name) {
                                 Some(g) => g,

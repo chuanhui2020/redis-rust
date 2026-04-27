@@ -468,7 +468,7 @@ async fn migrate_keys_to_target(
                 migrated.push(key.clone());
             }
             RespValue::Error(ref e) => {
-                return Err(format!("ERR Target node returned error: {}", e));
+                return Err(format!("ERR Target node returned error: {}", String::from_utf8_lossy(e)));
             }
             _ => {
                 return Err("ERR Unexpected response from target node".to_string());
@@ -699,7 +699,7 @@ pub(crate) async fn handle_connection(
                 Ok(r) => r,
                 Err(e) => {
                     log::warn!("RESP 协议解析错误: {}", e);
-                    let err_resp = RespValue::Error(format!("ERR protocol error: {}", e));
+                    let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR protocol error: {}", e)));
                     if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
                         log::error!("写入错误响应失败: {}", e);
                         return Ok(());
@@ -730,7 +730,7 @@ pub(crate) async fn handle_connection(
                             );
                             if !authenticated && password.is_some() && !is_auth_exempt {
                                 let resp =
-                                    RespValue::Error("NOAUTH Authentication required.".to_string());
+                                    RespValue::Error(bytes::Bytes::from_static(b"NOAUTH Authentication required."));
                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                     log::error!("写入响应失败: {}", e);
                                     return Ok(());
@@ -773,12 +773,12 @@ pub(crate) async fn handle_connection(
                                             "toplevel",
                                             &cmd_name,
                                         );
-                                        let resp = RespValue::Error(
+                                        let resp = RespValue::Error(Bytes::from(
                                             "NOPERM this user has no permissions to run the '"
                                                 .to_string()
                                                 + &cmd_name
                                                 + "' command",
-                                        );
+                                        ));
                                         if let Err(e) =
                                             write_resp(&mut stream, &handler, &resp).await
                                         {
@@ -788,7 +788,7 @@ pub(crate) async fn handle_connection(
                                         continue;
                                     }
                                     Err(e) => {
-                                        let resp = RespValue::Error(format!("ERR {}", e));
+                                        let resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                         if let Err(e) =
                                             write_resp(&mut stream, &handler, &resp).await
                                         {
@@ -807,7 +807,7 @@ pub(crate) async fn handle_connection(
                             };
                             if killed {
                                 let resp = RespValue::Error(
-                                    "ERR Connection closed by CLIENT KILL".to_string(),
+                                    "ERR Connection closed by CLIENT KILL".into(),
                                 );
                                 let _ = write_resp(&mut stream, &handler, &resp).await;
                                 return Ok(());
@@ -848,7 +848,7 @@ pub(crate) async fn handle_connection(
                                 && !crate::sentinel::is_sentinel_allowed_command(&cmd)
                             {
                                 let resp = RespValue::Error(
-                                    "ERR unknown command, this is a sentinel node".to_string(),
+                                    "ERR unknown command, this is a sentinel node".into(),
                                 );
                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                     log::error!("写入响应失败: {}", e);
@@ -888,7 +888,7 @@ pub(crate) async fn handle_connection(
                                             match s.get_master(&name) {
                                                 Some(m) => sentinel_instance_to_resp(&m),
                                                 None => RespValue::Error(
-                                                    "ERR No such master with that name".to_string(),
+                                                    "ERR No such master with that name".into(),
                                                 ),
                                             }
                                         }
@@ -928,7 +928,7 @@ pub(crate) async fn handle_connection(
                                                     RespValue::Array(arr)
                                                 }
                                                 None => RespValue::Error(
-                                                    "ERR No such master with that name".to_string(),
+                                                    "ERR No such master with that name".into(),
                                                 ),
                                             }
                                         }
@@ -964,7 +964,7 @@ pub(crate) async fn handle_connection(
                                                     RespValue::Array(arr)
                                                 }
                                                 None => RespValue::Error(
-                                                    "ERR No such master with that name".to_string(),
+                                                    "ERR No such master with that name".into(),
                                                 ),
                                             }
                                         }
@@ -977,7 +977,7 @@ pub(crate) async fn handle_connection(
                                                     ))),
                                                 ]),
                                                 None => RespValue::Error(
-                                                    "ERR No such master with that name".to_string(),
+                                                    "ERR No such master with that name".into(),
                                                 ),
                                             }
                                         }
@@ -988,7 +988,7 @@ pub(crate) async fn handle_connection(
                                             quorum,
                                         } => {
                                             s.monitor(name, ip, port, quorum);
-                                            RespValue::SimpleString("OK".to_string())
+                                            RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                         }
                                         Command::SentinelRemove(name) => {
                                             if s.remove(&name) {
@@ -1016,7 +1016,7 @@ pub(crate) async fn handle_connection(
                                                 _ => {}
                                             }
                                             let _ = s.save_config();
-                                            RespValue::SimpleString("OK".to_string())
+                                            RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                         }
                                         Command::SentinelFailover(name) => {
                                             match crate::sentinel::failover::execute_failover(
@@ -1024,8 +1024,8 @@ pub(crate) async fn handle_connection(
                                             )
                                             .await
                                             {
-                                                Ok(()) => RespValue::SimpleString("OK".to_string()),
-                                                Err(e) => RespValue::Error(format!("ERR {}", e)),
+                                                Ok(()) => RespValue::SimpleString(bytes::Bytes::from_static(b"OK")),
+                                                Err(e) => RespValue::Error(bytes::Bytes::from(format!("ERR {}", e))),
                                             }
                                         }
                                         Command::SentinelReset(pattern) => {
@@ -1037,19 +1037,19 @@ pub(crate) async fn handle_connection(
                                                 let sentinel_count =
                                                     master.sentinels.len() as u32 + 1; // 包括自己
                                                 if sentinel_count >= master.quorum {
-                                                    RespValue::SimpleString(format!(
+                                                    RespValue::SimpleString(bytes::Bytes::from(format!(
                                                         "OK {} usable Sentinels. Quorum and failover authorization is possible.",
                                                         sentinel_count
-                                                    ))
+                                                    )))
                                                 } else {
-                                                    RespValue::Error(format!(
+                                                    RespValue::Error(bytes::Bytes::from(format!(
                                                         "ERR {} usable Sentinels, but need {} for quorum",
                                                         sentinel_count, master.quorum
-                                                    ))
+                                                    )))
                                                 }
                                             } else {
                                                 RespValue::Error(
-                                                    "ERR No such master with that name".to_string(),
+                                                    "ERR No such master with that name".into(),
                                                 )
                                             }
                                         }
@@ -1098,7 +1098,7 @@ pub(crate) async fn handle_connection(
                                         _ => unreachable!(),
                                     }
                                 } else {
-                                    RespValue::Error("ERR Sentinel mode not enabled".to_string())
+                                    RespValue::Error(bytes::Bytes::from_static(b"ERR Sentinel mode not enabled"))
                                 };
                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                     log::error!("写入响应失败: {}", e);
@@ -1193,7 +1193,7 @@ pub(crate) async fn handle_connection(
                                                 });
                                             }
 
-                                            RespValue::SimpleString("OK".to_string())
+                                            RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                         }
                                         Command::ClusterAddSlots(slots) => {
                                             let my_id = c.myself_id();
@@ -1202,13 +1202,13 @@ pub(crate) async fn handle_connection(
                                             }
                                             // ADDSLOTS 后自动保存拓扑
                                             let _ = c.save_nodes_conf("nodes.conf");
-                                            RespValue::SimpleString("OK".to_string())
+                                            RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                         }
                                         Command::ClusterDelSlots(slots) => {
                                             for slot in slots {
                                                 c.unassign_slot(slot);
                                             }
-                                            RespValue::SimpleString("OK".to_string())
+                                            RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                         }
                                         Command::ClusterSetSlot {
                                             slot,
@@ -1243,19 +1243,19 @@ pub(crate) async fn handle_connection(
                                                 }
                                                 _ => {}
                                             }
-                                            RespValue::SimpleString("OK".to_string())
+                                            RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                         }
                                         Command::ClusterReplicate(node_id) => {
                                             let my_id = c.myself_id();
                                             if node_id == my_id {
                                                 RespValue::Error(
-                                                    "ERR Can't replicate myself".to_string(),
+                                                    "ERR Can't replicate myself".into(),
                                                 )
                                             } else if c.get_node(&node_id).is_none() {
-                                                RespValue::Error(
+                                                RespValue::Error(Bytes::from(
                                                     "ERR I don't know about node ".to_string()
                                                         + &node_id,
-                                                )
+                                                ))
                                             } else {
                                                 // 获取 master 的 ip 和 port，用于后续启动复制
                                                 let (master_ip, master_port) =
@@ -1306,7 +1306,7 @@ pub(crate) async fn handle_connection(
                                                     });
                                                 }
 
-                                                RespValue::SimpleString("OK".to_string())
+                                                RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                             }
                                         }
                                         Command::ClusterFailover(_) => {
@@ -1330,32 +1330,34 @@ pub(crate) async fn handle_connection(
                                                                 crate::cluster::gossip::broadcast_topology_update(cluster_clone).await;
                                                             });
                                                             RespValue::SimpleString(
-                                                                "OK".to_string(),
+                                                                "OK".into(),
                                                             )
                                                         } else {
                                                             RespValue::Error(
-                                                                "ERR FAILOVER failed".to_string(),
+                                                                "ERR FAILOVER failed".into(),
                                                             )
                                                         }
                                                     } else {
                                                         RespValue::Error(
-                                                            "ERR Node is replica but has no master"
-                                                                .to_string(),
+                                                            Bytes::from(
+                                                                "ERR Node is replica but has no master"
+                                                                    .to_string(),
+                                                            ),
                                                         )
                                                     }
                                                 } else {
                                                     RespValue::Error(
-                                                        "ERR Node is not a replica".to_string(),
+                                                        "ERR Node is not a replica".into(),
                                                     )
                                                 }
                                             } else {
                                                 RespValue::Error(
-                                                    "ERR Myself node not found".to_string(),
+                                                    "ERR Myself node not found".into(),
                                                 )
                                             }
                                         }
                                         Command::ClusterReset(_) => {
-                                            RespValue::SimpleString("OK".to_string())
+                                            RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                         }
                                         Command::ClusterKeySlot(key) => {
                                             let slot = crate::cluster::ClusterState::key_slot(&key);
@@ -1375,7 +1377,7 @@ pub(crate) async fn handle_connection(
                                                         .count();
                                                     RespValue::Integer(count as i64)
                                                 }
-                                                Err(e) => RespValue::Error(format!("ERR {}", e)),
+                                                Err(e) => RespValue::Error(bytes::Bytes::from(format!("ERR {}", e))),
                                             }
                                         }
                                         Command::ClusterGetKeysInSlot(slot, count) => {
@@ -1398,7 +1400,7 @@ pub(crate) async fn handle_connection(
                                                         .collect();
                                                     RespValue::Array(arr)
                                                 }
-                                                Err(e) => RespValue::Error(format!("ERR {}", e)),
+                                                Err(e) => RespValue::Error(bytes::Bytes::from(format!("ERR {}", e))),
                                             }
                                         }
                                         Command::ClusterLinks => {
@@ -1430,17 +1432,17 @@ pub(crate) async fn handle_connection(
                                                 c.unassign_slot(slot);
                                             }
                                             let _ = c.save_nodes_conf("nodes.conf");
-                                            RespValue::SimpleString("OK".to_string())
+                                            RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                         }
                                         Command::ClusterSaveConfig => {
                                             match c.save_nodes_conf("nodes.conf") {
-                                                Ok(_) => RespValue::SimpleString("OK".to_string()),
-                                                Err(e) => RespValue::Error(format!("ERR {}", e)),
+                                                Ok(_) => RespValue::SimpleString(bytes::Bytes::from_static(b"OK")),
+                                                Err(e) => RespValue::Error(bytes::Bytes::from(format!("ERR {}", e))),
                                             }
                                         }
                                         Command::ClusterSetConfigEpoch(epoch) => {
                                             c.set_current_epoch(epoch);
-                                            RespValue::SimpleString("OK".to_string())
+                                            RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                         }
                                         Command::ClusterMyShardId => {
                                             RespValue::BulkString(Some(Bytes::from(c.myself_id())))
@@ -1450,7 +1452,7 @@ pub(crate) async fn handle_connection(
                                 } else {
                                     RespValue::Error(
                                         "ERR This instance has cluster support disabled"
-                                            .to_string(),
+                                            .into(),
                                     )
                                 };
                                 if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
@@ -1491,10 +1493,10 @@ pub(crate) async fn handle_connection(
                                                 && let Some(target_node) =
                                                     cluster.get_node(&target_id)
                                             {
-                                                let resp = RespValue::Error(format!(
+                                                let resp = RespValue::Error(bytes::Bytes::from(format!(
                                                     "ASK {} {}:{}",
                                                     slot, target_node.ip, target_node.port
-                                                ));
+                                                )));
                                                 if let Err(e) =
                                                     write_resp(&mut stream, &handler, &resp).await
                                                 {
@@ -1521,10 +1523,10 @@ pub(crate) async fn handle_connection(
                                             if !allow_readonly
                                                 && let Some(node) = cluster.get_node(&node_id)
                                             {
-                                                let resp = RespValue::Error(format!(
+                                                let resp = RespValue::Error(bytes::Bytes::from(format!(
                                                     "MOVED {} {}:{}",
                                                     slot, node.ip, node.port
-                                                ));
+                                                )));
                                                 if let Err(e) =
                                                     write_resp(&mut stream, &handler, &resp).await
                                                 {
@@ -1548,7 +1550,7 @@ pub(crate) async fn handle_connection(
                                         });
                                         if cross_slot {
                                             let resp = RespValue::Error(
-                                        "CROSSSLOT Keys in request don't hash to the same slot".to_string()
+                                        "CROSSSLOT Keys in request don't hash to the same slot".into()
                                     );
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &resp).await
@@ -1597,20 +1599,20 @@ pub(crate) async fn handle_connection(
                                                 ) {
                                                     Ok(_) => {
                                                         let _ = aof.lock().map(|mut g| g.reopen());
-                                                        RespValue::SimpleString("Background append only file rewriting started".to_string())
+                                                        RespValue::SimpleString(bytes::Bytes::from_static(b"Background append only file rewriting started"))
                                                     }
-                                                    Err(e) => RespValue::Error(format!(
+                                                    Err(e) => RespValue::Error(bytes::Bytes::from(format!(
                                                         "ERR AOF 重写失败: {}",
                                                         e
-                                                    )),
+                                                    ))),
                                                 }
                                             }
                                             None => RespValue::Error(
-                                                "ERR AOF writer 锁中毒".to_string(),
+                                                "ERR AOF writer 锁中毒".into(),
                                             ),
                                         }
                                     } else {
-                                        RespValue::Error("ERR AOF is not enabled".to_string())
+                                        RespValue::Error(bytes::Bytes::from_static(b"ERR AOF is not enabled"))
                                     };
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
@@ -1653,7 +1655,7 @@ pub(crate) async fn handle_connection(
                                                 authenticated = true;
                                                 current_user = username;
                                                 let resp =
-                                                    RespValue::SimpleString("OK".to_string());
+                                                    RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                                 if let Err(e) =
                                                     write_resp(&mut stream, &handler, &resp).await
                                                 {
@@ -1663,7 +1665,7 @@ pub(crate) async fn handle_connection(
                                             }
                                             Ok(false) => {
                                                 let resp = RespValue::Error(
-                                                    "ERR invalid password".to_string(),
+                                                    "ERR invalid password".into(),
                                                 );
                                                 if let Err(e) =
                                                     write_resp(&mut stream, &handler, &resp).await
@@ -1673,7 +1675,7 @@ pub(crate) async fn handle_connection(
                                                 }
                                             }
                                             Err(e) => {
-                                                let resp = RespValue::Error(format!("ERR {}", e));
+                                                let resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                 if let Err(e) =
                                                     write_resp(&mut stream, &handler, &resp).await
                                                 {
@@ -1686,7 +1688,7 @@ pub(crate) async fn handle_connection(
                                         // 兼容旧模式：使用全局密码
                                         if username == "default" && pwd == *expected {
                                             authenticated = true;
-                                            let resp = RespValue::SimpleString("OK".to_string());
+                                            let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &resp).await
                                             {
@@ -1695,7 +1697,7 @@ pub(crate) async fn handle_connection(
                                             }
                                         } else {
                                             let resp = RespValue::Error(
-                                                "ERR invalid password".to_string(),
+                                                "ERR invalid password".into(),
                                             );
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &resp).await
@@ -1708,7 +1710,7 @@ pub(crate) async fn handle_connection(
                                         // 未设置密码，直接返回 OK
                                         authenticated = true;
                                         current_user = username;
-                                        let resp = RespValue::SimpleString("OK".to_string());
+                                        let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                         if let Err(e) =
                                             write_resp(&mut stream, &handler, &resp).await
                                         {
@@ -1718,12 +1720,12 @@ pub(crate) async fn handle_connection(
                                     }
                                 }
                                 Command::Shutdown(_) => {
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     let _ = write_resp(&mut stream, &handler, &resp).await;
                                     return Ok(());
                                 }
                                 Command::Quit => {
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     let _ = write_resp(&mut stream, &handler, &resp).await;
                                     let _ = stream.flush().await;
                                     return Ok(());
@@ -1744,7 +1746,7 @@ pub(crate) async fn handle_connection(
                                             }
                                         }
                                         Err(e) => {
-                                            let err_resp = RespValue::Error(format!("ERR {}", e));
+                                            let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &err_resp).await
                                             {
@@ -1765,7 +1767,7 @@ pub(crate) async fn handle_connection(
                                             {
                                                 info.db = index;
                                             }
-                                            let resp = RespValue::SimpleString("OK".to_string());
+                                            let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &resp).await
                                             {
@@ -1774,7 +1776,7 @@ pub(crate) async fn handle_connection(
                                             }
                                         }
                                         Err(e) => {
-                                            let resp = RespValue::Error(format!("ERR {}", e));
+                                            let resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &resp).await
                                             {
@@ -1791,7 +1793,7 @@ pub(crate) async fn handle_connection(
                                     {
                                         info.name = Some(name);
                                     }
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
@@ -1869,7 +1871,7 @@ pub(crate) async fn handle_connection(
                                             info.flags.remove("no-evict");
                                         }
                                     }
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
@@ -1890,7 +1892,7 @@ pub(crate) async fn handle_connection(
                                             info.flags.remove("no-touch");
                                         }
                                     }
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
@@ -1898,7 +1900,7 @@ pub(crate) async fn handle_connection(
                                 }
                                 Command::ClientReply(mode) => {
                                     reply_mode = mode;
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
@@ -1949,7 +1951,7 @@ pub(crate) async fn handle_connection(
                                     if let Ok(mut cp) = client_pause.write() {
                                         *cp = Some((end, mode.clone()));
                                     }
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
@@ -1959,7 +1961,7 @@ pub(crate) async fn handle_connection(
                                     if let Ok(mut cp) = client_pause.write() {
                                         *cp = None;
                                     }
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
@@ -2007,7 +2009,7 @@ pub(crate) async fn handle_connection(
                                     if !on {
                                         tracked_keys.clear();
                                     }
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
@@ -2015,7 +2017,7 @@ pub(crate) async fn handle_connection(
                                 }
                                 Command::ClientCaching(flag) => {
                                     caching_next = Some(flag);
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
@@ -2083,7 +2085,7 @@ pub(crate) async fn handle_connection(
                                     // 订阅模式下的 PING
                                     let resp = match message {
                                         Some(m) => RespValue::Array(vec![bulk("pong"), bulk(&m)]),
-                                        None => RespValue::SimpleString("PONG".to_string()),
+                                        None => RespValue::SimpleString(bytes::Bytes::from_static(b"PONG")),
                                     };
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
@@ -2093,7 +2095,7 @@ pub(crate) async fn handle_connection(
                                 _other if is_subscribed => {
                                     // 订阅模式下不允许非 pub/sub 命令
                                     let resp = RespValue::Error(
-                                    "ERR only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT allowed in this context".to_string()
+                                    Bytes::from("ERR only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT allowed in this context")
                                 );
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
@@ -2143,7 +2145,7 @@ pub(crate) async fn handle_connection(
                                                 }
                                                 Err(e) => {
                                                     let err_resp =
-                                                        RespValue::Error(format!("ERR {}", e));
+                                                        RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
                                                         write_resp(&mut stream, &handler, &err_resp)
                                                             .await
@@ -2164,7 +2166,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Err(e) => {
                                             log::error!("命令执行失败: {}", e);
-                                            let err_resp = RespValue::Error(format!("ERR {}", e));
+                                            let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &err_resp).await
                                             {
@@ -2217,7 +2219,7 @@ pub(crate) async fn handle_connection(
                                                 }
                                                 Err(e) => {
                                                     let err_resp =
-                                                        RespValue::Error(format!("ERR {}", e));
+                                                        RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
                                                         write_resp(&mut stream, &handler, &err_resp)
                                                             .await
@@ -2238,7 +2240,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Err(e) => {
                                             log::error!("命令执行失败: {}", e);
-                                            let err_resp = RespValue::Error(format!("ERR {}", e));
+                                            let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &err_resp).await
                                             {
@@ -2259,7 +2261,7 @@ pub(crate) async fn handle_connection(
                                         match crate::rdb::save(&storage, path, repl_info) {
                                             Ok(()) => {
                                                 let resp =
-                                                    RespValue::SimpleString("OK".to_string());
+                                                    RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                                 if let Err(e) =
                                                     write_resp(&mut stream, &handler, &resp).await
                                                 {
@@ -2269,7 +2271,7 @@ pub(crate) async fn handle_connection(
                                             }
                                             Err(e) => {
                                                 let err_resp =
-                                                    RespValue::Error(format!("ERR {}", e));
+                                                    RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                 if let Err(e) =
                                                     write_resp(&mut stream, &handler, &err_resp)
                                                         .await
@@ -2282,7 +2284,7 @@ pub(crate) async fn handle_connection(
                                     }
                                     None => {
                                         let resp =
-                                            RespValue::Error("ERR RDB 路径未配置".to_string());
+                                            RespValue::Error(bytes::Bytes::from("ERR RDB 路径未配置"));
                                         if let Err(e) =
                                             write_resp(&mut stream, &handler, &resp).await
                                         {
@@ -2313,7 +2315,7 @@ pub(crate) async fn handle_connection(
                                             }
                                         });
                                         let resp = RespValue::SimpleString(
-                                            "Background saving started".to_string(),
+                                            "Background saving started".into(),
                                         );
                                         if let Err(e) =
                                             write_resp(&mut stream, &handler, &resp).await
@@ -2324,7 +2326,7 @@ pub(crate) async fn handle_connection(
                                     }
                                     None => {
                                         let resp =
-                                            RespValue::Error("ERR RDB 路径未配置".to_string());
+                                            RespValue::Error(bytes::Bytes::from("ERR RDB 路径未配置"));
                                         if let Err(e) =
                                             write_resp(&mut stream, &handler, &resp).await
                                         {
@@ -2378,7 +2380,7 @@ pub(crate) async fn handle_connection(
                                                 }
                                                 Err(e) => {
                                                     let err_resp =
-                                                        RespValue::Error(format!("ERR {}", e));
+                                                        RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
                                                         write_resp(&mut stream, &handler, &err_resp)
                                                             .await
@@ -2399,7 +2401,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Err(e) => {
                                             log::error!("命令执行失败: {}", e);
-                                            let err_resp = RespValue::Error(format!("ERR {}", e));
+                                            let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &err_resp).await
                                             {
@@ -2460,7 +2462,7 @@ pub(crate) async fn handle_connection(
                                                 }
                                                 Err(e) => {
                                                     let err_resp =
-                                                        RespValue::Error(format!("ERR {}", e));
+                                                        RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
                                                         write_resp(&mut stream, &handler, &err_resp)
                                                             .await
@@ -2481,7 +2483,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Err(e) => {
                                             log::error!("命令执行失败: {}", e);
-                                            let err_resp = RespValue::Error(format!("ERR {}", e));
+                                            let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &err_resp).await
                                             {
@@ -2529,7 +2531,7 @@ pub(crate) async fn handle_connection(
                                                 }
                                                 Err(e) => {
                                                     let err_resp =
-                                                        RespValue::Error(format!("ERR {}", e));
+                                                        RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
                                                         write_resp(&mut stream, &handler, &err_resp)
                                                             .await
@@ -2550,7 +2552,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Err(e) => {
                                             log::error!("命令执行失败: {}", e);
-                                            let err_resp = RespValue::Error(format!("ERR {}", e));
+                                            let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &err_resp).await
                                             {
@@ -2617,7 +2619,7 @@ pub(crate) async fn handle_connection(
                                                 }
                                                 Err(e) => {
                                                     let err_resp =
-                                                        RespValue::Error(format!("ERR {}", e));
+                                                        RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
                                                         write_resp(&mut stream, &handler, &err_resp)
                                                             .await
@@ -2638,7 +2640,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Err(e) => {
                                             log::error!("命令执行失败: {}", e);
-                                            let err_resp = RespValue::Error(format!("ERR {}", e));
+                                            let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &err_resp).await
                                             {
@@ -2712,7 +2714,7 @@ pub(crate) async fn handle_connection(
                                                 }
                                                 Err(e) => {
                                                     let err_resp =
-                                                        RespValue::Error(format!("ERR {}", e));
+                                                        RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
                                                         write_resp(&mut stream, &handler, &err_resp)
                                                             .await
@@ -2789,7 +2791,7 @@ pub(crate) async fn handle_connection(
                                                 }
                                                 Err(e) => {
                                                     let err_resp =
-                                                        RespValue::Error(format!("ERR {}", e));
+                                                        RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                                     if let Err(e) =
                                                         write_resp(&mut stream, &handler, &err_resp)
                                                             .await
@@ -2839,9 +2841,9 @@ pub(crate) async fn handle_connection(
                                                 }
                                             }
                                             let resp = if migrated_keys.is_empty() {
-                                                RespValue::Error("ERR no such key".to_string())
+                                                RespValue::Error(bytes::Bytes::from_static(b"ERR no such key"))
                                             } else {
-                                                RespValue::SimpleString("OK".to_string())
+                                                RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                             };
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &resp).await
@@ -2851,7 +2853,7 @@ pub(crate) async fn handle_connection(
                                             }
                                         }
                                         Err(err_msg) => {
-                                            let resp = RespValue::Error(err_msg.to_string());
+                                            let resp = RespValue::Error(Bytes::from(err_msg));
                                             if let Err(e) =
                                                 write_resp(&mut stream, &handler, &resp).await
                                             {
@@ -2862,7 +2864,7 @@ pub(crate) async fn handle_connection(
                                     }
                                 }
                                 Command::Asking => {
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
@@ -2870,7 +2872,7 @@ pub(crate) async fn handle_connection(
                                 }
                                 Command::ReadOnly => {
                                     readonly_mode = true;
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
@@ -2878,7 +2880,7 @@ pub(crate) async fn handle_connection(
                                 }
                                 Command::ReadWrite => {
                                     readonly_mode = false;
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
@@ -2917,7 +2919,7 @@ pub(crate) async fn handle_connection(
                                         info.blocked = false;
                                         info.blocked_reason = None;
                                     }
-                                    let resp = RespValue::SimpleString("RESET".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"RESET"));
                                     if let Err(_e) = write_resp(&mut stream, &handler, &resp).await
                                     {
                                         return Ok(());
@@ -2934,7 +2936,7 @@ pub(crate) async fn handle_connection(
                                         };
                                         if !auth_ok {
                                             let resp = RespValue::Error(
-                                            "WRONGPASS invalid username-password pair or user is disabled.".to_string()
+                                            "WRONGPASS invalid username-password pair or user is disabled.".into()
                                         );
                                             if let Err(_e) =
                                                 write_resp(&mut stream, &handler, &resp).await
@@ -2975,7 +2977,7 @@ pub(crate) async fn handle_connection(
                                     }
                                 }
                                 Command::Monitor => {
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(_e) = write_resp(&mut stream, &handler, &resp).await
                                     {
                                         return Ok(());
@@ -2994,7 +2996,7 @@ pub(crate) async fn handle_connection(
                                             msg = monitor_rx.recv() => {
                                                 match msg {
                                                     Ok(cmd_str) => {
-                                                        let resp = RespValue::SimpleString(cmd_str);
+                                                        let resp = RespValue::SimpleString(cmd_str.into());
                                                         if let Err(_e) = write_resp(&mut stream, &handler, &resp).await {
                                                             return Ok(());
                                                         }
@@ -3042,13 +3044,13 @@ pub(crate) async fn handle_connection(
                                                 repl.get_role(),
                                                 crate::replication::ReplicationRole::Master
                                             ) {
-                                                RespValue::Error("ERR FAILOVER requires the server to be a master".to_string())
+                                                RespValue::Error(bytes::Bytes::from_static(b"ERR FAILOVER requires the server to be a master"))
                                             } else {
                                                 let replicas = repl.get_connected_replicas();
                                                 if replicas.is_empty() {
                                                     RespValue::Error(
                                                         "ERR FAILOVER requires connected replicas"
-                                                            .to_string(),
+                                                            .into(),
                                                     )
                                                 } else if let (Some(h), Some(p)) = (&host, &port) {
                                                     // 检查目标副本是否存在
@@ -3056,10 +3058,10 @@ pub(crate) async fn handle_connection(
                                                         .iter()
                                                         .any(|r| r.addr == *h && r.port == *p);
                                                     if !found && !force {
-                                                        RespValue::Error(format!(
+                                                        RespValue::Error(bytes::Bytes::from(format!(
                                                             "ERR FAILOVER target {}:{} is not a connected replica",
                                                             h, p
-                                                        ))
+                                                        )))
                                                     } else {
                                                         log::info!(
                                                             "FAILOVER 开始: 目标 {}:{}, timeout={}ms, force={}",
@@ -3068,7 +3070,7 @@ pub(crate) async fn handle_connection(
                                                             timeout,
                                                             force
                                                         );
-                                                        RespValue::SimpleString("OK".to_string())
+                                                        RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                                     }
                                                 } else {
                                                     // 无指定目标，选择 offset 最大的副本
@@ -3077,13 +3079,13 @@ pub(crate) async fn handle_connection(
                                                         timeout,
                                                         force
                                                     );
-                                                    RespValue::SimpleString("OK".to_string())
+                                                    RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))
                                                 }
                                             }
                                         }
                                         None => RespValue::Error(
                                             "ERR FAILOVER requires replication to be enabled"
-                                                .to_string(),
+                                                .into(),
                                         ),
                                     };
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
@@ -3093,7 +3095,7 @@ pub(crate) async fn handle_connection(
                                 }
                                 Command::FailoverAbort => {
                                     log::info!("FAILOVER ABORT");
-                                    let resp = RespValue::SimpleString("OK".to_string());
+                                    let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     if let Err(e) = write_resp(&mut stream, &handler, &resp).await {
                                         log::error!("写入响应失败: {}", e);
                                         return Ok(());
@@ -3140,15 +3142,15 @@ pub(crate) async fn handle_connection(
                                         Ok(response) => {
                                             // 处理 CONTINUE 增量同步响应
                                             if let RespValue::SimpleString(ref s) = response
-                                                && s.starts_with("CONTINUE")
+                                                && s.starts_with(b"CONTINUE")
                                             {
                                                 let parts: Vec<&str> =
-                                                    s.split_whitespace().collect();
+                                                    std::str::from_utf8(s).unwrap().split_whitespace().collect();
                                                 if parts.len() >= 3 {
                                                     let offset: i64 = parts[2].parse().unwrap_or(0);
                                                     // 向客户端发送标准 CONTINUE 响应（仅 replid）
                                                     let continue_resp = RespValue::SimpleString(
-                                                        format!("CONTINUE {}", parts[1]),
+                                                        Bytes::from(format!("CONTINUE {}", parts[1])),
                                                     );
                                                     if let Err(e) = send_reply(
                                                         &mut stream,
@@ -3225,7 +3227,7 @@ pub(crate) async fn handle_connection(
 
                                             // 检测到 FULLRESYNC 响应后发送 RDB 数据
                                             if let RespValue::SimpleString(ref s) = response
-                                                && s.starts_with("FULLRESYNC")
+                                                && s.starts_with(b"FULLRESYNC")
                                             {
                                                 let _ = stream.flush().await;
                                                 let mut rdb_buf = Vec::new();
@@ -3281,7 +3283,7 @@ pub(crate) async fn handle_connection(
                                         }
                                         Err(e) => {
                                             log::error!("命令执行失败: {}", e);
-                                            let err_resp = RespValue::Error(format!("ERR {}", e));
+                                            let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                                             if let Err(e) = send_reply(
                                                 &mut stream,
                                                 &handler,
@@ -3300,7 +3302,7 @@ pub(crate) async fn handle_connection(
                         }
                         Err(e) => {
                             log::error!("命令解析失败: {}", e);
-                            let err_resp = RespValue::Error(format!("ERR {}", e));
+                            let err_resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                             if let Err(e) = write_resp(&mut stream, &handler, &err_resp).await {
                                 log::error!("写入错误响应失败: {}", e);
                                 return Ok(());

@@ -421,7 +421,7 @@ impl CommandExecutor {
             }
             Command::PfMerge(destkey, sourcekeys) => {
                 self.storage.pfmerge(&destkey, &sourcekeys)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
+                Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
             }
             Command::GeoAdd(key, items) => executor_geo::execute_geo_add(self, key, items),
             Command::GeoDist(key, member1, member2, unit) => {
@@ -624,7 +624,7 @@ impl CommandExecutor {
                     .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
                 let rules_ref: Vec<&str> = rules.iter().map(|s| s.as_str()).collect();
                 acl.setuser(&username, &rules_ref)?;
-                Ok(RespValue::SimpleString("OK".to_string()))
+                Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
             }
             Command::AclGetUser(username) => {
                 let acl = self
@@ -676,7 +676,7 @@ impl CommandExecutor {
                     .collect();
                 Ok(RespValue::Array(parts))
             }
-            Command::AclWhoAmI => Ok(RespValue::SimpleString("default".to_string())),
+            Command::AclWhoAmI => Ok(RespValue::SimpleString(Bytes::from_static(b"default"))),
             Command::AclLog(arg) => {
                 let acl = self
                     .acl
@@ -685,7 +685,7 @@ impl CommandExecutor {
                 if let Some(arg) = arg {
                     if arg.eq_ignore_ascii_case("RESET") {
                         acl.log_reset()?;
-                        Ok(RespValue::SimpleString("OK".to_string()))
+                        Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
                     } else {
                         let count = arg.parse::<usize>().map_err(|_| {
                             AppError::Command("ACL LOG count 必须是整数".to_string())
@@ -742,7 +742,7 @@ impl CommandExecutor {
                     .as_ref()
                     .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
                 acl.save("users.acl")?;
-                Ok(RespValue::SimpleString("OK".to_string()))
+                Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
             }
             Command::AclLoad => {
                 let acl = self
@@ -750,7 +750,7 @@ impl CommandExecutor {
                     .as_ref()
                     .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
                 acl.load("users.acl")?;
-                Ok(RespValue::SimpleString("OK".to_string()))
+                Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
             }
             Command::AclDryRun { username, command } => {
                 let acl = self
@@ -763,11 +763,11 @@ impl CommandExecutor {
                 let cmd_name = &command[0];
                 let keys: Vec<&str> = command[1..].iter().map(|s| s.as_str()).collect();
                 match acl.check_command(&username, cmd_name, &keys) {
-                    Ok(true) => Ok(RespValue::SimpleString("OK".to_string())),
-                    Ok(false) => Ok(RespValue::Error(format!(
+                    Ok(true) => Ok(RespValue::SimpleString(Bytes::from_static(b"OK"))),
+                    Ok(false) => Ok(RespValue::Error(Bytes::from(format!(
                         "ERR User {} has no permissions to run the '{}' command",
                         username, cmd_name
-                    ))),
+                    )))),
                     Err(e) => Err(e),
                 }
             }
@@ -800,7 +800,7 @@ impl CommandExecutor {
             Command::ScriptExists(sha1s) => executor_admin::execute_script_exists(self, sha1s),
             Command::ScriptFlush => executor_admin::execute_script_flush(self),
             Command::ScriptDebug(mode) => match mode.to_ascii_uppercase().as_str() {
-                "YES" | "SYNC" | "NO" => Ok(RespValue::SimpleString("OK".to_string())),
+                "YES" | "SYNC" | "NO" => Ok(RespValue::SimpleString(Bytes::from_static(b"OK"))),
                 _ => Err(AppError::Command(
                     "SCRIPT DEBUG 模式必须是 YES、SYNC 或 NO".to_string(),
                 )),
@@ -883,11 +883,11 @@ impl CommandExecutor {
             }
             Command::DebugSetActiveExpire(enabled) => {
                 self.storage.set_active_expire(enabled);
-                Ok(RespValue::SimpleString("OK".to_string()))
+                Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
             }
             Command::DebugSleep(seconds) => {
                 std::thread::sleep(std::time::Duration::from_secs_f64(seconds));
-                Ok(RespValue::SimpleString("OK".to_string()))
+                Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
             }
             Command::DebugObject(key) => executor_admin::execute_debug_object(self, key),
             Command::Echo(msg) => Ok(RespValue::BulkString(Some(Bytes::from(msg)))),
@@ -918,7 +918,7 @@ impl CommandExecutor {
             Command::RenameNx(key, newkey) => executor_admin::execute_rename_nx(self, key, newkey),
             Command::SwapDb(idx1, idx2) => executor_admin::execute_swap_db(self, idx1, idx2),
             Command::FlushDb => executor_admin::execute_flush_db(self),
-            Command::Shutdown(_) => Ok(RespValue::SimpleString("OK".to_string())),
+            Command::Shutdown(_) => Ok(RespValue::SimpleString(Bytes::from_static(b"OK"))),
             Command::LastSave => Ok(RespValue::Integer(self.storage.get_last_save_time() as i64)),
             Command::SubStr(key, start, end) => {
                 // SUBSTR 是 GETRANGE 的别名
@@ -1368,7 +1368,7 @@ impl CommandExecutor {
                 // 事务命令在 server.rs 中直接处理，不应到达此处
                 Err(AppError::Command("事务命令应在连接层处理".to_string()))
             }
-            Command::Unwatch => Ok(RespValue::SimpleString("OK".to_string())),
+            Command::Unwatch => Ok(RespValue::SimpleString(Bytes::from_static(b"OK"))),
             Command::ReplConf { args } => {
                 if args.len() >= 2
                     && args[0].to_uppercase() == "ACK"
@@ -1377,7 +1377,7 @@ impl CommandExecutor {
                 {
                     log::debug!("收到副本 ACK, offset: {}", offset);
                 }
-                Ok(RespValue::SimpleString("OK".to_string()))
+                Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
             }
             Command::Sync => {
                 // SYNC 等价于 PSYNC ? -1（强制全量同步）
@@ -1387,10 +1387,10 @@ impl CommandExecutor {
                     .ok_or_else(|| AppError::Command("复制管理器未初始化".to_string()))?;
                 let master_replid = repl.get_master_replid();
                 let master_offset = repl.get_master_repl_offset();
-                Ok(RespValue::SimpleString(format!(
+                Ok(RespValue::SimpleString(Bytes::from(format!(
                     "FULLRESYNC {} {}",
                     master_replid, master_offset
-                )))
+                ))))
             }
             Command::Psync { replid, offset } => {
                 let repl = self
@@ -1402,10 +1402,10 @@ impl CommandExecutor {
                 if offset >= 0 && replid == master_replid {
                     // 尝试增量同步：验证 offset 在 backlog 范围内
                     if let Some(_backlog_data) = repl.get_backlog_from_offset(offset) {
-                        return Ok(RespValue::SimpleString(format!(
+                        return Ok(RespValue::SimpleString(Bytes::from(format!(
                             "CONTINUE {} {}",
                             master_replid, offset
-                        )));
+                        ))));
                     }
                     // offset 不在 backlog 范围内，降级为全量同步
                     log::info!(
@@ -1416,10 +1416,10 @@ impl CommandExecutor {
 
                 // 全量同步
                 let master_offset = repl.get_master_repl_offset();
-                Ok(RespValue::SimpleString(format!(
+                Ok(RespValue::SimpleString(Bytes::from(format!(
                     "FULLRESYNC {} {}",
                     master_replid, master_offset
-                )))
+                ))))
             }
             Command::Role => {
                 let repl = self
@@ -1473,7 +1473,7 @@ impl CommandExecutor {
                         log::error!("复制任务失败: {}", e);
                     }
                 });
-                Ok(RespValue::SimpleString("OK".to_string()))
+                Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
             }
             Command::ReplicaOfNoOne => {
                 let repl = self
@@ -1481,7 +1481,7 @@ impl CommandExecutor {
                     .as_ref()
                     .ok_or_else(|| AppError::Command("复制管理器未初始化".to_string()))?;
                 repl.set_replicaof_no_one();
-                Ok(RespValue::SimpleString("OK".to_string()))
+                Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
             }
             Command::Wait { numreplicas, .. } => {
                 // 非阻塞上下文（事务/AOF 重放）：直接返回当前满足条件的副本数
@@ -1495,7 +1495,7 @@ impl CommandExecutor {
                 }
             }
             Command::Migrate { .. } => Err(AppError::Command("MIGRATE 应在连接层处理".to_string())),
-            Command::Asking => Ok(RespValue::SimpleString("OK".to_string())),
+            Command::Asking => Ok(RespValue::SimpleString(Bytes::from_static(b"OK"))),
             Command::Failover { .. } => {
                 // FAILOVER 需要在连接层异步处理
                 Err(AppError::Command("FAILOVER 应在连接层处理".to_string()))
@@ -1544,8 +1544,8 @@ impl CommandExecutor {
             | Command::ClusterMyShardId => {
                 Err(AppError::Command("CLUSTER 应在连接层处理".to_string()))
             }
-            Command::ReadOnly => Ok(RespValue::SimpleString("OK".to_string())),
-            Command::ReadWrite => Ok(RespValue::SimpleString("OK".to_string())),
+            Command::ReadOnly => Ok(RespValue::SimpleString(Bytes::from_static(b"OK"))),
+            Command::ReadWrite => Ok(RespValue::SimpleString(Bytes::from_static(b"OK"))),
             Command::ModuleList => Ok(RespValue::Array(vec![])),
             Command::ModuleLoad(_) => Err(AppError::Command(
                 "Module loading is not supported in redis-rust".to_string(),
@@ -1553,10 +1553,10 @@ impl CommandExecutor {
             Command::ModuleUnload(_) => Err(AppError::Command(
                 "No such module with that name".to_string(),
             )),
-            Command::Unknown(cmd_name) => Ok(RespValue::Error(format!(
+            Command::Unknown(cmd_name) => Ok(RespValue::Error(Bytes::from(format!(
                 "ERR unknown command '{}'",
                 cmd_name,
-            ))),
+            )))),
         }
     }
 }

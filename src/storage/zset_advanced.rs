@@ -1,7 +1,7 @@
 //! Sorted Set 高级操作（ZUNIONSTORE/ZINTERSTORE/ZDIFF 等集合运算）
 
 use crate::error::{AppError, Result};
-use crate::storage::{StorageEngine, StorageValue, ZSetData};
+use crate::storage::{Entry, StorageEngine, StorageValue, ZSetData};
 use ordered_float::OrderedFloat;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,10 +27,10 @@ impl StorageEngine {
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key) {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     continue;
                 }
-                if let StorageValue::ZSet(z) = v {
+                if let StorageValue::ZSet(z) = &v.value {
                     for (member, score) in &z.member_to_score {
                         union_scores
                             .entry(member.clone())
@@ -58,9 +58,8 @@ impl StorageEngine {
             .get_shard(destination)
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-        map.insert(destination.to_string(), StorageValue::ZSet(result));
+        map.insert(destination.to_string(), Entry::new(StorageValue::ZSet(result)));
         self.bump_version(destination);
-        self.touch(destination);
         Ok(result_len)
     }
     pub fn zinterstore(
@@ -98,8 +97,8 @@ impl StorageEngine {
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_key_expired(&db, key)
-                && let StorageValue::ZSet(z) = v
+                && !v.is_expired()
+                && let StorageValue::ZSet(z) = &v.value
             {
                 for (member, score) in &z.member_to_score {
                     current_members.insert(member.clone(), *score * weight);
@@ -140,9 +139,8 @@ impl StorageEngine {
             .get_shard(destination)
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-        map.insert(destination.to_string(), StorageValue::ZSet(result));
+        map.insert(destination.to_string(), Entry::new(StorageValue::ZSet(result)));
         self.bump_version(destination);
-        self.touch(destination);
         Ok(result_len)
     }
     pub fn zdiff(&self, keys: &[String], with_scores: bool) -> Result<Vec<(String, f64)>> {
@@ -161,9 +159,9 @@ impl StorageEngine {
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             let current: HashMap<String, f64> = if let Some(v) = map.get(key) {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     HashMap::new()
-                } else if let StorageValue::ZSet(z) = v {
+                } else if let StorageValue::ZSet(z) = &v.value {
                     z.member_to_score.clone()
                 } else {
                     HashMap::new()
@@ -217,9 +215,9 @@ impl StorageEngine {
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             let current: HashMap<String, f64> = if let Some(v) = map.get(key) {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     HashMap::new()
-                } else if let StorageValue::ZSet(z) = v {
+                } else if let StorageValue::ZSet(z) = &v.value {
                     z.member_to_score.clone()
                 } else {
                     HashMap::new()
@@ -246,9 +244,8 @@ impl StorageEngine {
             .get_shard(destination)
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-        map.insert(destination.to_string(), StorageValue::ZSet(result));
+        map.insert(destination.to_string(), Entry::new(StorageValue::ZSet(result)));
         self.bump_version(destination);
-        self.touch(destination);
         Ok(count)
     }
     pub fn zinter(
@@ -278,8 +275,8 @@ impl StorageEngine {
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_key_expired(&db, key)
-                && let StorageValue::ZSet(z) = v
+                && !v.is_expired()
+                && let StorageValue::ZSet(z) = &v.value
             {
                 for (member, score) in &z.member_to_score {
                     current_members.insert(member.clone(), *score * weight);
@@ -339,10 +336,10 @@ impl StorageEngine {
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key) {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     continue;
                 }
-                if let StorageValue::ZSet(z) = v {
+                if let StorageValue::ZSet(z) = &v.value {
                     for (member, score) in &z.member_to_score {
                         union_scores
                             .entry(member.clone())
@@ -390,11 +387,11 @@ impl StorageEngine {
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             match map.get(src) {
                 Some(v) => {
-                    if Self::is_key_expired(&db, src) {
+                    if v.is_expired() {
                         vec![]
                     } else {
-                        Self::check_zset_type(v)?;
-                        match v {
+                        Self::check_zset_type(&v.value)?;
+                        match &v.value {
                             StorageValue::ZSet(z) => {
                                 let pairs: Vec<(String, f64)> = if by_score {
                                     let min_score: f64 = min.parse().map_err(|_| {
@@ -481,9 +478,8 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
         if count > 0 {
-            map.insert(dst.to_string(), StorageValue::ZSet(new_zset));
+            map.insert(dst.to_string(), Entry::new(StorageValue::ZSet(new_zset)));
             self.bump_version(dst);
-            self.touch(dst);
         } else {
             map.remove(dst);
             self.bump_version(dst);
@@ -506,11 +502,11 @@ impl StorageEngine {
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get_mut(key) {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     continue;
                 }
-                Self::check_zset_type(v)?;
-                match v {
+                Self::check_zset_type(&v.value)?;
+                match &mut v.value {
                     StorageValue::ZSet(z) => {
                         let result = if min_or_max {
                             z.pop_min(count)
@@ -522,7 +518,6 @@ impl StorageEngine {
                         }
                         if !result.is_empty() {
                             self.bump_version(key);
-                            self.touch(key);
                             return Ok(Some((key.clone(), result)));
                         }
                     }
@@ -706,8 +701,8 @@ impl StorageEngine {
                 .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             if let Some(v) = map.get(key)
-                && !Self::is_key_expired(&db, key)
-                && let StorageValue::ZSet(z) = v
+                && !v.is_expired()
+                && let StorageValue::ZSet(z) = &v.value
             {
                 for (member, score) in &z.member_to_score {
                     current_members.insert(member.clone(), *score);

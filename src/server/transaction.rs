@@ -63,7 +63,7 @@ pub(crate) async fn handle_in_transaction(
                     Ok(true) => true,
                     Ok(false) => false,
                     Err(e) => {
-                        let resp = RespValue::Error(format!("ERR {}", e));
+                        let resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                         let _ = write_resp(stream, handler, &resp).await;
                         if !watched.is_empty() {
                             tx_storage.watch_count.fetch_sub(1, Ordering::Relaxed);
@@ -92,11 +92,11 @@ pub(crate) async fn handle_in_transaction(
                 let result = match queued_cmd {
                     Command::Publish(channel, message) => match pubsub.publish(&channel, message) {
                         Ok(count) => RespValue::Integer(count as i64),
-                        Err(e) => RespValue::Error(format!("ERR {}", e)),
+                        Err(e) => RespValue::Error(bytes::Bytes::from(format!("ERR {}", e))),
                     },
                     other => match handler.executor.execute(other) {
                         Ok(resp) => resp,
-                        Err(e) => RespValue::Error(format!("ERR {}", e)),
+                        Err(e) => RespValue::Error(bytes::Bytes::from(format!("ERR {}", e))),
                     },
                 };
                 results.push(result);
@@ -115,7 +115,7 @@ pub(crate) async fn handle_in_transaction(
                 tx_storage.watch_count.fetch_sub(1, Ordering::Relaxed);
             }
             watched.clear();
-            let resp = RespValue::SimpleString("OK".to_string());
+            let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);
@@ -123,7 +123,7 @@ pub(crate) async fn handle_in_transaction(
             Ok(true)
         }
         Command::Multi => {
-            let resp = RespValue::Error("ERR MULTI calls can not be nested".to_string());
+            let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR MULTI calls can not be nested"));
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);
@@ -131,7 +131,7 @@ pub(crate) async fn handle_in_transaction(
             Ok(true)
         }
         Command::Watch(_) => {
-            let resp = RespValue::Error("ERR WATCH inside MULTI is not allowed".to_string());
+            let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR WATCH inside MULTI is not allowed"));
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);
@@ -140,7 +140,7 @@ pub(crate) async fn handle_in_transaction(
         }
         other => {
             tx_queue.push(other);
-            let resp = RespValue::SimpleString("QUEUED".to_string());
+            let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"QUEUED"));
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);
@@ -194,7 +194,7 @@ pub(crate) async fn handle_transaction_init(
         Command::Multi => {
             *in_transaction = true;
             tx_queue.clear();
-            let resp = RespValue::SimpleString("OK".to_string());
+            let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);
@@ -219,7 +219,7 @@ pub(crate) async fn handle_transaction_init(
             } else if watched.is_empty() && was_watching {
                 tx_storage.watch_count.fetch_sub(1, Ordering::Relaxed);
             }
-            let resp = RespValue::SimpleString("OK".to_string());
+            let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);
@@ -227,7 +227,7 @@ pub(crate) async fn handle_transaction_init(
             Ok(true)
         }
         Command::Exec => {
-            let resp = RespValue::Error("ERR EXEC without MULTI".to_string());
+            let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR EXEC without MULTI"));
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);
@@ -235,7 +235,7 @@ pub(crate) async fn handle_transaction_init(
             Ok(true)
         }
         Command::Discard => {
-            let resp = RespValue::Error("ERR DISCARD without MULTI".to_string());
+            let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR DISCARD without MULTI"));
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);
@@ -247,7 +247,7 @@ pub(crate) async fn handle_transaction_init(
                 tx_storage.watch_count.fetch_sub(1, Ordering::Relaxed);
             }
             watched.clear();
-            let resp = RespValue::SimpleString("OK".to_string());
+            let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
             if let Err(e) = write_resp(stream, handler, &resp).await {
                 log::error!("写入响应失败: {}", e);
                 return Ok(false);

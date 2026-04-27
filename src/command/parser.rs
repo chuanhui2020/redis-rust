@@ -33,7 +33,7 @@ impl CommandParser {
         // 第一个元素是命令名
         let cmd_name = match &arr[0] {
             RespValue::BulkString(Some(data)) => String::from_utf8_lossy(data).to_ascii_uppercase(),
-            RespValue::SimpleString(s) => s.to_ascii_uppercase(),
+            RespValue::SimpleString(s) => String::from_utf8_lossy(s).to_ascii_uppercase(),
             _ => return Err(AppError::Command("命令名必须是字符串".to_string())),
         };
 
@@ -990,7 +990,7 @@ impl CommandParser {
     pub(crate) fn extract_string(&self, value: &RespValue) -> Result<String> {
         match value {
             RespValue::BulkString(Some(data)) => Ok(String::from_utf8_lossy(data).to_string()),
-            RespValue::SimpleString(s) => Ok(s.clone()),
+            RespValue::SimpleString(s) => Ok(String::from_utf8_lossy(s).to_string()),
             _ => Err(AppError::Command("期望字符串类型的参数".to_string())),
         }
     }
@@ -999,7 +999,7 @@ impl CommandParser {
     pub(crate) fn extract_bytes(&self, value: &RespValue) -> Result<Bytes> {
         match value {
             RespValue::BulkString(Some(data)) => Ok(data.clone()),
-            RespValue::SimpleString(s) => Ok(Bytes::from(s.clone())),
+            RespValue::SimpleString(s) => Ok(s.clone()),
             _ => Err(AppError::Command("期望字符串类型的参数".to_string())),
         }
     }

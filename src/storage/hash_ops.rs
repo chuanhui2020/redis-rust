@@ -6,14 +6,13 @@ impl StorageEngine {
     pub fn hset(&self, key: &str, field: String, value: Bytes) -> Result<i64> {
         self.evict_if_needed()?;
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                let h = Self::as_hash_mut(v).unwrap();
+                Self::check_hash_type(&v.value)?;
+                let h = Self::as_hash_mut(&mut v.value).unwrap();
                 let is_new = if h.contains_key(&field) { 0 } else { 1 };
                 h.insert(field, value);
                 Ok(is_new)
@@ -21,7 +20,7 @@ impl StorageEngine {
             None => {
                 let mut h = HashMap::new();
                 h.insert(field, value);
-                map.insert(key.to_string(), StorageValue::Hash(h));
+                map.insert(key.to_string(), Entry::new(StorageValue::Hash(h)));
                 Ok(1)
             }
         }
@@ -30,16 +29,14 @@ impl StorageEngine {
     /// 获取哈希字段的值
     pub fn hget(&self, key: &str, field: &str) -> Result<Option<Bytes>> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                match v {
+                Self::check_hash_type(&v.value)?;
+                match &v.value {
                     StorageValue::Hash(h) => Ok(h.get(field).cloned()),
-
                     _ => unreachable!(),
                 }
             }
@@ -51,14 +48,13 @@ impl StorageEngine {
     pub fn hdel(&self, key: &str, fields: &[String]) -> Result<i64> {
         self.evict_if_needed()?;
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                let h = Self::as_hash_mut(v).unwrap();
+                Self::check_hash_type(&v.value)?;
+                let h = Self::as_hash_mut(&mut v.value).unwrap();
                 let mut count = 0i64;
                 for field in fields {
                     if h.remove(field).is_some() {
@@ -77,16 +73,14 @@ impl StorageEngine {
     /// 检查哈希字段是否存在
     pub fn hexists(&self, key: &str, field: &str) -> Result<bool> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                match v {
+                Self::check_hash_type(&v.value)?;
+                match &v.value {
                     StorageValue::Hash(h) => Ok(h.contains_key(field)),
-
                     _ => unreachable!(),
                 }
             }
@@ -97,20 +91,18 @@ impl StorageEngine {
     /// 返回哈希中的所有字段和值
     pub fn hgetall(&self, key: &str) -> Result<Vec<(String, Bytes)>> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                match v {
+                Self::check_hash_type(&v.value)?;
+                match &v.value {
                     StorageValue::Hash(h) => {
                         let result: Vec<(String, Bytes)> =
                             h.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                         Ok(result)
                     }
-
                     _ => unreachable!(),
                 }
             }
@@ -121,16 +113,14 @@ impl StorageEngine {
     /// 返回哈希中字段的数量
     pub fn hlen(&self, key: &str) -> Result<usize> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                match v {
+                Self::check_hash_type(&v.value)?;
+                match &v.value {
                     StorageValue::Hash(h) => Ok(h.len()),
-
                     _ => unreachable!(),
                 }
             }
@@ -142,14 +132,13 @@ impl StorageEngine {
     pub fn hincrby(&self, key: &str, field: String, delta: i64) -> Result<i64> {
         self.evict_if_needed()?;
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                let h = Self::as_hash_mut(v).unwrap();
+                Self::check_hash_type(&v.value)?;
+                let h = Self::as_hash_mut(&mut v.value).unwrap();
                 let current = match h.get(&field) {
                     Some(b) => String::from_utf8_lossy(b).parse::<i64>().map_err(|_| {
                         AppError::Storage("hash value is not an integer".to_string())
@@ -165,7 +154,7 @@ impl StorageEngine {
             None => {
                 let mut h = HashMap::new();
                 h.insert(field, Bytes::from(delta.to_string()));
-                map.insert(key.to_string(), StorageValue::Hash(h));
+                map.insert(key.to_string(), Entry::new(StorageValue::Hash(h)));
                 self.bump_version(key);
                 Ok(delta)
             }
@@ -176,14 +165,13 @@ impl StorageEngine {
     pub fn hincrbyfloat(&self, key: &str, field: String, delta: f64) -> Result<String> {
         self.evict_if_needed()?;
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                let h = Self::as_hash_mut(v).unwrap();
+                Self::check_hash_type(&v.value)?;
+                let h = Self::as_hash_mut(&mut v.value).unwrap();
                 let current = match h.get(&field) {
                     Some(b) => String::from_utf8_lossy(b).parse::<f64>().map_err(|_| {
                         AppError::Storage("hash value is not a valid float".to_string())
@@ -201,7 +189,7 @@ impl StorageEngine {
                 let mut h = HashMap::new();
                 let new_str = format_float(delta);
                 h.insert(field, Bytes::from(new_str.clone()));
-                map.insert(key.to_string(), StorageValue::Hash(h));
+                map.insert(key.to_string(), Entry::new(StorageValue::Hash(h)));
                 self.bump_version(key);
                 Ok(new_str)
             }
@@ -211,20 +199,18 @@ impl StorageEngine {
     /// 返回哈希中所有字段名
     pub fn hkeys(&self, key: &str) -> Result<Vec<String>> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                match v {
+                Self::check_hash_type(&v.value)?;
+                match &v.value {
                     StorageValue::Hash(h) => {
                         let mut keys: Vec<String> = h.keys().cloned().collect();
                         keys.sort();
                         Ok(keys)
                     }
-
                     _ => unreachable!(),
                 }
             }
@@ -235,14 +221,13 @@ impl StorageEngine {
     /// 返回哈希中所有字段值
     pub fn hvals(&self, key: &str) -> Result<Vec<Bytes>> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                match v {
+                Self::check_hash_type(&v.value)?;
+                match &v.value {
                     StorageValue::Hash(h) => {
                         // 按字段名排序以保持确定性
                         let mut pairs: Vec<(String, Bytes)> =
@@ -251,7 +236,6 @@ impl StorageEngine {
                         let result: Vec<Bytes> = pairs.into_iter().map(|(_, v)| v).collect();
                         Ok(result)
                     }
-
                     _ => unreachable!(),
                 }
             }
@@ -263,14 +247,13 @@ impl StorageEngine {
     pub fn hsetnx(&self, key: &str, field: String, value: Bytes) -> Result<i64> {
         self.evict_if_needed()?;
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                let h = Self::as_hash_mut(v).unwrap();
+                Self::check_hash_type(&v.value)?;
+                let h = Self::as_hash_mut(&mut v.value).unwrap();
                 if let std::collections::hash_map::Entry::Vacant(e) = h.entry(field) {
                     e.insert(value);
 
@@ -284,7 +267,7 @@ impl StorageEngine {
             None => {
                 let mut h = HashMap::new();
                 h.insert(field, value);
-                map.insert(key.to_string(), StorageValue::Hash(h));
+                map.insert(key.to_string(), Entry::new(StorageValue::Hash(h)));
                 self.bump_version(key);
                 Ok(1)
             }
@@ -300,14 +283,13 @@ impl StorageEngine {
         count: i64,
         with_values: bool,
     ) -> Result<Vec<(String, Option<Bytes>)>> {
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                match v {
+                Self::check_hash_type(&v.value)?;
+                match &v.value {
                     StorageValue::Hash(h) => {
                         let fields: Vec<(String, Bytes)> =
                             h.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
@@ -382,14 +364,13 @@ impl StorageEngine {
         pattern: &str,
         count: usize,
     ) -> Result<(usize, Vec<(String, Bytes)>)> {
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                match v {
+                Self::check_hash_type(&v.value)?;
+                match &v.value {
                     StorageValue::Hash(h) => {
                         let mut fields: Vec<(String, Bytes)> =
                             h.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
@@ -409,7 +390,6 @@ impl StorageEngine {
                         let new_cursor = if end >= filtered.len() { 0 } else { end };
                         Ok((new_cursor, result))
                     }
-
                     _ => unreachable!(),
                 }
             }
@@ -420,14 +400,13 @@ impl StorageEngine {
     /// 批量设置哈希字段
     pub fn hmset(&self, key: &str, pairs: &[(String, Bytes)]) -> Result<()> {
         self.evict_if_needed()?;
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                let h = Self::as_hash_mut(v).unwrap();
+                Self::check_hash_type(&v.value)?;
+                let h = Self::as_hash_mut(&mut v.value).unwrap();
                 for (field, value) in pairs {
                     h.insert(field.clone(), value.clone());
                 }
@@ -437,7 +416,7 @@ impl StorageEngine {
                 for (field, value) in pairs {
                     h.insert(field.clone(), value.clone());
                 }
-                map.insert(key.to_string(), StorageValue::Hash(h));
+                map.insert(key.to_string(), Entry::new(StorageValue::Hash(h)));
             }
         }
         Ok(())
@@ -446,14 +425,13 @@ impl StorageEngine {
     /// 批量获取哈希字段的值
     pub fn hmget(&self, key: &str, fields: &[String]) -> Result<Vec<Option<Bytes>>> {
         self.cleanup_hash_expired_fields(key);
-        let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         let h = match map.get(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                match v {
+                Self::check_hash_type(&v.value)?;
+                match &v.value {
                     StorageValue::Hash(h) => h,
                     _ => unreachable!(),
                 }
@@ -479,11 +457,11 @@ impl StorageEngine {
         let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                let h = Self::as_hash_mut(v).unwrap();
+                Self::check_hash_type(&v.value)?;
+                let h = Self::as_hash_mut(&mut v.value).unwrap();
                 let expire_at = Self::now_millis().saturating_add(milliseconds);
                 let mut result = Vec::with_capacity(fields.len());
                 let mut exp_map = db.hash_field_expirations.write().unwrap();
@@ -518,11 +496,11 @@ impl StorageEngine {
         let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                let h = Self::as_hash_mut(v).unwrap();
+                Self::check_hash_type(&v.value)?;
+                let h = Self::as_hash_mut(&mut v.value).unwrap();
                 let mut result = Vec::with_capacity(fields.len());
                 let mut exp_map = db.hash_field_expirations.write().unwrap();
                 let field_map = exp_map.entry(key.to_string()).or_default();
@@ -563,11 +541,11 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     return Ok(vec![-2; fields.len()]);
                 }
-                Self::check_hash_type(v)?;
-                let h = match v {
+                Self::check_hash_type(&v.value)?;
+                let h = match &v.value {
                     StorageValue::Hash(h) => h,
                     _ => unreachable!(),
                 };
@@ -616,11 +594,11 @@ impl StorageEngine {
 
         match map.get(key) {
             Some(v) => {
-                if Self::is_key_expired(&db, key) {
+                if v.is_expired() {
                     return Ok(vec![-2; fields.len()]);
                 }
-                Self::check_hash_type(v)?;
-                let h = match v {
+                Self::check_hash_type(&v.value)?;
+                let h = match &v.value {
                     StorageValue::Hash(h) => h,
                     _ => unreachable!(),
                 };
@@ -653,11 +631,11 @@ impl StorageEngine {
         let db = self.db();
         let mut map = self.write_shard(key)?;
 
-        self.check_and_remove_expired(&db, &mut map, key);
+        self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
             Some(v) => {
-                Self::check_hash_type(v)?;
-                let h = Self::as_hash_mut(v).unwrap();
+                Self::check_hash_type(&v.value)?;
+                let h = Self::as_hash_mut(&mut v.value).unwrap();
                 let mut exp_map = db.hash_field_expirations.write().unwrap();
                 let mut result = Vec::with_capacity(fields.len());
                 if let Some(field_map) = exp_map.get_mut(key) {

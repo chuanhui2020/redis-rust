@@ -21,7 +21,7 @@ pub(crate) fn execute_ping(
 ) -> Result<RespValue> {
     // PING 命令：有参数返回参数，否则返回 PONG
     let reply = message.unwrap_or_else(|| "PONG".to_string());
-    Ok(RespValue::SimpleString(reply))
+    Ok(RespValue::SimpleString(reply.into()))
 }
 
 /// 执行 CONFIG_GET 命令
@@ -94,10 +94,10 @@ pub(crate) fn execute_config_set(
         match value.parse::<u64>() {
             Ok(bytes) => {
                 executor.storage.set_maxmemory(bytes);
-                Ok(RespValue::SimpleString("OK".to_string()))
+                Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
             }
             Err(_) => Ok(RespValue::Error(
-                "ERR value is not an integer or out of range".to_string(),
+                bytes::Bytes::from("ERR value is not an integer or out of range"),
             )),
         }
     } else if key_lower == "maxmemory-policy" {
@@ -111,21 +111,21 @@ pub(crate) fn execute_config_set(
             "volatile-random" => EvictionPolicy::VolatileRandom,
             "volatile-lfu" => EvictionPolicy::VolatileLfu,
             _ => {
-                return Ok(RespValue::Error(format!(
+                return Ok(RespValue::Error(bytes::Bytes::from(format!(
                     "ERR Invalid maxmemory-policy: {}",
                     value
-                )));
+                ))));
             }
         };
         executor.storage.set_eviction_policy(policy);
-        Ok(RespValue::SimpleString("OK".to_string()))
+        Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
     } else if key_lower == "notify-keyspace-events" {
         if let Some(ref notifier) = executor.keyspace_notifier {
             notifier.set_config(crate::keyspace::NotifyKeyspaceEvents::from_str(&value));
-            Ok(RespValue::SimpleString("OK".to_string()))
+            Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
         } else {
             Ok(RespValue::Error(
-                "ERR Keyspace notifier not initialized".to_string(),
+                bytes::Bytes::from("ERR Keyspace notifier not initialized"),
             ))
         }
     } else if key_lower == "aof-use-rdb-preamble" {
@@ -134,19 +134,19 @@ pub(crate) fn execute_config_set(
             "no" => false,
             _ => {
                 return Ok(RespValue::Error(
-                    "ERR Invalid argument 'yes' or 'no' expected".to_string(),
+                    bytes::Bytes::from("ERR Invalid argument 'yes' or 'no' expected"),
                 ));
             }
         };
         executor
             .aof_use_rdb_preamble
             .store(enabled, Ordering::Relaxed);
-        Ok(RespValue::SimpleString("OK".to_string()))
+        Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
     } else {
-        Ok(RespValue::Error(format!(
+        Ok(RespValue::Error(bytes::Bytes::from(format!(
             "ERR Unsupported CONFIG parameter: {}",
             key
-        )))
+        ))))
     }
 }
 
@@ -161,7 +161,7 @@ pub(crate) fn execute_config_set(
 /// - `Ok(RespValue::...)` - 执行成功
 /// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_config_rewrite(_executor: &CommandExecutor) -> Result<RespValue> {
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
 }
 
 /// 执行 CONFIG_RESET_STAT 命令
@@ -178,7 +178,7 @@ pub(crate) fn execute_config_reset_stat(executor: &CommandExecutor) -> Result<Re
     if let Some(s) = executor.slowlog.as_ref() {
         s.reset()
     }
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
 }
 
 /// 执行 MEMORY_USAGE 命令
@@ -697,7 +697,7 @@ pub(crate) fn execute_bg_rewrite_aof(_executor: &CommandExecutor) -> Result<Resp
 /// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_select(executor: &CommandExecutor, index: usize) -> Result<RespValue> {
     executor.storage.select(index)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
 }
 
 /// 执行 EVAL 命令
@@ -805,7 +805,7 @@ pub(crate) fn execute_script_flush(executor: &CommandExecutor) -> Result<RespVal
     match &executor.script_engine {
         Some(engine) => {
             engine.script_flush()?;
-            Ok(RespValue::SimpleString("OK".to_string()))
+            Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
         }
         None => Err(AppError::Command("脚本引擎未初始化".to_string())),
     }
@@ -829,7 +829,7 @@ pub(crate) fn execute_function_load(
     match &executor.script_engine {
         Some(engine) => {
             let name = engine.function_load(&code, replace)?;
-            Ok(RespValue::SimpleString(name))
+            Ok(RespValue::SimpleString(name.into()))
         }
         None => Err(AppError::Command("脚本引擎未初始化".to_string())),
     }
@@ -953,7 +953,7 @@ pub(crate) fn execute_function_restore(
     match &executor.script_engine {
         Some(engine) => {
             engine.function_restore(&data, &policy)?;
-            Ok(RespValue::SimpleString("OK".to_string()))
+            Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
         }
         None => Err(AppError::Command("脚本引擎未初始化".to_string())),
     }
@@ -1002,7 +1002,7 @@ pub(crate) fn execute_function_flush(
     match &executor.script_engine {
         Some(engine) => {
             engine.function_flush(async_mode)?;
-            Ok(RespValue::SimpleString("OK".to_string()))
+            Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
         }
         None => Err(AppError::Command("脚本引擎未初始化".to_string())),
     }
@@ -1167,9 +1167,9 @@ pub(crate) fn execute_slow_log_reset(executor: &CommandExecutor) -> Result<RespV
     match &executor.slowlog {
         Some(log) => {
             log.reset();
-            Ok(RespValue::SimpleString("OK".to_string()))
+            Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
         }
-        None => Ok(RespValue::SimpleString("OK".to_string())),
+        None => Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK"))),
     }
 }
 
@@ -1185,7 +1185,7 @@ pub(crate) fn execute_slow_log_reset(executor: &CommandExecutor) -> Result<RespV
 /// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_debug_object(executor: &CommandExecutor, key: String) -> Result<RespValue> {
     let info = executor.build_debug_object_info(&key)?;
-    Ok(RespValue::SimpleString(info))
+    Ok(RespValue::SimpleString(info.into()))
 }
 
 /// 执行 TOUCH 命令
@@ -1304,7 +1304,7 @@ pub(crate) fn execute_swap_db(
     idx2: usize,
 ) -> Result<RespValue> {
     executor.storage.swap_db(idx1, idx2)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
 }
 
 /// 执行 FLUSH_DB 命令
@@ -1319,7 +1319,7 @@ pub(crate) fn execute_swap_db(
 /// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_flush_db(executor: &CommandExecutor) -> Result<RespValue> {
     executor.storage.flush_db(executor.storage.current_db())?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
 }
 
 /// 执行 SORT 命令
@@ -1495,7 +1495,7 @@ pub(crate) fn execute_restore(
     executor
         .storage
         .restore(&key, ttl_ms, &serialized, replace)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
 }
 
 /// 执行 KEYS 命令
@@ -1562,7 +1562,7 @@ pub(crate) fn execute_rename(
     newkey: String,
 ) -> Result<RespValue> {
     executor.storage.rename(&key, &newkey)?;
-    Ok(RespValue::SimpleString("OK".to_string()))
+    Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
 }
 
 /// 执行 TYPE 命令
@@ -1577,7 +1577,7 @@ pub(crate) fn execute_rename(
 /// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_type(executor: &CommandExecutor, key: String) -> Result<RespValue> {
     let key_type = executor.storage.key_type(&key)?;
-    Ok(RespValue::SimpleString(key_type))
+    Ok(RespValue::SimpleString(key_type.into()))
 }
 
 /// 执行 PERSIST 命令

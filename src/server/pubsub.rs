@@ -165,7 +165,7 @@ pub(crate) async fn handle_pubsub_command(
                     }
                 }
                 Err(e) => {
-                    let resp = RespValue::Error(format!("ERR {}", e));
+                    let resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                     if let Err(e) = write_resp(stream, handler, &resp).await {
                         log::error!("写入错误响应失败: {}", e);
                         return Ok(false);
@@ -284,7 +284,7 @@ pub(crate) async fn handle_pubsub_command(
                     }
                 }
                 Err(e) => {
-                    let resp = RespValue::Error(format!("ERR {}", e));
+                    let resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
                     if let Err(e) = write_resp(stream, handler, &resp).await {
                         log::error!("写入错误响应失败: {}", e);
                         return Ok(false);

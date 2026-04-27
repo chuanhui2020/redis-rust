@@ -1078,6 +1078,7 @@ mod tests {
     #[test]
     fn test_version_bump() {
         let engine = StorageEngine::new();
+        engine.watch_count.fetch_add(1, Ordering::Relaxed);
         assert_eq!(engine.get_version("k").unwrap(), 0);
 
         engine.set("k".to_string(), Bytes::from("v1")).unwrap();
@@ -1096,6 +1097,7 @@ mod tests {
     #[test]
     fn test_watch_check() {
         let engine = StorageEngine::new();
+        engine.watch_count.fetch_add(1, Ordering::Relaxed);
         let mut watched = HashMap::new();
 
         // WATCH 不存在的 key
@@ -1115,6 +1117,7 @@ mod tests {
     #[test]
     fn test_watch_check_multiple_keys() {
         let engine = StorageEngine::new();
+        engine.watch_count.fetch_add(1, Ordering::Relaxed);
         engine.set("a".to_string(), Bytes::from("1")).unwrap();
         engine.set("b".to_string(), Bytes::from("2")).unwrap();
 
@@ -1134,6 +1137,7 @@ mod tests {
     #[test]
     fn test_watch_check_fails_after_lazy_expire() {
         let engine = StorageEngine::new();
+        engine.watch_count.fetch_add(1, Ordering::Relaxed);
         engine
             .set_with_ttl("k".to_string(), Bytes::from("v"), 5)
             .unwrap();
@@ -1184,6 +1188,7 @@ mod tests {
     #[test]
     fn test_watch_check_fails_after_eviction() {
         let engine = StorageEngine::new();
+        engine.watch_count.fetch_add(1, Ordering::Relaxed);
         engine.set_maxmemory(70);
         engine.set("a".to_string(), Bytes::from("1")).unwrap();
 

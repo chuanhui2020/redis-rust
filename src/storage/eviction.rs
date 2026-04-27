@@ -6,8 +6,6 @@ use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 impl StorageEngine {
-    /// 如果需要则淘汰 key，直到内存使用低于 maxmemory
-    /// NoEviction 策略下，如果内存已满则返回 OOM 错误
     pub(crate) fn evict_if_needed(&self) -> Result<()> {
         let max = self.maxmemory.load(Ordering::SeqCst);
         if max == 0 {
@@ -62,27 +60,20 @@ impl StorageEngine {
         Ok(())
     }
 
-    /// LRU 淘汰：返回 true 表示成功淘汰了一个 key
     fn evict_lru(&self, volatile_only: bool) -> Result<bool> {
         let mut lru_key: Option<(usize, String)> = None;
         let mut lru_time = Instant::now();
 
         let dbs = &self.dbs;
         for (db_idx, db) in dbs.iter().enumerate() {
-            if let Ok(times) = db.access_times.read() {
-                for (key, time) in times.iter() {
-                    if let Ok(map) = db.inner.get_shard(key).read() {
-                        if !map.contains_key(key) {
+            for shard in db.inner.all_shards() {
+                if let Ok(map) = shard.read() {
+                    for (key, entry) in map.iter() {
+                        if volatile_only && entry.expire_at.is_none() {
                             continue;
                         }
-                        if volatile_only {
-                            let expires = db.expires.get_shard(key).read().unwrap();
-                            if expires.contains_key(key) && *time < lru_time {
-                                lru_time = *time;
-                                lru_key = Some((db_idx, key.clone()));
-                            }
-                        } else if *time < lru_time {
-                            lru_time = *time;
+                        if entry.last_access < lru_time {
+                            lru_time = entry.last_access;
                             lru_key = Some((db_idx, key.clone()));
                         }
                     }
@@ -99,7 +90,6 @@ impl StorageEngine {
         }
     }
 
-    /// Random 淘汰：返回 true 表示成功淘汰了一个 key
     fn evict_random(&self, volatile_only: bool) -> Result<bool> {
         use rand::seq::IteratorRandom;
         let mut rng = rand::thread_rng();
@@ -109,12 +99,9 @@ impl StorageEngine {
             for shard in db.inner.all_shards() {
                 if let Ok(map) = shard.read() {
                     let keys: Vec<String> = if volatile_only {
-                        map.keys()
-                            .filter(|k| {
-                                let expires = db.expires.get_shard(k).read().unwrap();
-                                expires.contains_key(*k)
-                            })
-                            .cloned()
+                        map.iter()
+                            .filter(|(_, entry)| entry.expire_at.is_some())
+                            .map(|(k, _)| k.clone())
                             .collect()
                     } else {
                         map.keys().cloned().collect()
@@ -132,27 +119,20 @@ impl StorageEngine {
         Ok(false)
     }
 
-    /// LFU 淘汰：返回 true 表示成功淘汰了一个 key
     fn evict_lfu(&self, volatile_only: bool) -> Result<bool> {
         let mut lfu_key: Option<(usize, String)> = None;
         let mut min_count = u64::MAX;
 
         let dbs = &self.dbs;
         for (db_idx, db) in dbs.iter().enumerate() {
-            if let Ok(counts) = db.access_counts.read() {
-                for (key, count) in counts.iter() {
-                    if let Ok(map) = db.inner.get_shard(key).read() {
-                        if !map.contains_key(key) {
+            for shard in db.inner.all_shards() {
+                if let Ok(map) = shard.read() {
+                    for (key, entry) in map.iter() {
+                        if volatile_only && entry.expire_at.is_none() {
                             continue;
                         }
-                        if volatile_only {
-                            let expires = db.expires.get_shard(key).read().unwrap();
-                            if expires.contains_key(key) && *count < min_count {
-                                min_count = *count;
-                                lfu_key = Some((db_idx, key.clone()));
-                            }
-                        } else if *count < min_count {
-                            min_count = *count;
+                        if entry.access_count < min_count {
+                            min_count = entry.access_count;
                             lfu_key = Some((db_idx, key.clone()));
                         }
                     }
@@ -169,7 +149,6 @@ impl StorageEngine {
         }
     }
 
-    /// TTL 淘汰：淘汰 TTL 最短的 key，返回 true 表示成功淘汰了一个 key
     fn evict_ttl(&self) -> Result<bool> {
         let mut ttl_key: Option<(usize, String)> = None;
         let mut min_ttl = u64::MAX;
@@ -177,13 +156,15 @@ impl StorageEngine {
 
         let dbs = &self.dbs;
         for (db_idx, db) in dbs.iter().enumerate() {
-            for shard in db.expires.all_shards() {
-                if let Ok(expires) = shard.read() {
-                    for (key, expire_at) in expires.iter() {
-                        let ttl = expire_at.saturating_sub(now);
-                        if ttl < min_ttl {
-                            min_ttl = ttl;
-                            ttl_key = Some((db_idx, key.clone()));
+            for shard in db.inner.all_shards() {
+                if let Ok(map) = shard.read() {
+                    for (key, entry) in map.iter() {
+                        if let Some(expire_at) = entry.expire_at {
+                            let ttl = expire_at.saturating_sub(now);
+                            if ttl < min_ttl {
+                                min_ttl = ttl;
+                                ttl_key = Some((db_idx, key.clone()));
+                            }
                         }
                     }
                 }
@@ -199,32 +180,17 @@ impl StorageEngine {
         }
     }
 
-    /// 从指定 db 中移除 key（包括所有辅助数据结构）
     fn remove_key_from_db(&self, db_idx: usize, key: &str) {
         let dbs = &self.dbs;
         let db = dbs[db_idx].clone();
         let _ = dbs;
         let mut map = db.inner.get_shard(key).write().unwrap();
-        let removed = map.remove(key).is_some();
-        if removed {
-            self.bump_version_in_db(&db, key);
-        }
-        let mut versions = db.versions.get_shard(key).write().unwrap();
-        if self.watch_count.load(Ordering::Relaxed) == 0 {
-            versions.remove(key);
-        }
-        let mut expires = db.expires.get_shard(key).write().unwrap();
-        expires.remove(key);
-        let mut times = db.access_times.write().unwrap();
-        times.remove(key);
-        let mut counts = db.access_counts.write().unwrap();
-        counts.remove(key);
+        map.remove(key);
         let mut waiters = db.blocking_waiters.write().unwrap();
         waiters.remove(key);
         let mut hash_exp = db.hash_field_expirations.write().unwrap();
         hash_exp.remove(key);
 
-        // 发送淘汰通知
         if let Some(ref notifier) = self.keyspace_notifier {
             notifier.notify_evicted(db_idx, key);
         }
