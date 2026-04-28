@@ -300,14 +300,6 @@ impl StorageEngine {
         self.maxmemory.load(Ordering::SeqCst)
     }
 
-    fn touch_entry(entry: &mut Entry, maxmemory: u64) {
-        if maxmemory == 0 {
-            return;
-        }
-        entry.last_access = Instant::now();
-        entry.access_count += 1;
-    }
-
     /// 设置内存淘汰策略
     pub fn set_eviction_policy(&self, policy: EvictionPolicy) {
         let mut p = self.eviction_policy.write().unwrap();
@@ -798,19 +790,6 @@ self.bump_version(&mut map, key);
 
     /// 递增指定 key 的版本号（调用者必须已持有对应 shard 的写锁）
     fn bump_version(&self, map: &mut std::collections::HashMap<String, Entry>, key: &str) {
-        if let Some(entry) = map.get_mut(key) {
-            let new_ver = self
-                .version_counter
-                .fetch_add(1, Ordering::SeqCst)
-                .saturating_add(1);
-            entry.version = new_ver;
-        }
-    }
-
-    fn bump_version_in_db(&self, _db: &Db, map: &mut std::collections::HashMap<String, Entry>, key: &str) {
-        if self.watch_count.load(Ordering::Relaxed) == 0 {
-            return;
-        }
         if let Some(entry) = map.get_mut(key) {
             let new_ver = self
                 .version_counter

@@ -1120,6 +1120,7 @@ impl Command {
     }
 
     /// 判断是否为写操作（需要记录到 AOF）
+    #[inline]
     pub fn is_write_command(&self) -> bool {
         matches!(
             self,

@@ -16,6 +16,14 @@
 |------|------|----------|------|
 | Pipeline 缓冲区复用 | 每条命令分配 `Vec::with_capacity(64)` | 连接循环内复用 `encode_buf`（`write_resp_buf`） | ✅ |
 | RESP3 协议支持 | 扩展协议解析/编码 | 新增 `Null`/`Bool`/`Double`/`Map`/`Set`/`Push`；解析+编码+Lua桥接 | ✅ |
+| MGET 读锁优化 | `mget()` 原使用 `write()` 锁，阻塞并发读 | 改为 `read()` 锁；移除读取时的主动过期删除（与 Redis 一致） | ✅ |
+| AOF 序列化减分配 | `append()` 每次创建 `RespParser` + `encode().to_vec()` | 直接使用 `encode_append()` 到 Vec，避免中间 `Bytes` 分配 | ✅ |
+| 复制传播序列化减分配 | `serialize_command_to_resp()` 使用 `parser.encode()` | 改用 `encode_append()` 到 Vec 再转 `Bytes` | ✅ |
+| SET 路径 `key.clone()` 消除 | `set_plain`/`set_with_options`/`set_with_ttl`/`setnx` 中 `key.clone()` | 在 entry 构造阶段直接设置 version，避免 insert 后再 bump | ✅ |
+| 条件 bump_version | `set_plain`/`set_with_options` 无条件调用 `bump_version()`（`fetch_add SeqCst`） | 仅在 `watch_count > 0` 时执行原子递增 | ✅ |
+| evict_if_needed 前置检查 | `set_plain`/`set_with_options`/`set_with_ttl`/`setnx` 直接调用 `evict_if_needed()` | 添加 `has_maxmem` 判断，maxmemory=0 时跳过全部淘汰检查 | ✅ |
+| 编译警告清理 | `write_resp_bytes`、`touch_entry`、`bump_version_in_db` 等未使用 | 移除死代码；简化 transaction.rs 导入 | ✅ |
+| 响应路径 inline | `write_resp_buf`、`send_reply`、`is_write_command` 未内联 | 添加 `#[inline]` 属性减少函数调用开销 | ✅ |
 
 ---
 
@@ -29,15 +37,21 @@
 - **涉及文件**：`src/server/connection.rs`、`src/server/handler.rs`、`src/command/executor.rs`
 - **工作量**：中等（需维护连接级别的协议版本状态，并切换响应格式）
 
+#### 2. Pipeline 批量 Side Effects
+- **问题**：Pipeline 内循环中，每条写命令仍单独执行 AOF append 和复制传播（`crossbeam::channel` / `broadcast::Sender` 逐条发送）
+- **目标**：收集一个 pipeline 内的所有写命令，内循环结束后一次性批量 AOF + 批量复制传播
+- **涉及文件**：`src/command/executor.rs`、`src/server/connection.rs`、`src/aof.rs`、`src/replication.rs`
+- **工作量**：中等（需新增 `execute_batch` 或提取 side effects 到 pipeline 层）
+
 ### P2 — 长期改进
 
-#### 2. ZSet SkipList
+#### 3. ZSet SkipList
 - **问题**：`ZSetData` 仍使用 `BTreeMap<OrderedFloat, String> + HashMap<String, OrderedFloat>`
 - **目标**：实现自定义 SkipList，降低插入/删除复杂度，提升 ZSet 大规模数据性能
 - **涉及文件**：`src/storage/zset_ops.rs` 及相关 ZSet 模块
 - **工作量**：大（需重写 ZSet 核心数据结构及所有操作）
 
-#### 3. 官方 RDB 兼容
+#### 4. 官方 RDB 兼容
 - **问题**：当前 RDB 文件使用自定义 magic header `REDIS-RUST`，无法与官方 Redis 交换 RDB
 - **目标**：读取官方 Redis RDB 格式（保留写入自定义格式的可选能力）
 - **涉及文件**：`src/rdb.rs`
@@ -45,12 +59,6 @@
 
 ### 其他
 
-#### 4. 编译警告清理
-- `src/aof.rs:417`：`Mutex` 未使用导入（测试代码中）
-- `src/server/handler.rs:15`：`write_resp_bytes` 未使用
-- `src/storage/mod.rs`：`touch_entry`、`bump_version_in_db` 未使用
-- **工作量**：小
-
-#### 5. 静态响应热路径
-- 部分高频响应（如 `OK`、`PONG`、`0`、`1`、`NULL`）已有预编码静态字节，但尚未在所有路径上替换
-- **工作量**：小（需梳理各命令返回路径，统一使用 `write_resp_bytes`）
+#### 5. 静态响应热路径补全
+- `OK`、`PONG`、`0`、`1`、`NULL` 预编码字节已覆盖 `write_resp_buf`，但部分命令仍通过 `RespValue` 构造后编码
+- **工作量**：小（需梳理各命令返回路径，直接返回预编码字节或简化 `RespValue` 构造）

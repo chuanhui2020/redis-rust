@@ -1,6 +1,6 @@
 //! 事务处理模块（MULTI/EXEC/WATCH）
 use super::ReplyMode;
-use super::handler::{ConnectionHandler, send_reply, write_resp};
+use super::handler::{ConnectionHandler, encode_resp};
 use crate::command::Command;
 use crate::error::Result;
 use crate::protocol::RespValue;
@@ -8,8 +8,6 @@ use crate::pubsub::PubSubManager;
 use crate::storage::StorageEngine;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
-use tokio::io::BufWriter;
-use tokio::net::TcpStream;
 
 /// 在事务中处理命令（已执行 MULTI 后）
 ///
@@ -42,16 +40,16 @@ use tokio::net::TcpStream;
 /// # 架构说明
 /// 事务中的 PUBLISH 命令不经过 executor.execute（因其副作用是 pubsub 而非存储），
 /// 而是直接调用 pubsub.publish。其余命令通过 handler.executor.execute 执行。
-pub(crate) async fn handle_in_transaction(
+pub(crate) fn handle_in_transaction(
     cmd: Command,
     in_transaction: &mut bool,
     tx_queue: &mut Vec<Command>,
     watched: &mut HashMap<String, u64>,
     tx_storage: &StorageEngine,
-    stream: &mut BufWriter<TcpStream>,
     handler: &ConnectionHandler,
     reply_mode: &mut ReplyMode,
     pubsub: &PubSubManager,
+    encode_buf: &mut Vec<u8>,
 ) -> Result<bool> {
     match cmd {
         Command::Exec => {
@@ -64,7 +62,7 @@ pub(crate) async fn handle_in_transaction(
                     Ok(false) => false,
                     Err(e) => {
                         let resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
-                        let _ = write_resp(stream, handler, &resp).await;
+                        encode_resp(handler, &resp, reply_mode, encode_buf);
                         if !watched.is_empty() {
                             tx_storage.watch_count.fetch_sub(1, Ordering::Relaxed);
                         }
@@ -81,10 +79,7 @@ pub(crate) async fn handle_in_transaction(
             if !check_passed {
                 tx_queue.clear();
                 let resp = RespValue::BulkString(None);
-                if let Err(e) = write_resp(stream, handler, &resp).await {
-                    log::error!("写入响应失败: {}", e);
-                    return Ok(false);
-                }
+                encode_resp(handler, &resp, reply_mode, encode_buf);
                 return Ok(true);
             }
             let mut results = Vec::new();
@@ -102,10 +97,7 @@ pub(crate) async fn handle_in_transaction(
                 results.push(result);
             }
             let resp = RespValue::Array(results);
-            if let Err(e) = send_reply(stream, handler, &resp, reply_mode).await {
-                log::error!("写入响应失败: {}", e);
-                return Ok(false);
-            }
+            encode_resp(handler, &resp, reply_mode, encode_buf);
             Ok(true)
         }
         Command::Discard => {
@@ -116,35 +108,23 @@ pub(crate) async fn handle_in_transaction(
             }
             watched.clear();
             let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-            if let Err(e) = write_resp(stream, handler, &resp).await {
-                log::error!("写入响应失败: {}", e);
-                return Ok(false);
-            }
+            encode_resp(handler, &resp, reply_mode, encode_buf);
             Ok(true)
         }
         Command::Multi => {
             let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR MULTI calls can not be nested"));
-            if let Err(e) = write_resp(stream, handler, &resp).await {
-                log::error!("写入响应失败: {}", e);
-                return Ok(false);
-            }
+            encode_resp(handler, &resp, reply_mode, encode_buf);
             Ok(true)
         }
         Command::Watch(_) => {
             let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR WATCH inside MULTI is not allowed"));
-            if let Err(e) = write_resp(stream, handler, &resp).await {
-                log::error!("写入响应失败: {}", e);
-                return Ok(false);
-            }
+            encode_resp(handler, &resp, reply_mode, encode_buf);
             Ok(true)
         }
         other => {
             tx_queue.push(other);
             let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"QUEUED"));
-            if let Err(e) = write_resp(stream, handler, &resp).await {
-                log::error!("写入响应失败: {}", e);
-                return Ok(false);
-            }
+            encode_resp(handler, &resp, reply_mode, encode_buf);
             Ok(true)
         }
     }
@@ -181,24 +161,22 @@ pub(crate) async fn handle_in_transaction(
 ///                |-- EXEC -> 检查 WATCH + 执行队列
 ///                |-- DISCARD -> 清空
 ///                \-- 其他 -> 入队 (QUEUED)
-pub(crate) async fn handle_transaction_init(
+pub(crate) fn handle_transaction_init(
     cmd: Command,
     in_transaction: &mut bool,
     tx_queue: &mut Vec<Command>,
     watched: &mut HashMap<String, u64>,
     tx_storage: &StorageEngine,
-    stream: &mut BufWriter<TcpStream>,
     handler: &ConnectionHandler,
+    encode_buf: &mut Vec<u8>,
 ) -> Result<bool> {
+    let mut reply_mode = ReplyMode::On;
     match cmd {
         Command::Multi => {
             *in_transaction = true;
             tx_queue.clear();
             let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-            if let Err(e) = write_resp(stream, handler, &resp).await {
-                log::error!("写入响应失败: {}", e);
-                return Ok(false);
-            }
+            encode_resp(handler, &resp, &mut reply_mode, encode_buf);
             Ok(true)
         }
         Command::Watch(keys) => {
@@ -220,26 +198,17 @@ pub(crate) async fn handle_transaction_init(
                 tx_storage.watch_count.fetch_sub(1, Ordering::Relaxed);
             }
             let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-            if let Err(e) = write_resp(stream, handler, &resp).await {
-                log::error!("写入响应失败: {}", e);
-                return Ok(false);
-            }
+            encode_resp(handler, &resp, &mut reply_mode, encode_buf);
             Ok(true)
         }
         Command::Exec => {
             let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR EXEC without MULTI"));
-            if let Err(e) = write_resp(stream, handler, &resp).await {
-                log::error!("写入响应失败: {}", e);
-                return Ok(false);
-            }
+            encode_resp(handler, &resp, &mut reply_mode, encode_buf);
             Ok(true)
         }
         Command::Discard => {
             let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR DISCARD without MULTI"));
-            if let Err(e) = write_resp(stream, handler, &resp).await {
-                log::error!("写入响应失败: {}", e);
-                return Ok(false);
-            }
+            encode_resp(handler, &resp, &mut reply_mode, encode_buf);
             Ok(true)
         }
         Command::Unwatch => {
@@ -248,10 +217,7 @@ pub(crate) async fn handle_transaction_init(
             }
             watched.clear();
             let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
-            if let Err(e) = write_resp(stream, handler, &resp).await {
-                log::error!("写入响应失败: {}", e);
-                return Ok(false);
-            }
+            encode_resp(handler, &resp, &mut reply_mode, encode_buf);
             Ok(true)
         }
         _ => Ok(true),

@@ -747,12 +747,12 @@ pub(crate) async fn handle_connection(
                                     &mut tx_queue,
                                     &mut watched,
                                     &tx_storage,
-                                    &mut stream,
                                     &handler,
                                     &mut reply_mode,
                                     &pubsub,
+                                    &mut encode_buf,
                                 )
-                                .await?
+                                ?
                                 {
                                     return Ok(());
                                 }
@@ -1576,10 +1576,10 @@ pub(crate) async fn handle_connection(
                                         &mut tx_queue,
                                         &mut watched,
                                         &tx_storage,
-                                        &mut stream,
                                         &handler,
+                                        &mut encode_buf,
                                     )
-                                    .await?
+                                    ?
                                     {
                                         return Ok(());
                                     }
@@ -3158,6 +3158,7 @@ pub(crate) async fn handle_connection(
                                                         &handler,
                                                         &continue_resp,
                                                         &mut reply_mode,
+                                                        &mut encode_buf,
                                                     )
                                                     .await
                                                     {
@@ -3198,6 +3199,7 @@ pub(crate) async fn handle_connection(
                                                 &handler,
                                                 &response,
                                                 &mut reply_mode,
+                                                &mut encode_buf,
                                             )
                                             .await
                                             {
@@ -3290,6 +3292,7 @@ pub(crate) async fn handle_connection(
                                                 &handler,
                                                 &err_resp,
                                                 &mut reply_mode,
+                                                &mut encode_buf,
                                             )
                                             .await
                                             {
@@ -3316,6 +3319,15 @@ pub(crate) async fn handle_connection(
                 }
             }
         } // end inner pipeline loop
+
+        // 将 pipeline / 事务批量编码的响应一次性写入 socket
+        if !encode_buf.is_empty() {
+            if let Err(e) = stream.write_all(&encode_buf).await {
+                log::debug!("写入批量响应失败: {}", e);
+                return Ok(());
+            }
+            encode_buf.clear();
+        }
 
         // pipeline 内循环结束，flush 缓冲区
         if let Err(e) = stream.flush().await {

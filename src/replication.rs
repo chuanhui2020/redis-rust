@@ -917,6 +917,7 @@ impl Default for ReplicationManager {
 /// 命令对应的 RESP 编码字节序列，可直接通过网络发送给副本或主节点。
 pub fn serialize_command_to_resp(cmd: &crate::command::Command) -> bytes::Bytes {
     let resp = cmd.to_resp_value();
-    let parser = crate::protocol::RespParser::new();
-    parser.encode(&resp)
+    let mut buf = Vec::with_capacity(64);
+    crate::protocol::RespParser::new().encode_append(&resp, &mut buf);
+    bytes::Bytes::from(buf)
 }

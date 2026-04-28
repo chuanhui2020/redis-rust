@@ -95,19 +95,38 @@ impl StorageEngine {
                 .get_shard(&key)
                 .write()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-            let mut entry = Entry::new(StorageValue::String(value));
-            if has_maxmem {
-                entry.last_access = Instant::now();
-                entry.access_count = 1;
+            let watch_count = self.watch_count.load(Ordering::Relaxed);
+            match map.entry(key) {
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    let entry = e.get_mut();
+                    entry.value = StorageValue::String(value);
+                    entry.expire_at = None;
+                    if has_maxmem {
+                        entry.last_access = Instant::now();
+                        entry.access_count = 1;
+                    }
+                    if watch_count > 0 {
+                        entry.version = self
+                            .version_counter
+                            .fetch_add(1, Ordering::Relaxed)
+                            .wrapping_add(1);
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    let mut entry = Entry::new(StorageValue::String(value));
+                    if has_maxmem {
+                        entry.last_access = Instant::now();
+                        entry.access_count = 1;
+                    }
+                    if watch_count > 0 {
+                        entry.version = self
+                            .version_counter
+                            .fetch_add(1, Ordering::Relaxed)
+                            .wrapping_add(1);
+                    }
+                    e.insert(entry);
+                }
             }
-            if self.watch_count.load(Ordering::Relaxed) > 0 {
-                let new_ver = self
-                    .version_counter
-                    .fetch_add(1, Ordering::Relaxed)
-                    .wrapping_add(1);
-                entry.version = new_ver;
-            }
-            map.insert(key, entry);
         }
         if has_maxmem {
             self.evict_if_needed()?;
@@ -133,7 +152,10 @@ impl StorageEngine {
     /// # Redis 兼容性
     /// 对标 `SET key value PX ttl_ms` 和 `PSETEX` 命令。
     pub fn set_with_ttl(&self, key: String, value: Bytes, ttl_ms: u64) -> Result<()> {
-        self.evict_if_needed()?;
+        let has_maxmem = self.maxmemory.load(Ordering::Relaxed) > 0;
+        if has_maxmem {
+            self.evict_if_needed()?;
+        }
         let expire_at = Self::now_millis().saturating_add(ttl_ms);
         let db = self.db();
         let mut map = db
@@ -141,11 +163,18 @@ impl StorageEngine {
             .get_shard(&key)
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-        let entry = Entry::with_expire(StorageValue::String(value), Some(expire_at));
-        map.insert(key.clone(), entry);
-self.bump_version(&mut map, &key);
+        let mut entry = Entry::with_expire(StorageValue::String(value), Some(expire_at));
+        if self.watch_count.load(Ordering::Relaxed) > 0 {
+            entry.version = self
+                .version_counter
+                .fetch_add(1, Ordering::Relaxed)
+                .wrapping_add(1);
+        }
+        map.insert(key, entry);
         drop(map);
-        self.evict_if_needed()?;
+        if has_maxmem {
+            self.evict_if_needed()?;
+        }
         Ok(())
     }
 
@@ -168,17 +197,44 @@ self.bump_version(&mut map, &key);
     /// # 行为说明
     /// 普通 SET 快速路径（无 NX/XX/GET/KEEPTTL/EXPIRE 选项）
     pub fn set_plain(&self, key: String, value: Bytes) -> Result<()> {
-        self.evict_if_needed()?;
+        let has_maxmem = self.maxmemory.load(Ordering::Relaxed) > 0;
+        if has_maxmem {
+            self.evict_if_needed()?;
+        }
         let db = self.db();
         let mut map = db
             .inner
             .get_shard(&key)
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-        map.insert(key.clone(), Entry::new(StorageValue::String(value)));
-self.bump_version(&mut map, &key);
+        let watch_count = self.watch_count.load(Ordering::Relaxed);
+        match map.entry(key) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                let entry = e.get_mut();
+                entry.value = StorageValue::String(value);
+                entry.expire_at = None;
+                if watch_count > 0 {
+                    entry.version = self
+                        .version_counter
+                        .fetch_add(1, Ordering::Relaxed)
+                        .wrapping_add(1);
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                let mut entry = Entry::new(StorageValue::String(value));
+                if watch_count > 0 {
+                    entry.version = self
+                        .version_counter
+                        .fetch_add(1, Ordering::Relaxed)
+                        .wrapping_add(1);
+                }
+                e.insert(entry);
+            }
+        }
         drop(map);
-        self.evict_if_needed()?;
+        if has_maxmem {
+            self.evict_if_needed()?;
+        }
         Ok(())
     }
 
@@ -194,7 +250,10 @@ self.bump_version(&mut map, &key);
         value: Bytes,
         options: &SetOptions,
     ) -> Result<(bool, Option<Bytes>)> {
-        self.evict_if_needed()?;
+        let has_maxmem = self.maxmemory.load(Ordering::Relaxed) > 0;
+        if has_maxmem {
+            self.evict_if_needed()?;
+        }
         let db = self.db();
         let mut map = db
             .inner
@@ -252,13 +311,18 @@ self.bump_version(&mut map, &key);
             }
         };
 
-        map.insert(
-            key.clone(),
-            Entry::with_expire(StorageValue::String(value), expire_at),
-        );
-self.bump_version(&mut map, &key);
+        let mut entry = Entry::with_expire(StorageValue::String(value), expire_at);
+        if self.watch_count.load(Ordering::Relaxed) > 0 {
+            entry.version = self
+                .version_counter
+                .fetch_add(1, Ordering::Relaxed)
+                .wrapping_add(1);
+        }
+        map.insert(key, entry);
         drop(map);
-        self.evict_if_needed()?;
+        if has_maxmem {
+            self.evict_if_needed()?;
+        }
         Ok((true, old_value))
     }
 
@@ -520,15 +584,14 @@ self.bump_version(&mut map, key);
         let db = self.db();
         let mut results = Vec::with_capacity(keys.len());
         for key in keys {
-            let mut map = db
+            let map = db
                 .inner
                 .get_shard(key)
-                .write()
+                .read()
                 .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
             match map.get(key.as_str()) {
                 Some(entry) => {
                     if entry.is_expired() {
-                        map.remove(key);
                         results.push(None);
                     } else {
                         match &entry.value {
@@ -760,7 +823,10 @@ impl StorageEngine {
     /// - `Ok(false)` - key 已存在且未过期，未执行设置
     /// - `Err(AppError::Storage)` - 锁中毒
     pub fn setnx(&self, key: String, value: Bytes) -> Result<bool> {
-        self.evict_if_needed()?;
+        let has_maxmem = self.maxmemory.load(Ordering::Relaxed) > 0;
+        if has_maxmem {
+            self.evict_if_needed()?;
+        }
         let db = self.db();
         let mut map = db
             .inner
@@ -768,20 +834,26 @@ impl StorageEngine {
             .write()
             .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
+        let mut entry = Entry::new(StorageValue::String(value));
+        if self.watch_count.load(Ordering::Relaxed) > 0 {
+            entry.version = self
+                .version_counter
+                .fetch_add(1, Ordering::Relaxed)
+                .wrapping_add(1);
+        }
+
         match map.get(&key) {
-            Some(entry) => {
-                if entry.is_expired() {
+            Some(e) => {
+                if e.is_expired() {
                     map.remove(&key);
-                    map.insert(key.clone(), Entry::new(StorageValue::String(value)));
-self.bump_version(&mut map, &key);
+                    map.insert(key, entry);
                     Ok(true)
                 } else {
                     Ok(false)
                 }
             }
             None => {
-                map.insert(key.clone(), Entry::new(StorageValue::String(value)));
-self.bump_version(&mut map, &key);
+                map.insert(key, entry);
                 Ok(true)
             }
         }

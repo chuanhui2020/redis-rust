@@ -11,16 +11,9 @@ pub(crate) static RESP_ZERO: &[u8] = b":0\r\n";
 pub(crate) static RESP_ONE: &[u8] = b":1\r\n";
 pub(crate) static RESP_NULL: &[u8] = b"$-1\r\n";
 
-/// 直接写入预编码的静态 RESP 字节，跳过 RespValue 构造和编码
-pub(crate) async fn write_resp_bytes(
-    stream: &mut BufWriter<TcpStream>,
-    bytes: &[u8],
-) -> std::io::Result<()> {
-    stream.write_all(bytes).await
-}
-
 /// 复用缓冲区编码 RESP 值并写入（避免每次分配新 Vec/Bytes）
 /// 对常见静态响应（OK/PONG/0/1/Null）直接写入预编码字节，跳过编码器
+#[inline]
 pub(crate) async fn write_resp_buf(
     stream: &mut BufWriter<TcpStream>,
     handler: &ConnectionHandler,
@@ -47,7 +40,9 @@ pub(crate) async fn write_resp_buf(
     }
     encode_buf.clear();
     handler.parser.encode_append(resp, encode_buf);
-    stream.write_all(encode_buf).await
+    let result = stream.write_all(encode_buf).await;
+    encode_buf.clear();
+    result
 }
 
 /// 客户端连接处理器，聚合协议解析、命令解析和命令执行三个核心组件
@@ -67,6 +62,46 @@ pub struct ConnectionHandler {
     pub(crate) cmd_parser: CommandParser,
     /// 命令执行器，负责调用底层存储引擎完成命令执行
     pub(crate) executor: CommandExecutor,
+}
+
+/// 将 RESP 值编码为字节流并追加到已有缓冲区（同步，不执行 I/O）
+///
+/// 用于 pipeline 批量优化：内循环中同步编码所有响应，循环结束后一次性写入 socket。
+/// 对常见静态响应（OK/PONG/0/1/Null）直接复制预编码字节，跳过编码器。
+pub(crate) fn encode_resp(
+    handler: &ConnectionHandler,
+    resp: &RespValue,
+    reply_mode: &mut ReplyMode,
+    out: &mut Vec<u8>,
+) {
+    match *reply_mode {
+        ReplyMode::Off => return,
+        ReplyMode::Skip => {
+            *reply_mode = ReplyMode::On;
+            return;
+        }
+        ReplyMode::On => {}
+    }
+    match resp {
+        RespValue::SimpleString(b) if b.as_ref() == b"OK" => {
+            out.extend_from_slice(RESP_OK);
+        }
+        RespValue::SimpleString(b) if b.as_ref() == b"PONG" => {
+            out.extend_from_slice(RESP_PONG);
+        }
+        RespValue::Integer(0) => {
+            out.extend_from_slice(RESP_ZERO);
+        }
+        RespValue::Integer(1) => {
+            out.extend_from_slice(RESP_ONE);
+        }
+        RespValue::BulkString(None) => {
+            out.extend_from_slice(RESP_NULL);
+        }
+        _ => {
+            handler.parser.encode_append(resp, out);
+        }
+    }
 }
 
 /// 将 RESP 值编码为字节流并写入 TCP 连接
@@ -103,11 +138,13 @@ pub(crate) async fn write_resp(
 ///
 /// # 与 Redis 客户端的交互
 /// `CLIENT REPLY` 命令用于 pipeline 场景中减少网络往返，提升批量操作性能。
+#[inline]
 pub(crate) async fn send_reply(
     stream: &mut BufWriter<TcpStream>,
     handler: &ConnectionHandler,
     resp: &RespValue,
     reply_mode: &mut ReplyMode,
+    encode_buf: &mut Vec<u8>,
 ) -> std::io::Result<()> {
     match *reply_mode {
         ReplyMode::Off => Ok(()),
@@ -115,6 +152,6 @@ pub(crate) async fn send_reply(
             *reply_mode = ReplyMode::On;
             Ok(())
         }
-        ReplyMode::On => write_resp(stream, handler, resp).await,
+        ReplyMode::On => write_resp_buf(stream, handler, resp, encode_buf).await,
     }
 }

@@ -160,10 +160,10 @@ impl AofAsyncWriter {
     /// 将命令序列化为 RESP 并发送到后台写入线程
     pub fn append(&self, cmd: &Command) -> Result<()> {
         let resp = cmd.to_resp_value();
-        let parser = RespParser::new();
-        let encoded = parser.encode(&resp);
+        let mut buf = Vec::with_capacity(64);
+        RespParser::new().encode_append(&resp, &mut buf);
         self.sender
-            .send(AofMessage::Data(encoded.to_vec()))
+            .send(AofMessage::Data(buf))
             .map_err(|_| AppError::Storage("AOF channel 已关闭".to_string()))?;
         Ok(())
     }
