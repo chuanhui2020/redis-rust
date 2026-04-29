@@ -1,78 +1,52 @@
 # redis-rust
 
-用 Rust 从零实现的 Redis 兼容缓存系统。
+用 Rust 从零实现的 Redis 7 兼容服务器。
 
 ## 项目简介
 
-redis-rust 是一个使用 Rust 语言从头编写的 Redis 协议兼容服务器，支持 RESP 协议、丰富的数据类型、持久化、事务、发布订阅、Lua 脚本等核心功能。项目采用异步 I/O（tokio）和多线程分片锁架构，在保持代码简洁的同时提供接近原生 Redis 的读性能。
+redis-rust 是一个使用 Rust 语言从头编写的 Redis 协议兼容服务器，实现了 282 个命令，覆盖 Redis 7.x 全部核心功能：RESP2/RESP3 协议、9 种数据类型、持久化（RDB + AOF）、事务、发布订阅、Lua 脚本、ACL、主从复制、Sentinel 哨兵、Cluster 集群。项目采用异步 I/O（tokio）和 64 分片锁架构，在保持代码简洁的同时提供接近原生 Redis 的读性能。
 
 ## 功能特性
 
-### 基础命令
-- `PING`、`SET`、`GET`、`DEL`、`EXISTS`、`EXPIRE`、`TTL`、`KEYS`、`SCAN`、`RENAME`、`TYPE`、`OBJECT`
-- `FLUSHDB`、`FLUSHALL`、`DBSIZE`、`INFO`、`CONFIG`
+### 数据类型（282 个命令，100% 覆盖）
 
-### 字符串操作
-- `MSET`、`MGET`、`GETSET`
-- `INCR`、`DECR`、`INCRBY`、`DECRBY`、`INCRBYFLOAT`
-- `APPEND`、`SETNX`、`GETRANGE`、`SETRANGE`、`STRLEN`
-- `SETEX`、`PSETEX`、`LCS`
+| 分类 | 命令数 | 示例 |
+|------|--------|------|
+| String | 21 | SET/GET/MGET/INCR/APPEND/LCS |
+| List | 18 | LPUSH/RPUSH/LPOP/LRANGE/BLPOP/LMOVE |
+| Hash | 23 | HSET/HGET/HMGET/HGETALL/HEXPIRE/HTTL |
+| Set | 17 | SADD/SMEMBERS/SINTER/SUNION/SDIFF/SPOP |
+| Sorted Set | 35 | ZADD/ZRANGE/ZRANGEBYSCORE/ZPOPMIN/BZPOPMAX |
+| Stream | 24 | XADD/XREAD/XREADGROUP/XACK/XCLAIM/XAUTOCLAIM |
+| Bitmap | 7 | SETBIT/GETBIT/BITCOUNT/BITOP/BITFIELD |
+| HyperLogLog | 3 | PFADD/PFCOUNT/PFMERGE |
+| Geo | 6 | GEOADD/GEODIST/GEOSEARCH/GEOPOS |
 
-### 列表操作
-- `LPUSH`、`RPUSH`、`LPOP`、`RPOP`、`LLEN`
-- `LRANGE`、`LINDEX`、`LSET`、`LINSERT`、`LREM`、`LTRIM`
-- `BLPOP`、`BRPOP`、`LMOVE`、`BLMOVE`
+### 服务器功能
 
-### 哈希操作
-- `HSET`、`HGET`、`HDEL`、`HMSET`、`HMGET`、`HGETALL`
-- `HLEN`、`HINCRBY`、`HINCRBYFLOAT`
-- `HEXPIRE`、`HTTL`、`HPERSIST`
+| 功能 | 说明 |
+|------|------|
+| RESP2/RESP3 协议 | 完整支持，含 HELLO 协商 |
+| 事务 | MULTI/EXEC/DISCARD/WATCH/UNWATCH |
+| Lua 脚本 | EVAL/EVALSHA + FUNCTION LOAD/CALL/LIST/DELETE |
+| ACL 权限 | SETUSER/DELUSER/LIST/CAT/WHOAMI/DRYRUN/SAVE/LOAD |
+| Pub/Sub | SUBSCRIBE/PUBLISH + PSUBSCRIBE + Sharded Pub/Sub |
+| Client Tracking | CLIENT TRACKING/CACHING/GETREDIR/TRACKINGINFO |
+| 持久化 | RDB 快照 + AOF 日志 + 混合持久化 + appendfsync 策略 |
+| 内存管理 | maxmemory + LRU/LFU/Random/TTL 淘汰策略 |
+| 多数据库 | SELECT 支持 16 个独立数据库 |
+| Keyspace 通知 | 键过期、删除、修改事件通知 |
+| SLOWLOG | 慢查询日志 |
+| MONITOR | 实时命令监控 |
+| 优雅关闭 | SHUTDOWN [SAVE\|NOSAVE] + Ctrl+C 信号处理 |
 
-### 集合操作
-- `SADD`、`SREM`、`SMEMBERS`、`SISMEMBER`、`SCARD`
-- `SINTER`、`SUNION`、`SDIFF` 及对应的 `*STORE` 版本
-- `SRANDMEMBER`、`SPOP`
+### 分布式功能
 
-### 有序集合
-- `ZADD`、`ZREM`、`ZSCORE`、`ZRANK`、`ZREVRANK`
-- `ZRANGE`、`ZREVRANGE`、`ZRANGEBYSCORE`、`ZREVRANGEBYSCORE`
-- `ZPOPMIN`、`ZPOPMAX`、`BZPOPMIN`、`BZPOPMAX`
-- `ZINTERSTORE`、`ZUNIONSTORE`、`ZDIFFSTORE`、`ZRANGESTORE`
-
-### Bitmap
-- `SETBIT`、`GETBIT`、`BITCOUNT`、`BITOP`、`BITPOS`、`BITFIELD`
-
-### HyperLogLog
-- `PFADD`、`PFCOUNT`、`PFMERGE`
-
-### 地理空间
-- `GEOADD`、`GEODIST`、`GEOHASH`、`GEOPOS`、`GEOSEARCH`
-
-### Stream（流）
-- `XADD`、`XLEN`、`XRANGE`、`XREVRANGE`、`XREAD`、`XDEL`、`XTRIM`
-- 消费者组：`XGROUP CREATE`、`XREADGROUP`、`XACK`、`XCLAIM`、`XAUTOCLAIM`、`XPENDING`
-- 管理命令：`XGROUP DESTROY`、`XGROUP DELCONSUMER`、`XGROUP SETID`、`XGROUP CREATECONSUMER`
-- `XINFO STREAM`、`XINFO GROUPS`、`XINFO CONSUMERS`
-
-### 发布订阅
-- `SUBSCRIBE`、`UNSUBSCRIBE`、`PUBLISH`
-- `PSUBSCRIBE`、`PUNSUBSCRIBE`
-
-### 事务
-- `MULTI`、`EXEC`、`DISCARD`、`WATCH`、`UNWATCH`
-
-### Lua 脚本
-- `EVAL`、`EVALSHA`
-- `FUNCTION LOAD`、`FUNCTION LIST`、`FUNCTION CALL`、`FUNCTION DELETE`、`FUNCTION FLUSH`
-
-### 其他高级特性
-- **ACL 权限系统**：`ACL LIST`、`ACL SETUSER`、`ACL DELUSER`、`ACL CAT`、`ACL WHOAMI`
-- **持久化**：AOF 日志、RDB 快照、混合持久化
-- **内存管理**：`maxmemory` 限制 + LRU / LFU / Random / TTL 淘汰策略
-- **多数据库**：`SELECT` 支持 16 个独立数据库（db0~db15）
-- **Keyspace 通知**：键过期、删除事件通知
-- **SLOWLOG**：慢查询日志
-- **MONITOR**：实时命令监控
+| 功能 | 说明 |
+|------|------|
+| 主从复制 | 全量/增量同步 + 写传播 + 心跳 + 断线重连 + RDB 持久化 replid |
+| Sentinel | SDOWN/ODOWN 检测 + epoch 选举 + 自动故障转移 + 配置持久化 |
+| Cluster | slot 分片 + MOVED/ASK 重定向 + Gossip 协议 + 自动故障转移 + READONLY 副本读取 |
 
 ## 快速开始
 
@@ -83,14 +57,17 @@ cargo build --release
 # 启动（默认端口 6379）
 ./target/release/redis-rust
 
-# 指定端口
-./target/release/redis-rust --port 6380
+# 指定端口 + 禁用 AOF
+./target/release/redis-rust --port 6380 --no-aof
 
-# 不启用 AOF（提升写入性能）
-./target/release/redis-rust --no-aof
+# 指定绑定地址 + 内存限制
+./target/release/redis-rust --bind 0.0.0.0 --maxmemory 1073741824 --maxmemory-policy allkeys-lru
+
+# Cluster 模式
+./target/release/redis-rust --port 7000 --cluster-enabled yes
 ```
 
-然后使用 `redis-cli` 连接：
+使用 `redis-cli` 连接：
 
 ```bash
 redis-cli -p 6379
@@ -100,12 +77,39 @@ OK
 "world"
 ```
 
+### CLI 参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--port <port>` | 监听端口 | 6379 |
+| `--bind <ip>` | 绑定地址 | 127.0.0.1 |
+| `--no-aof` | 禁用 AOF 持久化 | — |
+| `--appendfsync <always\|everysec\|no>` | AOF 刷盘策略 | everysec |
+| `--maxmemory <bytes>` | 最大内存限制 | 无限制 |
+| `--maxmemory-policy <policy>` | 淘汰策略 | noeviction |
+| `--sentinel` | Sentinel 模式 | — |
+| `--cluster-enabled <yes\|no>` | Cluster 模式 | no |
+| `--cluster-announce-ip <ip>` | 集群通告 IP | 同 --bind |
+| `--cluster-announce-port <port>` | 集群通告端口 | 同 --port |
+| `--cluster-announce-bus-port <port>` | 集群总线端口 | port + 10000 |
+
+### 集群部署
+
+一键部署 3 主 3 从本地集群：
+
+```powershell
+cd scripts/cluster
+.\deploy-cluster.ps1    # 部署
+.\check-cluster.ps1     # 健康检查
+.\stop-cluster.ps1      # 停止
+```
+
 ## Benchmark
 
-对比 Redis 8.6.2（macOS ARM64，100K 请求，50 并发连接）：
+对比 Redis 7.x（macOS ARM64，100K 请求，50 并发连接）：
 
-| 测试项目 | redis-rust | Redis | 性能比 |
-|---------|-----------|-------|--------|
+| 测试项目 | redis-rust | Redis 7 | 性能比 |
+|---------|-----------|---------|--------|
 | PING | 175K rps | 187K rps | 93.8% |
 | SET | 121K rps | 189K rps | 64% |
 | GET | 176K rps | 186K rps | 94.4% |
@@ -122,17 +126,17 @@ OK
 ## 架构说明
 
 - **异步 TCP 服务器**：基于 tokio，每连接一个异步任务
-- **RESP 协议解析**：完整支持 RESP2/RESP3 协议
-- **分片锁存储引擎**：64 分片 `RwLock<HashMap>`，按 key hash 路由，降低锁竞争
-- **持久化**：
-  - AOF：命令追加日志，支持重放恢复
-  - RDB：二进制快照，支持 SAVE/BGSAVE
+- **RESP 协议解析**：完整支持 RESP2/RESP3 协议，含 HELLO 版本协商
+- **分片锁存储引擎**：64 分片 `RwLock<HashMap>`，按 key hash（ahash）路由，降低锁竞争
+- **命令系统**：每种数据类型三层架构 — parser（解析）→ executor（执行）→ resp（响应构建）
+- **持久化**：RDB 快照优先加载，AOF 日志重放叠加，支持 appendfsync always/everysec/no
+- **Pipeline 优化**：批量延迟 side effects（AOF/复制/keyspace 通知），pipeline 结束后一次性刷新
 - **过期键清理**：被动过期（访问时检查）+ 主动后台清理
 
 ## 测试
 
 ```bash
-# 运行全部测试（602 个：539 单元测试 + 63 集成测试）
+# 运行全部测试（876 个：575 单元测试 + 291 集成测试 + 10 压力测试）
 cargo test
 
 # 仅运行单元测试
@@ -144,9 +148,12 @@ cargo test --test integration_test
 
 ## 技术栈
 
-- **Rust** stable
+- **Rust** stable (Edition 2024)
 - **tokio** — 异步运行时
 - **bytes** — 高效字节缓冲区
+- **crossbeam** — 无锁 channel（AOF 异步写入）
+- **ahash** — 高性能哈希（分片路由）
+- **mlua** — Lua 5.4 脚本引擎
 - **ordered-float** — 有序浮点数（有序集合）
 
 ## 许可证
