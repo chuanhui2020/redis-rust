@@ -31,17 +31,11 @@
 
 ### P1 — 中高优先级
 
-#### 1. RESP3 `HELLO` 协商
-- **问题**：目前解析器能识别 RESP3 类型，但连接建立后没有协议版本协商逻辑
-- **目标**：实现 `HELLO [2|3]` 命令，客户端可选择 RESP2（默认）或 RESP3 模式
-- **涉及文件**：`src/server/connection.rs`、`src/server/handler.rs`、`src/command/executor.rs`
-- **工作量**：中等（需维护连接级别的协议版本状态，并切换响应格式）
+#### ~~1. RESP3 `HELLO` 协商~~ ✅ 已完成
+- 已实现 `HELLO [2|3]` 命令，支持连接级协议版本协商
 
-#### 2. Pipeline 批量 Side Effects
-- **问题**：Pipeline 内循环中，每条写命令仍单独执行 AOF append 和复制传播（`crossbeam::channel` / `broadcast::Sender` 逐条发送）
-- **目标**：收集一个 pipeline 内的所有写命令，内循环结束后一次性批量 AOF + 批量复制传播
-- **涉及文件**：`src/command/executor.rs`、`src/server/connection.rs`、`src/aof.rs`、`src/replication.rs`
-- **工作量**：中等（需新增 `execute_batch` 或提取 side effects 到 pipeline 层）
+#### ~~2. Pipeline 批量 Side Effects~~ ✅ 已完成
+- Pipeline 内循环延迟 AOF/keyspace/复制写入，结束后通过 `flush_batch()` 一次性批量处理
 
 ### P2 — 长期改进
 
