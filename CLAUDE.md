@@ -130,6 +130,7 @@ bash scripts/bench/bench.sh
 - Integration tests spawn a real TCP server on `127.0.0.1:0` (ephemeral port) and communicate via raw RESP protocol.
 - No CI/CD pipeline — all validation is local.
 - 所有功能对标 Redis 7.x，兼容性和性能均以 Redis 7 为基准。
+- `docs/` 下的 HTML 文件（`commands.html`、`server-lifecycle-*.html`）是面向浏览器的可视化文档，必须保留并随功能变更同步更新。
 
 ## Redis 7 Implementation Progress
 
