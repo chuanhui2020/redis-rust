@@ -55,6 +55,14 @@ pub fn start_failure_detector(cluster: Arc<ClusterState>) -> tokio::task::JoinHa
                         node.port
                     );
                     cluster.remove_node_flag(&node.id, &NodeFlag::PFail);
+                } else if node.flags.contains(&NodeFlag::Fail) {
+                    log::info!(
+                        "Cluster: 节点 {} ({}:{}) 恢复，清除 FAIL",
+                        node.id,
+                        node.ip,
+                        node.port
+                    );
+                    cluster.remove_node_flag(&node.id, &NodeFlag::Fail);
                 }
             }
 

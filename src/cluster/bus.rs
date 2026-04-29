@@ -140,7 +140,7 @@ async fn handle_bus_connection(
                         remote_slots.clone(),
                     );
                     for slot in &remote_slots {
-                        cluster.assign_slot(*slot, remote_id);
+                        cluster.assign_slot_if_newer(*slot, remote_id, remote_epoch);
                     }
 
                     // 如果远程 epoch 更高，更新本地 epoch

@@ -146,6 +146,11 @@ pub async fn send_cluster_ping(
                 cluster.add_node(new_node);
             }
 
+            // 先保存本节点当前 slot 信息（update_node_topology 可能会清空）
+            let my_slots_before = cluster.myself().map(|n| n.get_slots()).unwrap_or_default();
+            let my_is_master = cluster.myself().map(|n| n.flags.contains(&super::state::NodeFlag::Master)).unwrap_or(false);
+            let my_epoch = cluster.myself().map(|n| n.config_epoch).unwrap_or(0);
+
             // 更新节点拓扑（flags、master_id、slots）
             cluster.update_node_topology(
                 remote_id,
@@ -155,11 +160,23 @@ pub async fn send_cluster_ping(
                 remote_slots.clone(),
             );
             for slot in &remote_slots {
-                cluster.assign_slot(*slot, remote_id);
+                cluster.assign_slot_if_newer(*slot, remote_id, remote_epoch);
             }
 
             if remote_epoch > cluster.get_current_epoch() {
                 cluster.set_current_epoch(remote_epoch);
+            }
+
+            // 检查是否需要降级：如果远程节点以更高 epoch 持有本节点原来的 slot，本节点应降级为 slave
+            if my_is_master && !remote_slots.is_empty() && remote_epoch > my_epoch {
+                let has_overlap = my_slots_before.iter().any(|s| remote_slots.contains(s));
+                if has_overlap {
+                    log::warn!(
+                        "Cluster: 远程节点 {} epoch {} 高于本节点 epoch {}，slot 冲突，降级为 slave",
+                        remote_id, remote_epoch, my_epoch
+                    );
+                    cluster.downgrade_myself_to_slave(remote_id);
+                }
             }
 
             return Ok(());

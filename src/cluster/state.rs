@@ -227,6 +227,26 @@ impl ClusterState {
         true
     }
 
+    /// epoch 感知的 slot 分配：仅当声称节点的 config_epoch >= 当前持有者的 config_epoch 时才重新分配
+    pub fn assign_slot_if_newer(&self, slot: usize, node_id: &str, claiming_epoch: u64) -> bool {
+        if slot >= CLUSTER_SLOTS {
+            return false;
+        }
+        let assignment = self.slot_assignment.read().unwrap();
+        if let Some(ref current_owner) = assignment[slot] {
+            if current_owner != node_id {
+                let nodes = self.nodes.read().unwrap();
+                if let Some(owner_node) = nodes.get(current_owner.as_str()) {
+                    if owner_node.config_epoch > claiming_epoch {
+                        return false;
+                    }
+                }
+            }
+        }
+        drop(assignment);
+        self.assign_slot(slot, node_id)
+    }
+
     /// 取消 slot 分配
     pub fn unassign_slot(&self, slot: usize) -> bool {
         if slot >= CLUSTER_SLOTS {
@@ -383,6 +403,20 @@ impl ClusterState {
         }
     }
 
+    /// 将本节点降级为指定 master 的 slave（重启后发现 slot 被更高 epoch 节点接管时使用）
+    pub fn downgrade_myself_to_slave(&self, new_master_id: &str) {
+        let my_id = self.myself_id();
+        let mut nodes = self.nodes.write().unwrap();
+        if let Some(me) = nodes.get_mut(&my_id) {
+            me.flags.retain(|f| *f != NodeFlag::Master);
+            if !me.flags.contains(&NodeFlag::Slave) {
+                me.flags.push(NodeFlag::Slave);
+            }
+            me.master_id = Some(new_master_id.to_string());
+            me.slots = vec![false; CLUSTER_SLOTS];
+        }
+    }
+
     /// 将从节点提升为 master（故障转移时使用）
     pub fn promote_replica_to_master(&self, failed_master_id: &str) -> bool {
         let my_id = self.myself_id();
@@ -508,10 +542,13 @@ impl ClusterState {
             node.flags = flags;
             node.master_id = master_id;
             node.config_epoch = epoch;
-            node.slots = vec![false; CLUSTER_SLOTS];
-            for slot in slots {
-                if slot < CLUSTER_SLOTS {
-                    node.add_slot(slot);
+            // 只在有 slot 信息时更新，避免空 slot 列表覆盖正确状态
+            if !slots.is_empty() {
+                node.slots = vec![false; CLUSTER_SLOTS];
+                for slot in slots {
+                    if slot < CLUSTER_SLOTS {
+                        node.add_slot(slot);
+                    }
                 }
             }
         }
