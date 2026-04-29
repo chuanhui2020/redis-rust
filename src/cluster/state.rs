@@ -45,7 +45,7 @@ pub struct ClusterNode {
 
 impl ClusterNode {
     /// 创建新节点
-    pub fn new(id: String, ip: String, port: u16) -> Self {
+    pub fn new(id: String, ip: String, port: u16, bus_port: u16) -> Self {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -54,7 +54,7 @@ impl ClusterNode {
             id,
             ip,
             port,
-            bus_port: port + 10000,
+            bus_port,
             flags: vec![NodeFlag::Master],
             master_id: None,
             slots: vec![false; CLUSTER_SLOTS],
@@ -145,9 +145,9 @@ pub struct ClusterState {
 
 impl ClusterState {
     /// 创建新的集群状态
-    pub fn new(my_ip: String, my_port: u16) -> Self {
+    pub fn new(my_ip: String, my_port: u16, my_bus_port: u16) -> Self {
         let my_id = Self::generate_node_id();
-        let mut my_node = ClusterNode::new(my_id.clone(), my_ip, my_port);
+        let mut my_node = ClusterNode::new(my_id.clone(), my_ip, my_port, my_bus_port);
         my_node.flags.push(NodeFlag::Myself);
 
         let mut nodes = HashMap::new();
@@ -577,8 +577,7 @@ impl ClusterState {
                 }
                 drop(nodes);
             } else {
-                let mut node = ClusterNode::new(node_id.clone(), ip, port);
-                node.bus_port = bus_port;
+                let mut node = ClusterNode::new(node_id.clone(), ip, port, bus_port);
                 node.flags = flags;
                 node.master_id = master_id.clone();
                 node.ping_sent = ping_sent;
@@ -618,7 +617,7 @@ impl ClusterState {
 
         // 如果发送方节点不存在，创建新节点
         if self.get_node(&node_id).is_none() {
-            let new_node = ClusterNode::new(node_id.clone(), peer_ip.to_string(), port);
+            let new_node = ClusterNode::new(node_id.clone(), peer_ip.to_string(), port, port + 10000);
             self.add_node(new_node);
         }
 
@@ -637,7 +636,7 @@ impl ClusterState {
             if self.get_node(&node_info.node_id).is_none() {
                 let ip_str = super::protocol::format_ip(&node_info.ip);
                 let mut new_node =
-                    ClusterNode::new(node_info.node_id.clone(), ip_str, node_info.port);
+                    ClusterNode::new(node_info.node_id.clone(), ip_str, node_info.port, node_info.port + 10000);
                 new_node.flags = super::protocol::decode_flags(node_info.flags);
                 self.add_node(new_node);
             }
@@ -749,7 +748,7 @@ impl ClusterState {
 
 impl Default for ClusterState {
     fn default() -> Self {
-        Self::new("127.0.0.1".to_string(), 6379)
+        Self::new("127.0.0.1".to_string(), 6379, 16379)
     }
 }
 
@@ -884,7 +883,7 @@ mod tests {
 
     #[test]
     fn test_cluster_state() {
-        let state = ClusterState::new("127.0.0.1".to_string(), 6379);
+        let state = ClusterState::new("127.0.0.1".to_string(), 6379, 16379);
         let my_id = state.myself_id();
         assert_eq!(my_id.len(), 40);
 
@@ -906,6 +905,7 @@ mod tests {
             "abc".repeat(14)[..40].to_string(),
             "127.0.0.1".to_string(),
             6379,
+            16379,
         );
         assert_eq!(node.bus_port, 16379);
         assert_eq!(node.slot_count(), 0);
@@ -926,7 +926,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         // 创建集群状态并分配 slot
-        let state = ClusterState::new("127.0.0.1".to_string(), 6379);
+        let state = ClusterState::new("127.0.0.1".to_string(), 6379, 16379);
         let my_id = state.myself_id();
         state.assign_slot(0, &my_id);
         state.assign_slot(1, &my_id);
@@ -934,7 +934,7 @@ mod tests {
 
         // 添加另一个节点
         let other_id = "b".repeat(40);
-        let other_node = ClusterNode::new(other_id.clone(), "192.168.1.2".to_string(), 6380);
+        let other_node = ClusterNode::new(other_id.clone(), "192.168.1.2".to_string(), 6380, 16380);
         state.add_node(other_node);
         state.assign_slot(50, &other_id);
 
@@ -942,7 +942,7 @@ mod tests {
         assert!(state.save_nodes_conf(&path).is_ok());
 
         // 新实例加载
-        let state2 = ClusterState::new("127.0.0.1".to_string(), 6379);
+        let state2 = ClusterState::new("127.0.0.1".to_string(), 6379, 16379);
         assert!(state2.load_nodes_conf(&path).is_ok());
 
         // 验证 myself ID 被恢复

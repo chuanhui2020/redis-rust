@@ -26,6 +26,7 @@ const TYPE_HASH: u8 = 2;
 const TYPE_SET: u8 = 3;
 const TYPE_ZSET: u8 = 4;
 const TYPE_HLL: u8 = 5;
+const TYPE_STREAM: u8 = 6;
 
 /// 将 u16 写入为大端序字节
 #[allow(dead_code)]
@@ -201,11 +202,7 @@ fn write_key_value(
         StorageValue::Set(_) => TYPE_SET,
         StorageValue::ZSet(_) => TYPE_ZSET,
         StorageValue::HyperLogLog(_) => TYPE_HLL,
-        StorageValue::Stream(_) => {
-            return Err(AppError::Storage(
-                "Stream 类型暂不支持 RDB 持久化".to_string(),
-            ));
-        }
+        StorageValue::Stream(_) => TYPE_STREAM,
     };
     writer.write_all(&[type_byte])?;
     crc.update(&[type_byte]);
@@ -315,10 +312,132 @@ fn write_key_value(
             writer.write_all(&data)?;
             crc.update(&data);
         }
-        StorageValue::Stream(_) => {
-            return Err(AppError::Storage(
-                "Stream 类型暂不支持 RDB 持久化".to_string(),
-            ));
+        StorageValue::Stream(stream) => {
+            // last_id
+            let last_id_ms_bytes = stream.last_id.ms_time.to_be_bytes();
+            writer.write_all(&last_id_ms_bytes)?;
+            crc.update(&last_id_ms_bytes);
+            let last_id_seq_bytes = stream.last_id.seq.to_be_bytes();
+            writer.write_all(&last_id_seq_bytes)?;
+            crc.update(&last_id_seq_bytes);
+
+            // entries
+            let entries_count = stream.entries.len() as u32;
+            let entries_count_bytes = entries_count.to_be_bytes();
+            writer.write_all(&entries_count_bytes)?;
+            crc.update(&entries_count_bytes);
+            for (id, fields) in &stream.entries {
+                let id_ms_bytes = id.ms_time.to_be_bytes();
+                writer.write_all(&id_ms_bytes)?;
+                crc.update(&id_ms_bytes);
+                let id_seq_bytes = id.seq.to_be_bytes();
+                writer.write_all(&id_seq_bytes)?;
+                crc.update(&id_seq_bytes);
+
+                let field_count = fields.len() as u32;
+                let field_count_bytes = field_count.to_be_bytes();
+                writer.write_all(&field_count_bytes)?;
+                crc.update(&field_count_bytes);
+                for (field, value) in fields {
+                    let field_bytes = field.as_bytes();
+                    let field_len = field_bytes.len() as u32;
+                    let field_len_bytes = field_len.to_be_bytes();
+                    writer.write_all(&field_len_bytes)?;
+                    crc.update(&field_len_bytes);
+                    writer.write_all(field_bytes)?;
+                    crc.update(field_bytes);
+
+                    let value_bytes = value.as_bytes();
+                    let value_len = value_bytes.len() as u32;
+                    let value_len_bytes = value_len.to_be_bytes();
+                    writer.write_all(&value_len_bytes)?;
+                    crc.update(&value_len_bytes);
+                    writer.write_all(value_bytes)?;
+                    crc.update(value_bytes);
+                }
+            }
+
+            // groups
+            let groups_count = stream.groups.len() as u32;
+            let groups_count_bytes = groups_count.to_be_bytes();
+            writer.write_all(&groups_count_bytes)?;
+            crc.update(&groups_count_bytes);
+            for group in stream.groups.values() {
+                let name_bytes = group.name.as_bytes();
+                let name_len = name_bytes.len() as u32;
+                let name_len_bytes = name_len.to_be_bytes();
+                writer.write_all(&name_len_bytes)?;
+                crc.update(&name_len_bytes);
+                writer.write_all(name_bytes)?;
+                crc.update(name_bytes);
+
+                let ld_ms_bytes = group.last_delivered_id.ms_time.to_be_bytes();
+                writer.write_all(&ld_ms_bytes)?;
+                crc.update(&ld_ms_bytes);
+                let ld_seq_bytes = group.last_delivered_id.seq.to_be_bytes();
+                writer.write_all(&ld_seq_bytes)?;
+                crc.update(&ld_seq_bytes);
+
+                let pel_count = group.pel.len() as u32;
+                let pel_count_bytes = pel_count.to_be_bytes();
+                writer.write_all(&pel_count_bytes)?;
+                crc.update(&pel_count_bytes);
+                for (id, pending) in &group.pel {
+                    let id_ms_bytes = id.ms_time.to_be_bytes();
+                    writer.write_all(&id_ms_bytes)?;
+                    crc.update(&id_ms_bytes);
+                    let id_seq_bytes = id.seq.to_be_bytes();
+                    writer.write_all(&id_seq_bytes)?;
+                    crc.update(&id_seq_bytes);
+
+                    let consumer_bytes = pending.consumer.as_bytes();
+                    let consumer_len = consumer_bytes.len() as u32;
+                    let consumer_len_bytes = consumer_len.to_be_bytes();
+                    writer.write_all(&consumer_len_bytes)?;
+                    crc.update(&consumer_len_bytes);
+                    writer.write_all(consumer_bytes)?;
+                    crc.update(consumer_bytes);
+
+                    let dt_bytes = pending.delivery_time.to_be_bytes();
+                    writer.write_all(&dt_bytes)?;
+                    crc.update(&dt_bytes);
+
+                    let dc_bytes = pending.delivery_count.to_be_bytes();
+                    writer.write_all(&dc_bytes)?;
+                    crc.update(&dc_bytes);
+                }
+
+                let consumers_count = group.consumers.len() as u32;
+                let consumers_count_bytes = consumers_count.to_be_bytes();
+                writer.write_all(&consumers_count_bytes)?;
+                crc.update(&consumers_count_bytes);
+                for consumer in group.consumers.values() {
+                    let cname_bytes = consumer.name.as_bytes();
+                    let cname_len = cname_bytes.len() as u32;
+                    let cname_len_bytes = cname_len.to_be_bytes();
+                    writer.write_all(&cname_len_bytes)?;
+                    crc.update(&cname_len_bytes);
+                    writer.write_all(cname_bytes)?;
+                    crc.update(cname_bytes);
+
+                    let st_bytes = consumer.seen_time.to_be_bytes();
+                    writer.write_all(&st_bytes)?;
+                    crc.update(&st_bytes);
+
+                    let c_pel_count = consumer.pel.len() as u32;
+                    let c_pel_count_bytes = c_pel_count.to_be_bytes();
+                    writer.write_all(&c_pel_count_bytes)?;
+                    crc.update(&c_pel_count_bytes);
+                    for id in &consumer.pel {
+                        let id_ms_bytes = id.ms_time.to_be_bytes();
+                        writer.write_all(&id_ms_bytes)?;
+                        crc.update(&id_ms_bytes);
+                        let id_seq_bytes = id.seq.to_be_bytes();
+                        writer.write_all(&id_seq_bytes)?;
+                        crc.update(&id_seq_bytes);
+                    }
+                }
+            }
         }
     }
 
@@ -584,6 +703,128 @@ fn read_key_value(
             crc.update(&data);
             let hll = crate::storage::HyperLogLog::load(&data)?;
             StorageValue::HyperLogLog(hll)
+        }
+        TYPE_STREAM => {
+            use crate::storage::stream_ops::{Consumer, ConsumerGroup, PendingEntry, StreamData, StreamId};
+
+            let last_id_ms = read_u64(reader)?;
+            crc.update(&last_id_ms.to_be_bytes());
+            let last_id_seq = read_u64(reader)?;
+            crc.update(&last_id_seq.to_be_bytes());
+            let last_id = StreamId { ms_time: last_id_ms, seq: last_id_seq };
+
+            let entries_count = read_u32(reader)?;
+            crc.update(&entries_count.to_be_bytes());
+            let mut entries = std::collections::BTreeMap::new();
+            for _ in 0..entries_count {
+                let id_ms = read_u64(reader)?;
+                crc.update(&id_ms.to_be_bytes());
+                let id_seq = read_u64(reader)?;
+                crc.update(&id_seq.to_be_bytes());
+                let id = StreamId { ms_time: id_ms, seq: id_seq };
+
+                let field_count = read_u32(reader)?;
+                crc.update(&field_count.to_be_bytes());
+                let mut fields = Vec::with_capacity(field_count as usize);
+                for _ in 0..field_count {
+                    let field_len = read_u32(reader)?;
+                    crc.update(&field_len.to_be_bytes());
+                    let field_bytes = read_bytes(reader, field_len as usize)?;
+                    crc.update(&field_bytes);
+                    let field = String::from_utf8_lossy(&field_bytes).to_string();
+
+                    let value_len = read_u32(reader)?;
+                    crc.update(&value_len.to_be_bytes());
+                    let value_bytes = read_bytes(reader, value_len as usize)?;
+                    crc.update(&value_bytes);
+                    let value = String::from_utf8_lossy(&value_bytes).to_string();
+
+                    fields.push((field, value));
+                }
+                entries.insert(id, fields);
+            }
+
+            let groups_count = read_u32(reader)?;
+            crc.update(&groups_count.to_be_bytes());
+            let mut groups = std::collections::HashMap::new();
+            for _ in 0..groups_count {
+                let name_len = read_u32(reader)?;
+                crc.update(&name_len.to_be_bytes());
+                let name_bytes = read_bytes(reader, name_len as usize)?;
+                crc.update(&name_bytes);
+                let name = String::from_utf8_lossy(&name_bytes).to_string();
+
+                let ld_ms = read_u64(reader)?;
+                crc.update(&ld_ms.to_be_bytes());
+                let ld_seq = read_u64(reader)?;
+                crc.update(&ld_seq.to_be_bytes());
+                let last_delivered_id = StreamId { ms_time: ld_ms, seq: ld_seq };
+
+                let pel_count = read_u32(reader)?;
+                crc.update(&pel_count.to_be_bytes());
+                let mut pel = std::collections::BTreeMap::new();
+                for _ in 0..pel_count {
+                    let id_ms = read_u64(reader)?;
+                    crc.update(&id_ms.to_be_bytes());
+                    let id_seq = read_u64(reader)?;
+                    crc.update(&id_seq.to_be_bytes());
+                    let id = StreamId { ms_time: id_ms, seq: id_seq };
+
+                    let consumer_len = read_u32(reader)?;
+                    crc.update(&consumer_len.to_be_bytes());
+                    let consumer_bytes = read_bytes(reader, consumer_len as usize)?;
+                    crc.update(&consumer_bytes);
+                    let consumer = String::from_utf8_lossy(&consumer_bytes).to_string();
+
+                    let delivery_time = read_u64(reader)?;
+                    crc.update(&delivery_time.to_be_bytes());
+                    let delivery_count = read_u32(reader)?;
+                    crc.update(&delivery_count.to_be_bytes());
+
+                    pel.insert(id, PendingEntry { consumer, delivery_time, delivery_count });
+                }
+
+                let consumers_count = read_u32(reader)?;
+                crc.update(&consumers_count.to_be_bytes());
+                let mut consumers = std::collections::HashMap::new();
+                for _ in 0..consumers_count {
+                    let cname_len = read_u32(reader)?;
+                    crc.update(&cname_len.to_be_bytes());
+                    let cname_bytes = read_bytes(reader, cname_len as usize)?;
+                    crc.update(&cname_bytes);
+                    let cname = String::from_utf8_lossy(&cname_bytes).to_string();
+
+                    let seen_time = read_u64(reader)?;
+                    crc.update(&seen_time.to_be_bytes());
+
+                    let c_pel_count = read_u32(reader)?;
+                    crc.update(&c_pel_count.to_be_bytes());
+                    let mut c_pel = std::collections::HashSet::new();
+                    for _ in 0..c_pel_count {
+                        let id_ms = read_u64(reader)?;
+                        crc.update(&id_ms.to_be_bytes());
+                        let id_seq = read_u64(reader)?;
+                        crc.update(&id_seq.to_be_bytes());
+                        c_pel.insert(StreamId { ms_time: id_ms, seq: id_seq });
+                    }
+
+                    consumers.insert(cname.clone(), Consumer {
+                        name: cname,
+                        pel: c_pel,
+                        seen_time,
+                    });
+                }
+
+                groups.insert(name.clone(), ConsumerGroup {
+                    name,
+                    last_delivered_id,
+                    pel,
+                    consumers,
+                });
+            }
+
+            let length = entries.len();
+            StorageValue::Stream(StreamData { entries, last_id, length, groups })
         }
         _ => {
             return Err(AppError::Storage(format!(

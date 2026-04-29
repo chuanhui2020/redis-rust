@@ -4,13 +4,13 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use bytes::Bytes;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::aof::AofAsyncWriter;
 use crate::error::Result;
@@ -145,6 +145,12 @@ pub struct Server {
     latency: crate::latency::LatencyTracker,
     /// 全局 Keyspace 通知器
     keyspace_notifier: Arc<KeyspaceNotifier>,
+    /// 关闭信号发送器
+    shutdown_tx: watch::Sender<bool>,
+    /// 关闭时是否执行 SAVE
+    shutdown_save: Arc<AtomicBool>,
+    /// 活跃连接计数
+    active_connections: Arc<AtomicUsize>,
 }
 
 impl Server {
@@ -158,6 +164,7 @@ impl Server {
     ) -> Self {
         let keyspace_notifier = Arc::new(KeyspaceNotifier::new(pubsub.clone()));
         storage.set_keyspace_notifier(keyspace_notifier.clone());
+        let (shutdown_tx, _) = watch::channel(false);
         Self {
             addr: addr.to_string(),
             storage,
@@ -178,6 +185,9 @@ impl Server {
             monitor_tx: tokio::sync::broadcast::channel(1024).0,
             latency: crate::latency::LatencyTracker::new(),
             keyspace_notifier,
+            shutdown_tx,
+            shutdown_save: Arc::new(AtomicBool::new(true)),
+            active_connections: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -214,6 +224,15 @@ impl Server {
         self
     }
 
+    /// 触发服务器优雅关闭
+    ///
+    /// # 参数
+    /// - `save` - 关闭前是否执行 RDB SAVE（true = SAVE，false = NOSAVE）
+    pub fn shutdown(&self, save: bool) {
+        self.shutdown_save.store(save, Ordering::SeqCst);
+        let _ = self.shutdown_tx.send(true);
+    }
+
     /// 启动服务器，开始监听并处理连接
     pub async fn run(self) -> Result<()> {
         let listener = TcpListener::bind(&self.addr).await?;
@@ -239,58 +258,126 @@ impl Server {
             repl.set_listening_port(addr.port());
         }
 
-        loop {
-            let (stream, peer_addr) = listener.accept().await?;
-            log::info!("客户端已连接: {}", peer_addr);
+        let mut shutdown_rx = self.shutdown_tx.subscribe();
+        let active = self.active_connections.clone();
+        let aof = self.aof.clone();
+        let rdb_path = self.rdb_path.clone();
+        let storage = self.storage.clone();
+        let replication = self.replication.clone();
+        let shutdown_save = self.shutdown_save.clone();
 
-            // 每个连接克隆一份存储引擎、AOF 写入器和 pubsub
-            let storage = self.storage.clone();
-            let aof = self.aof.clone();
-            let pubsub = self.pubsub.clone();
-            let password = self.password.clone();
-            let clients = self.clients.clone();
-            let next_client_id = self.next_client_id.clone();
-            let script_engine = self.script_engine.clone();
-            let rdb_path = self.rdb_path.clone();
-            let slowlog = self.slowlog.clone();
-            let acl = self.acl.clone();
-            let replication = self.replication.clone();
-            let sentinel = self.sentinel.clone();
-            let cluster = self.cluster.clone();
-            let client_pause = self.client_pause.clone();
-            let client_kill_flags = self.client_kill_flags.clone();
-            let monitor_tx = self.monitor_tx.clone();
-            let latency = self.latency.clone();
-            let keyspace_notifier = self.keyspace_notifier.clone();
-            tokio::spawn(async move {
-                if let Err(e) = connection::handle_connection(
-                    stream,
-                    peer_addr.to_string(),
-                    storage,
-                    aof,
-                    pubsub,
-                    password,
-                    clients,
-                    next_client_id,
-                    script_engine,
-                    rdb_path,
-                    slowlog,
-                    acl,
-                    replication,
-                    sentinel,
-                    cluster,
-                    client_pause,
-                    client_kill_flags,
-                    monitor_tx,
-                    latency,
-                    keyspace_notifier,
-                )
-                .await
-                {
-                    log::error!("处理连接 {} 时出错: {}", peer_addr, e);
+        loop {
+            tokio::select! {
+                result = listener.accept() => {
+                    let (stream, peer_addr) = result?;
+                    log::info!("客户端已连接: {}", peer_addr);
+
+                    active.fetch_add(1, Ordering::SeqCst);
+                    let active_conn = active.clone();
+
+                    // 每个连接克隆一份存储引擎、AOF 写入器和 pubsub
+                    let storage = self.storage.clone();
+                    let aof = self.aof.clone();
+                    let pubsub = self.pubsub.clone();
+                    let password = self.password.clone();
+                    let clients = self.clients.clone();
+                    let next_client_id = self.next_client_id.clone();
+                    let script_engine = self.script_engine.clone();
+                    let rdb_path = self.rdb_path.clone();
+                    let slowlog = self.slowlog.clone();
+                    let acl = self.acl.clone();
+                    let replication = self.replication.clone();
+                    let sentinel = self.sentinel.clone();
+                    let cluster = self.cluster.clone();
+                    let client_pause = self.client_pause.clone();
+                    let client_kill_flags = self.client_kill_flags.clone();
+                    let monitor_tx = self.monitor_tx.clone();
+                    let latency = self.latency.clone();
+                    let keyspace_notifier = self.keyspace_notifier.clone();
+                    let shutdown_tx = self.shutdown_tx.clone();
+                    let shutdown_save = self.shutdown_save.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = connection::handle_connection(
+                            stream,
+                            peer_addr.to_string(),
+                            storage,
+                            aof,
+                            pubsub,
+                            password,
+                            clients,
+                            next_client_id,
+                            script_engine,
+                            rdb_path,
+                            slowlog,
+                            acl,
+                            replication,
+                            sentinel,
+                            cluster,
+                            client_pause,
+                            client_kill_flags,
+                            monitor_tx,
+                            latency,
+                            keyspace_notifier,
+                            shutdown_tx,
+                            shutdown_save,
+                        )
+                        .await
+                        {
+                            log::error!("处理连接 {} 时出错: {}", peer_addr, e);
+                        }
+                        log::info!("客户端已断开: {}", peer_addr);
+                        active_conn.fetch_sub(1, Ordering::SeqCst);
+                    });
                 }
-                log::info!("客户端已断开: {}", peer_addr);
-            });
+                _ = shutdown_rx.changed() => {
+                    if *shutdown_rx.borrow() {
+                        log::info!("收到关闭信号，停止接受新连接");
+                        break;
+                    }
+                }
+            }
         }
+
+        // 关闭监听器，不再接受新连接
+        drop(listener);
+
+        // 等待现有连接退出，最多 10 秒
+        let drain_start = tokio::time::Instant::now();
+        let drain_timeout = tokio::time::Duration::from_secs(10);
+        while active.load(Ordering::SeqCst) > 0 {
+            if tokio::time::Instant::now().duration_since(drain_start) > drain_timeout {
+                log::warn!(
+                    "关闭超时，强制退出，剩余 {} 个连接",
+                    active.load(Ordering::SeqCst)
+                );
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+
+        // 根据关闭请求决定是否执行 SAVE
+        if shutdown_save.load(Ordering::SeqCst) {
+            if let Some(ref path) = rdb_path {
+                let repl_info = replication.as_ref().map(|r| {
+                    (r.get_master_replid(), r.get_master_repl_offset())
+                });
+                match crate::rdb::save(&storage, path, repl_info) {
+                    Ok(()) => log::info!("关闭前 RDB SAVE 成功"),
+                    Err(e) => log::error!("关闭前 RDB SAVE 失败: {}", e),
+                }
+            }
+        }
+
+        // 强制刷盘并 fsync AOF
+        if let Some(ref aof_writer) = aof {
+            if let Err(e) = aof_writer.sync() {
+                log::error!("AOF 最终 sync 失败: {}", e);
+            } else {
+                log::info!("AOF 已刷盘并 sync");
+            }
+        }
+
+        log::info!("服务器已关闭");
+        Ok(())
     }
 }

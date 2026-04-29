@@ -141,6 +141,7 @@ pub async fn send_cluster_ping(
                     remote_id.to_string(),
                     remote_ip.to_string(),
                     remote_port,
+                    remote_port + 10000,
                 );
                 cluster.add_node(new_node);
             }

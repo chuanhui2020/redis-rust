@@ -12,6 +12,17 @@ use crate::error::{AppError, Result};
 use crate::protocol::RespParser;
 use crate::storage::StorageEngine;
 
+/// AOF 刷盘策略
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AppendFsync {
+    /// 每次写入都刷盘（最安全，最慢）
+    Always,
+    /// 每秒刷盘一次（默认，平衡性能与安全）
+    EverySec,
+    /// 不主动刷盘，由操作系统决定（最快，最不安全）
+    No,
+}
+
 /// AOF 混合格式文件头标记
 const AOF_RDB_PREAMBLE: &[u8] = b"REDIS-RUST-AOF-PREAMBLE\n";
 
@@ -81,6 +92,7 @@ impl std::fmt::Debug for AofWriter {
 enum AofMessage {
     Data(Vec<u8>),
     Flush(std::sync::mpsc::Sender<()>),
+    Sync(std::sync::mpsc::Sender<()>),
     Reopen(String),
     Shutdown(std::sync::mpsc::Sender<()>),
 }
@@ -90,28 +102,34 @@ enum AofMessage {
 pub struct AofAsyncWriter {
     sender: crossbeam_channel::Sender<AofMessage>,
     path: String,
+    fsync: AppendFsync,
 }
 
 impl AofAsyncWriter {
-    /// 创建异步 AOF 写入器，启动后台写入线程
+    /// 创建异步 AOF 写入器，默认使用 `AppendFsync::No`（与旧行为一致）
     pub fn new(path: &str) -> Result<Self> {
+        Self::new_with_fsync(path, AppendFsync::No)
+    }
+
+    /// 创建异步 AOF 写入器，指定刷盘策略
+    pub fn new_with_fsync(path: &str, fsync: AppendFsync) -> Result<Self> {
         let (sender, receiver) = crossbeam_channel::unbounded();
         let path = path.to_string();
         let worker_path = path.clone();
 
         std::thread::spawn(move || {
-            Self::worker_loop(receiver, &worker_path);
+            Self::worker_loop(receiver, &worker_path, fsync);
         });
 
-        Ok(Self { sender, path })
+        Ok(Self { sender, path, fsync })
     }
 
-    fn worker_loop(receiver: crossbeam_channel::Receiver<AofMessage>, path: &str) {
-        let file = match OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-        {
+    fn worker_loop(
+        receiver: crossbeam_channel::Receiver<AofMessage>,
+        path: &str,
+        fsync: AppendFsync,
+    ) {
+        let file = match OpenOptions::new().create(true).append(true).open(path) {
             Ok(f) => f,
             Err(e) => {
                 log::error!("AOF 文件打开失败: {}", e);
@@ -119,17 +137,57 @@ impl AofAsyncWriter {
             }
         };
         let mut writer = BufWriter::new(file);
+        let mut last_sync = std::time::Instant::now();
 
-        while let Ok(msg) = receiver.recv() {
+        loop {
+            let msg = if fsync == AppendFsync::EverySec {
+                match receiver.recv_timeout(std::time::Duration::from_secs(1)) {
+                    Ok(msg) => msg,
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                        if last_sync.elapsed() >= std::time::Duration::from_secs(1) {
+                            if let Err(e) = writer.flush() {
+                                log::error!("AOF 定时 flush 失败: {}", e);
+                            } else if let Err(e) = writer.get_mut().sync_data() {
+                                log::error!("AOF 定时 sync 失败: {}", e);
+                            } else {
+                                last_sync = std::time::Instant::now();
+                            }
+                        }
+                        continue;
+                    }
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                }
+            } else {
+                match receiver.recv() {
+                    Ok(msg) => msg,
+                    Err(_) => break,
+                }
+            };
+
             match msg {
                 AofMessage::Data(data) => {
                     if let Err(e) = writer.write_all(&data) {
                         log::error!("AOF 写入失败: {}", e);
                     }
+                    if fsync == AppendFsync::Always {
+                        if let Err(e) = writer.flush() {
+                            log::error!("AOF flush 失败: {}", e);
+                        } else if let Err(e) = writer.get_mut().sync_data() {
+                            log::error!("AOF sync 失败: {}", e);
+                        }
+                    }
                 }
                 AofMessage::Flush(reply) => {
                     if let Err(e) = writer.flush() {
                         log::error!("AOF flush 失败: {}", e);
+                    }
+                    let _ = reply.send(());
+                }
+                AofMessage::Sync(reply) => {
+                    if let Err(e) = writer.flush() {
+                        log::error!("AOF flush 失败: {}", e);
+                    } else if let Err(e) = writer.get_mut().sync_data() {
+                        log::error!("AOF sync 失败: {}", e);
                     }
                     let _ = reply.send(());
                 }
@@ -149,6 +207,8 @@ impl AofAsyncWriter {
                 AofMessage::Shutdown(reply) => {
                     if let Err(e) = writer.flush() {
                         log::error!("AOF final flush 失败: {}", e);
+                    } else if let Err(e) = writer.get_mut().sync_data() {
+                        log::error!("AOF final sync 失败: {}", e);
                     }
                     let _ = reply.send(());
                     break;
@@ -168,6 +228,20 @@ impl AofAsyncWriter {
         Ok(())
     }
 
+    /// 批量将多个命令序列化为 RESP 并一次性发送到后台写入线程
+    pub fn append_batch(&self, cmds: &[Command]) -> Result<()> {
+        let mut buf = Vec::with_capacity(cmds.len() * 64);
+        let parser = RespParser::new();
+        for cmd in cmds {
+            let resp = cmd.to_resp_value();
+            parser.encode_append(&resp, &mut buf);
+        }
+        self.sender
+            .send(AofMessage::Data(buf))
+            .map_err(|_| AppError::Storage("AOF channel 已关闭".to_string()))?;
+        Ok(())
+    }
+
     /// 强制刷盘，等待后台线程完成 flush
     pub fn flush(&self) -> Result<()> {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -177,6 +251,22 @@ impl AofAsyncWriter {
         rx.recv()
             .map_err(|_| AppError::Storage("AOF flush 等待失败".to_string()))?;
         Ok(())
+    }
+
+    /// 强制刷盘并 fsync，等待后台线程完成
+    pub fn sync(&self) -> Result<()> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.sender
+            .send(AofMessage::Sync(tx))
+            .map_err(|_| AppError::Storage("AOF channel 已关闭".to_string()))?;
+        rx.recv()
+            .map_err(|_| AppError::Storage("AOF sync 等待失败".to_string()))?;
+        Ok(())
+    }
+
+    /// 获取当前刷盘策略
+    pub fn fsync(&self) -> AppendFsync {
+        self.fsync
     }
 
     /// 重新打开 AOF 文件（用于 BGREWRITEAOF 后切换）

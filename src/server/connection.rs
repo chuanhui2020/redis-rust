@@ -604,6 +604,8 @@ pub(crate) async fn handle_connection(
     monitor_tx: tokio::sync::broadcast::Sender<String>,
     latency: crate::latency::LatencyTracker,
     keyspace_notifier: Arc<KeyspaceNotifier>,
+    shutdown_tx: tokio::sync::watch::Sender<bool>,
+    shutdown_save: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
     // 分配客户端 ID
     let client_id = next_client_id.fetch_add(1, Ordering::SeqCst);
@@ -693,6 +695,8 @@ pub(crate) async fn handle_connection(
 
     loop {
         let mut encode_buf = Vec::with_capacity(4096);
+        // 开启 Pipeline 批量 side effects 模式
+        handler.executor.set_batch_mode(true);
         // 内层循环：处理缓冲区中所有可用命令（pipeline 支持）
         loop {
             // 尝试从缓冲区解析一个完整的 RESP 消息
@@ -1160,10 +1164,10 @@ pub(crate) async fn handle_connection(
                                                 .map(|n| n.id.clone());
                                             if existing.is_none() {
                                                 let node = crate::cluster::ClusterNode::new(
-                                                    crate::cluster::ClusterState::generate_node_id(
-                                                    ),
+                                                    crate::cluster::ClusterState::generate_node_id(),
                                                     ip,
                                                     port,
+                                                    port + 10000,
                                                 );
                                                 c.add_node(node);
                                             }
@@ -1475,6 +1479,9 @@ pub(crate) async fn handle_connection(
                                     | Command::ReplicaOfNoOne
                                     | Command::ReadOnly
                                     | Command::ReadWrite
+                                    | Command::ConfigGet(_)
+                                    | Command::ConfigSet(_, _)
+                                    | Command::ConfigRewrite
                             );
                             if !is_repl_cmd {
                                 if let Some(ref cluster) = cluster {
@@ -1720,9 +1727,41 @@ pub(crate) async fn handle_connection(
                                         }
                                     }
                                 }
-                                Command::Shutdown(_) => {
+                                Command::Shutdown(opt) => {
+                                    let save = match opt.as_deref() {
+                                        Some("NOSAVE") => false,
+                                        Some("SAVE") => true,
+                                        None => true,
+                                        _ => {
+                                            let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR syntax error"));
+                                            if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
+                                                log::error!("写入响应失败: {}", e);
+                                            }
+                                            return Ok(());
+                                        }
+                                    };
+
+                                    if save {
+                                        if let Some(ref path) = rdb_path {
+                                            let repl_info = replication.as_ref().map(|r| {
+                                                (r.get_master_replid(), r.get_master_repl_offset())
+                                            });
+                                            if let Err(e) = crate::rdb::save(&storage, path, repl_info) {
+                                                log::error!("SHUTDOWN SAVE 失败: {}", e);
+                                                let resp = RespValue::Error(bytes::Bytes::from(format!("ERR {}", e)));
+                                                let _ = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await;
+                                                let _ = stream.flush().await;
+                                                return Ok(());
+                                            }
+                                        }
+                                    }
+
                                     let resp = RespValue::SimpleString(bytes::Bytes::from_static(b"OK"));
                                     let _ = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await;
+                                    let _ = stream.flush().await;
+
+                                    shutdown_save.store(save, std::sync::atomic::Ordering::SeqCst);
+                                    let _ = shutdown_tx.send(true);
                                     return Ok(());
                                 }
                                 Command::Quit => {
@@ -3320,6 +3359,10 @@ pub(crate) async fn handle_connection(
             }
         } // end inner pipeline loop
 
+        // 刷新 Pipeline 批量 side effects（AOF + 复制 + Keyspace）
+        handler.executor.flush_batch();
+        handler.executor.set_batch_mode(false);
+
         // 将 pipeline / 事务批量编码的响应一次性写入 socket
         if !encode_buf.is_empty() {
             if let Err(e) = stream.write_all(&encode_buf).await {
@@ -3342,6 +3385,7 @@ pub(crate) async fn handle_connection(
 
         if is_subscribed {
             // 订阅模式下需要同时监听网络和订阅消息
+            let mut shutdown_rx = shutdown_tx.subscribe();
             tokio::select! {
                 result = stream.get_mut().read_buf(&mut buf) => {
                     match result {
@@ -3372,9 +3416,28 @@ pub(crate) async fn handle_connection(
                     }
                     let _ = stream.flush().await;
                 }
+                _ = shutdown_rx.changed() => {
+                    log::info!("连接 {} 收到服务器关闭信号", peer_addr);
+                    let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR Server shutdown"));
+                    let mut shutdown_buf = Vec::with_capacity(64);
+                    let _ = write_resp_buf(&mut stream, &handler, &resp, &mut shutdown_buf).await;
+                    let _ = stream.flush().await;
+                    return Ok(());
+                }
             }
         } else {
-            let bytes_read = match stream.get_mut().read_buf(&mut buf).await {
+            let mut shutdown_rx = shutdown_tx.subscribe();
+            let bytes_read = match tokio::select! {
+                result = stream.get_mut().read_buf(&mut buf) => result,
+                _ = shutdown_rx.changed() => {
+                    log::info!("连接 {} 收到服务器关闭信号", peer_addr);
+                    let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR Server shutdown"));
+                    let mut shutdown_buf = Vec::with_capacity(64);
+                    let _ = write_resp_buf(&mut stream, &handler, &resp, &mut shutdown_buf).await;
+                    let _ = stream.flush().await;
+                    return Ok(());
+                }
+            } {
                 Ok(0) => {
                     log::debug!("客户端发送 EOF，关闭连接");
                     if !watched.is_empty() {

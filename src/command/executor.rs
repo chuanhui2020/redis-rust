@@ -3,12 +3,12 @@
 use super::*;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::aof::AofAsyncWriter;
 use crate::error::{AppError, Result};
 use crate::keyspace::KeyspaceNotifier;
-use crate::protocol::RespValue;
+use crate::protocol::{RespParser, RespValue};
 use crate::scripting::ScriptEngine;
 use crate::slowlog::SlowLog;
 use crate::storage::StorageEngine;
@@ -33,6 +33,10 @@ pub struct CommandExecutor {
     pub(crate) keyspace_notifier: Option<Arc<KeyspaceNotifier>>,
     /// 是否使用 AOF RDB preamble（混合持久化）
     pub(crate) aof_use_rdb_preamble: Arc<AtomicBool>,
+    /// Pipeline 批量 side effects 模式开关
+    batch_mode: Arc<AtomicBool>,
+    /// Pipeline 批量 side effects 缓冲区
+    batch_buffer: Arc<Mutex<Vec<Command>>>,
 }
 
 impl CommandExecutor {
@@ -48,6 +52,8 @@ impl CommandExecutor {
             latency: None,
             keyspace_notifier: None,
             aof_use_rdb_preamble: Arc::new(AtomicBool::new(false)),
+            batch_mode: Arc::new(AtomicBool::new(false)),
+            batch_buffer: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -63,6 +69,8 @@ impl CommandExecutor {
             latency: None,
             keyspace_notifier: None,
             aof_use_rdb_preamble: Arc::new(AtomicBool::new(false)),
+            batch_mode: Arc::new(AtomicBool::new(false)),
+            batch_buffer: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -176,6 +184,74 @@ impl CommandExecutor {
         }
     }
 
+    /// 批量将多个写命令追加到 AOF
+    fn batch_append_to_aof(&self, cmds: &[Command]) {
+        if let Some(ref aof) = self.aof {
+            if let Err(e) = aof.append_batch(cmds) {
+                log::error!("批量 AOF 写入失败: {}", e);
+            }
+        }
+    }
+
+    /// 设置 Pipeline 批量 side effects 模式
+    ///
+    /// 开启后，`execute()` 不会立即触发 AOF/Keyspace/复制，而是将写命令积累到内部缓冲区。
+    /// 调用 `flush_batch()` 时一次性批量触发。
+    pub fn set_batch_mode(&self, enabled: bool) {
+        self.batch_mode.store(enabled, Ordering::SeqCst);
+        if !enabled {
+            // 关闭时清空缓冲区，避免残留
+            self.batch_buffer.lock().unwrap().clear();
+        }
+    }
+
+    /// 刷新批量 side effects 缓冲区
+    ///
+    /// 将积累的写命令一次性批量写入 AOF、发送 Keyspace 通知并广播到副本。
+    /// 调用后缓冲区会被清空。
+    pub fn flush_batch(&self) {
+        if !self.batch_mode.load(Ordering::SeqCst) {
+            return;
+        }
+        let cmds: Vec<Command> = std::mem::take(&mut *self.batch_buffer.lock().unwrap());
+        if cmds.is_empty() {
+            return;
+        }
+
+        // 批量 AOF
+        self.batch_append_to_aof(&cmds);
+
+        // Keyspace 通知
+        if let Some(ref notifier) = self.keyspace_notifier {
+            if !notifier.config().is_empty() {
+                let db = self.storage.current_db();
+                for cmd in &cmds {
+                    notifier.notify_command(cmd, db);
+                }
+            }
+        }
+
+        // 批量复制传播
+        if let Some(ref repl) = self.replication {
+            if matches!(repl.get_role(), crate::replication::ReplicationRole::Master)
+                && repl.has_connected_replicas()
+            {
+                let mut batch_buf = Vec::with_capacity(cmds.len() * 64);
+                for cmd in &cmds {
+                    let resp = cmd.to_resp_value();
+                    RespParser::new().encode_append(&resp, &mut batch_buf);
+                }
+                if !batch_buf.is_empty() {
+                    let resp_bytes = Bytes::from(batch_buf);
+                    let len = resp_bytes.len() as i64;
+                    repl.append_to_backlog(&resp_bytes);
+                    let _ = repl.get_repl_tx().send(resp_bytes);
+                    repl.incr_master_repl_offset(len);
+                }
+            }
+        }
+    }
+
     /// 将写命令广播到所有已连接的副本（内部快速路径，调用者已确认是写命令）
     fn do_propagate_to_replicas(&self, cmd: &Command) {
         if let Some(ref repl) = self.replication {
@@ -234,15 +310,19 @@ impl CommandExecutor {
         if result.is_ok()
             && let Some(ref cmd_ref) = cmd_for_side_effects
         {
-            if need_aof {
-                self.append_to_aof_unchecked(cmd_ref);
-            }
-            if need_keyspace && let Some(ref notifier) = self.keyspace_notifier {
-                let db = self.storage.current_db();
-                notifier.notify_command(cmd_ref, db);
-            }
-            if need_replica {
-                self.do_propagate_to_replicas(cmd_ref);
+            if self.batch_mode.load(Ordering::SeqCst) {
+                self.batch_buffer.lock().unwrap().push(cmd_ref.clone());
+            } else {
+                if need_aof {
+                    self.append_to_aof_unchecked(cmd_ref);
+                }
+                if need_keyspace && let Some(ref notifier) = self.keyspace_notifier {
+                    let db = self.storage.current_db();
+                    notifier.notify_command(cmd_ref, db);
+                }
+                if need_replica {
+                    self.do_propagate_to_replicas(cmd_ref);
+                }
             }
         }
 
@@ -1567,6 +1647,8 @@ impl Clone for CommandExecutor {
             latency: self.latency.clone(),
             keyspace_notifier: self.keyspace_notifier.clone(),
             aof_use_rdb_preamble: self.aof_use_rdb_preamble.clone(),
+            batch_mode: Arc::new(AtomicBool::new(false)),
+            batch_buffer: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }

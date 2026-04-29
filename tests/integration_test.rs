@@ -3429,7 +3429,7 @@ async fn test_cluster_slots() {
     use std::sync::Arc;
 
     let storage = StorageEngine::new();
-    let cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
+    let cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379, 16379));
     let my_id = cluster.myself_id();
 
     // 分配连续 slot 0-100 给本节点
@@ -3486,7 +3486,7 @@ async fn test_cluster_countkeysinslot_and_getkeysinslot() {
     use std::sync::Arc;
 
     let storage = StorageEngine::new();
-    let cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
+    let cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379, 16379));
 
     let server =
         Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None).with_cluster(cluster);
@@ -3551,7 +3551,7 @@ async fn test_migrate_to_target() {
 
     // 启动源服务器（带 cluster 模式，否则 MIGRATE 命令走不到连接层处理）
     let source_storage = StorageEngine::new();
-    let source_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
+    let source_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379, 16379));
     let source_server = Server::new(
         "127.0.0.1:0",
         source_storage.clone(),
@@ -3565,7 +3565,7 @@ async fn test_migrate_to_target() {
 
     // 启动目标服务器
     let target_storage = StorageEngine::new();
-    let target_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
+    let target_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379, 16379));
     let target_server = Server::new(
         "127.0.0.1:0",
         target_storage.clone(),
@@ -3619,7 +3619,7 @@ async fn test_migrate_copy_mode() {
 
     // 启动源服务器
     let source_storage = StorageEngine::new();
-    let source_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
+    let source_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379, 16379));
     let source_server = Server::new(
         "127.0.0.1:0",
         source_storage.clone(),
@@ -3632,7 +3632,7 @@ async fn test_migrate_copy_mode() {
 
     // 启动目标服务器
     let target_storage = StorageEngine::new();
-    let target_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379));
+    let target_cluster = Arc::new(ClusterState::new("127.0.0.1".to_string(), 6379, 16379));
     let target_server = Server::new(
         "127.0.0.1:0",
         target_storage.clone(),

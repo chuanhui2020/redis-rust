@@ -2,7 +2,6 @@
 
 // 内存存储引擎，提供键值对的增删改查能力
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -142,7 +141,7 @@ impl ShardedMap {
     }
 
     pub fn get_shard(&self, key: &str) -> &RwLock<HashMap<String, Entry>> {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = ahash::AHasher::default();
         key.hash(&mut hasher);
         let hash = hasher.finish() as usize;
         &self.shards[hash % NUM_SHARDS]

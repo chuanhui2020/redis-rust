@@ -14,12 +14,12 @@ use std::time::Duration;
 use log::info;
 
 use redis_rust::acl::AclManager;
-use redis_rust::aof::{AofAsyncWriter, AofReplayer};
+use redis_rust::aof::{AofAsyncWriter, AofReplayer, AppendFsync};
 use redis_rust::pubsub::PubSubManager;
 use redis_rust::replication::ReplicationManager;
 use redis_rust::sentinel::SentinelManager;
 use redis_rust::server::Server;
-use redis_rust::storage::StorageEngine;
+use redis_rust::storage::{EvictionPolicy, StorageEngine};
 
 /// 服务器默认监听端口
 const DEFAULT_PORT: u16 = 6379;
@@ -46,27 +46,67 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut no_aof = false;
     let mut sentinel_mode = false;
     let mut cluster_enabled = false;
+    let mut appendfsync = AppendFsync::EverySec;
+    let mut bind = "127.0.0.1".to_string();
+    let mut cluster_announce_ip = None::<String>;
+    let mut cluster_announce_port = None::<u16>;
+    let mut cluster_announce_bus_port = None::<u16>;
+    let mut maxmemory = None::<u64>;
+    let mut maxmemory_policy = None::<String>;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--port" {
             if let Some(p) = args.next() {
                 port = p.parse().unwrap_or(DEFAULT_PORT);
             }
-        } else if arg == "--no-aof" {
-            no_aof = true;
-        } else if arg == "--sentinel" {
-            sentinel_mode = true;
+        } else if arg == "--bind" {
+            if let Some(v) = args.next() {
+                bind = v;
+            }
         } else if arg == "--cluster-enabled"
             && let Some(val) = args.next()
         {
             cluster_enabled = val.eq_ignore_ascii_case("yes");
+        } else if arg == "--cluster-announce-ip" {
+            cluster_announce_ip = args.next();
+        } else if arg == "--cluster-announce-port" {
+            if let Some(v) = args.next() {
+                cluster_announce_port = v.parse().ok();
+            }
+        } else if arg == "--cluster-announce-bus-port" {
+            if let Some(v) = args.next() {
+                cluster_announce_bus_port = v.parse().ok();
+            }
+        } else if arg == "--no-aof" {
+            no_aof = true;
+        } else if arg == "--sentinel" {
+            sentinel_mode = true;
+        } else if arg == "--appendfsync"
+            && let Some(val) = args.next()
+        {
+            appendfsync = match val.to_ascii_lowercase().as_str() {
+                "always" => AppendFsync::Always,
+                "everysec" => AppendFsync::EverySec,
+                "no" => AppendFsync::No,
+                _ => AppendFsync::EverySec,
+            };
+        } else if arg == "--maxmemory" {
+            if let Some(v) = args.next() {
+                maxmemory = v.parse().ok();
+            }
+        } else if arg == "--maxmemory-policy" {
+            maxmemory_policy = args.next();
         }
     }
     // Sentinel 模式下默认端口为 26379
     if sentinel_mode && port == DEFAULT_PORT {
         port = SENTINEL_DEFAULT_PORT;
     }
-    let addr = format!("127.0.0.1:{}", port);
+    let addr = format!("{}:{}", bind, port);
+
+    let announce_ip = cluster_announce_ip.unwrap_or_else(|| bind.clone());
+    let announce_port = cluster_announce_port.unwrap_or(port);
+    let announce_bus_port = cluster_announce_bus_port.unwrap_or(port + 10000);
 
     if sentinel_mode {
         info!("启动 redis-rust Sentinel 模式，监听 {}", addr);
@@ -76,6 +116,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 创建存储引擎
     let storage = StorageEngine::new();
+    if let Some(bytes) = maxmemory {
+        storage.set_maxmemory(bytes);
+        info!("maxmemory 设置为 {} bytes ({:.2} MB)", bytes, bytes as f64 / 1024.0 / 1024.0);
+    }
+    if let Some(ref policy_str) = maxmemory_policy {
+        let policy = match policy_str.to_ascii_lowercase().as_str() {
+            "noeviction" => EvictionPolicy::NoEviction,
+            "allkeys-lru" => EvictionPolicy::AllKeysLru,
+            "allkeys-random" => EvictionPolicy::AllKeysRandom,
+            "allkeys-lfu" => EvictionPolicy::AllKeysLfu,
+            "volatile-lru" => EvictionPolicy::VolatileLru,
+            "volatile-ttl" => EvictionPolicy::VolatileTtl,
+            "volatile-random" => EvictionPolicy::VolatileRandom,
+            "volatile-lfu" => EvictionPolicy::VolatileLfu,
+            _ => {
+                log::warn!("未知的 maxmemory-policy: {}，使用默认 allkeys-lru", policy_str);
+                EvictionPolicy::AllKeysLru
+            }
+        };
+        storage.set_eviction_policy(policy);
+        info!("maxmemory-policy 设置为 {:?}", policy);
+    }
 
     // 优先加载 RDB 快照（基础数据）
     let rdb_repl_info = match redis_rust::rdb::load(&storage, RDB_PATH) {
@@ -99,7 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aof = if no_aof {
         None
     } else {
-        Some(Arc::new(AofAsyncWriter::new(AOF_PATH)?))
+        Some(Arc::new(AofAsyncWriter::new_with_fsync(AOF_PATH, appendfsync)?))
     };
 
     // 启动后台过期键清理任务，每秒扫描并删除一次过期键
@@ -131,8 +193,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 创建 Cluster 状态（仅在 Cluster 模式下）
     let cluster = if cluster_enabled {
         let c = Arc::new(redis_rust::cluster::ClusterState::new(
-            "127.0.0.1".to_string(),
-            port,
+            announce_ip,
+            announce_port,
+            announce_bus_port,
         ));
         // 尝试加载已有拓扑
         if let Err(e) = c.load_nodes_conf("nodes.conf") {
@@ -180,8 +243,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Cluster 模式下启动集群总线监听
     if cluster_enabled {
-        let bus_port = port + 10000;
-        let bus_addr = format!("127.0.0.1:{}", bus_port);
+        let bus_addr = format!("{}:{}", bind, announce_bus_port);
         let bus_addr_for_task = bus_addr.clone();
         let cluster_for_bus = cluster.clone().unwrap();
         tokio::spawn(async move {
@@ -230,6 +292,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(s) = sentinel {
         server = server.with_sentinel(s);
     }
+
+    // 监听优雅关闭信号（Ctrl+C / SIGINT）
+    let server_for_signal = server.clone();
+    tokio::spawn(async move {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            log::error!("信号监听失败: {}", e);
+            return;
+        }
+        log::info!("收到 SIGINT/Ctrl+C，开始优雅关闭");
+        server_for_signal.shutdown(true);
+    });
+
     server.run().await?;
 
     Ok(())
