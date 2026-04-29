@@ -8,3 +8,4 @@ mingw.zip
 rustup-init.exe
 users.acl
 nodes.conf
+cluster-data/
