@@ -116,7 +116,7 @@ OK
 运行基准测试：
 
 ```bash
-./bench.sh
+./scripts/bench/bench.sh
 ```
 
 ## 架构说明

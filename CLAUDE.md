@@ -26,7 +26,7 @@ cargo test --test integration_test        # integration tests only
 cargo test --test integration_test test_ping  # single integration test
 
 # Benchmark (requires redis-server and redis-benchmark installed)
-bash bench.sh
+bash scripts/bench/bench.sh
 ```
 
 ## Build Environment
@@ -112,7 +112,7 @@ bash bench.sh
    # 单项 benchmark（示例：SET 命令）
    redis-benchmark -p 6399 -t set -n 100000 -c 50
    # 完整 benchmark 对比（对标 Redis 7）
-   bash bench.sh
+   bash scripts/bench/bench.sh
    ```
    性能验收标准（对标 Redis 7）：
    - GET/PING 类读操作：不低于 Redis 7 的 90%

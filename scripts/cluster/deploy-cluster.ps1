@@ -27,7 +27,7 @@ if (-not $ClusterAnnounceIp) {
 }
 
 # ---------- Config ----------
-$RustBin = "..\target\release\redis-rust.exe"
+$RustBin = "$PSScriptRoot\..\..\target\release\redis-rust.exe"
 $Cli     = "C:\Program Files\Redis\redis-cli.exe"
 $BaseDir = "$PSScriptRoot\cluster-data"
 

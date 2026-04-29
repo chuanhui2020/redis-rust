@@ -1,7 +1,7 @@
 # 基准测试脚本：redis-rust vs redis-server (PowerShell)
 $REDIS_RUST_PORT = 6399
 $REDIS_SERVER_PORT = 6380
-$REDIS_RUST_BIN = "./target/release/redis-rust.exe"
+$REDIS_RUST_BIN = "$PSScriptRoot\..\..\target\release\redis-rust.exe"
 $REDIS_SERVER_BIN = "C:/Program Files/Redis/redis-server.exe"
 $REDIS_BENCHMARK_BIN = "C:/Program Files/Redis/redis-benchmark.exe"
 $REDIS_CLI_BIN = "C:/Program Files/Redis/redis-cli.exe"

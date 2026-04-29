@@ -6,7 +6,7 @@ set -euo pipefail
 
 REDIS_RUST_PORT=6399
 REDIS_SERVER_PORT=6380
-REDIS_RUST_BIN="./target/release/redis-rust"
+REDIS_RUST_BIN="$(cd "$(dirname "$0")/../.." && pwd)/target/release/redis-rust"
 REDIS_RUST_PID=""
 REDIS_SERVER_PID=""
 

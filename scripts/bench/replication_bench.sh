@@ -8,7 +8,7 @@ set -euo pipefail
 # 配置与初始化
 # ============================================
 
-BIN="$(cd "$(dirname "$0")" && pwd)/target/release/redis-rust"
+BIN="$(cd "$(dirname "$0")/../.." && pwd)/target/release/redis-rust"
 REDIS_CLI="redis-cli"
 REDIS_BENCHMARK="redis-benchmark"
 MASTER_PORT=7201

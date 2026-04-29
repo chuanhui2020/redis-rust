@@ -24,7 +24,7 @@ Each node runs in its own working directory (`cluster-data/node-<port>`) to avoi
 ## Quick Start (Local)
 
 ```powershell
-cd scripts
+cd scripts/cluster
 .\deploy-cluster.ps1    # Deploy
 .\check-cluster.ps1     # Verify health
 .\stop-cluster.ps1      # Tear down
@@ -107,7 +107,7 @@ redis-cli -p 7005 CLUSTER REPLICATE <master-3-id>
 ### PowerShell script with cross-DC params
 
 ```powershell
-cd scripts
+cd scripts/cluster
 .\deploy-cluster.ps1 -Bind "0.0.0.0" -ClusterAnnounceIp "10.0.1.10"
 ```
 
