@@ -165,3 +165,11 @@ bash scripts/bench/bench.sh
 **未实现：无（MODULE 为兼容性 stub，不支持真正的模块加载）**
 
 **总覆盖率：100%（282/282），含 Replication + Sentinel + Cluster 全功能维度。**
+
+## 待优化项
+
+| 优先级 | 项目 | 说明 | 工作量 |
+|--------|------|------|--------|
+| P2 | ZSet SkipList | `ZSetData` 仍用 `BTreeMap<(OrderedFloat, String)>`，换自定义 SkipList 可提升大规模 ZSet 插入/删除性能 | 大 |
+| P2 | 官方 RDB 兼容 | 当前用自定义 `REDIS-RUST` magic header，无法与官方 Redis 交换 RDB 文件。目标：支持读取官方 RDB 格式 | 大 |
+| P3 | 静态响应预编码 | `OK`/`PONG`/`NULL`/`0`/`1` 等高频响应仍通过 `RespValue` 构造后编码，可预编码为静态字节减少运行时开销 | 小 |
