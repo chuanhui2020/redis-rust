@@ -169,8 +169,49 @@ bash scripts/bench/bench.sh
 
 ## 待优化项
 
-| 优先级 | 项目 | 说明 | 工作量 |
-|--------|------|------|--------|
-| P2 | ZSet SkipList | `ZSetData` 仍用 `BTreeMap<(OrderedFloat, String)>`，换自定义 SkipList 可提升大规模 ZSet 插入/删除性能 | 大 |
-| P2 | 官方 RDB 兼容 | 当前用自定义 `REDIS-RUST` magic header，无法与官方 Redis 交换 RDB 文件。目标：支持读取官方 RDB 格式 | 大 |
-| P3 | 静态响应预编码 | `OK`/`PONG`/`NULL`/`0`/`1` 等高频响应仍通过 `RespValue` 构造后编码，可预编码为静态字节减少运行时开销 | 小 |
+### P0 — 正确性 / 安全性
+
+| 项目 | 说明 | 涉及文件 | 工作量 |
+|------|------|----------|--------|
+| RwLock unwrap 统一处理 | `pubsub.rs`、`replication.rs`、`cluster/state.rs`、`connection.rs` 中大量对 RwLock/Mutex 直接 `.unwrap()`，lock poisoning 会导致连锁崩溃。统一改为 `.unwrap_or_else(\|e\| e.into_inner())` 或封装 helper | pubsub.rs, replication.rs, cluster/state.rs, server/connection.rs | 中 |
+| ACL 密码 SHA1→SHA256 | `acl.rs:604-608` 用裸 SHA1 无盐哈希，Redis 7 用 SHA256。需对齐 Redis 7 行为 | acl.rs | 小 |
+| AOF fsync 错误传播 | `aof.rs:150,175,189,210` — `sync_data()` 失败只 log 不上报，`appendfsync always` 模式下客户端收到 OK 但数据未持久化。应传播错误或至少在 INFO 中统计失败次数 | aof.rs | 小 |
+| RDB 写入加 fsync | `rdb.rs:169` — `writer.flush()` 后无 `fsync()`，OS 崩溃时 RDB 可能不完整。加 `file.sync_all()` | rdb.rs | 极小 |
+
+### P1 — 性能热路径优化
+
+| 项目 | 说明 | 涉及文件 | 工作量 |
+|------|------|----------|--------|
+| 命令解析零分配 | `parser.rs:35-36` 每条命令 `String::from_utf8_lossy().to_ascii_uppercase()` 产生堆分配。改为栈上 `[u8; 32]` 缓冲区 + 字节级大小写转换，消除最热路径分配，预估 pipeline 场景 5-10% 吞吐提升 | command/parser.rs | 小 |
+| RESP buffer 回滚优化 | `protocol.rs:235` 解析 incomplete array 时 `buf.clone()` 做快照。改为记录偏移量做 checkpoint，避免整个 BytesMut clone | protocol.rs | 小 |
+| Lua VM 池化 | 当前每次 EVAL/EVALSHA 创建全新 Lua 实例（含内存分配、标准库注册、redis.call 绑定）。改为 per-tokio-worker VM pool，执行完 reset 全局状态复用 | scripting.rs | 中 |
+| Entry 元数据压缩 | `storage/mod.rs:86-92` 每 Entry 带 `last_access: Instant`(8B) + `access_count: u64`(8B)，百万 key = 16MB 纯开销。`access_count` 改 `u32`，`last_access` 改相对启动时间的 `u32` 秒数，每 Entry 省 8B | storage/mod.rs | 小 |
+
+### P2 — 架构改进
+
+| 项目 | 说明 | 涉及文件 | 工作量 |
+|------|------|----------|--------|
+| ZSet SkipList | `ZSetData` 仍用 `BTreeMap<(OrderedFloat, String)>`，换自定义 SkipList 可提升大规模 ZSet 插入/删除性能 | storage/zset_ops.rs | 大 |
+| 官方 RDB 兼容 | 当前用自定义 `REDIS-RUST` magic header，无法与官方 Redis 交换 RDB 文件。目标：支持读取官方 RDB 格式 | rdb.rs | 大 |
+| Pub/Sub bounded channel | `connection.rs:684` 用 `mpsc::unbounded_channel()` 给订阅客户端，慢消费者可无限堆积导致 OOM。改为 bounded channel + 超限断开（对标 Redis 7 `client-output-buffer-limit pubsub`） | server/connection.rs, pubsub.rs | 中 |
+| Cluster quorum failover | `cluster/failover.rs` 单节点即可 PFAIL→FAIL 并触发故障转移，Redis Cluster 要求多数 master 同意。当前实现网络分区时可能 split-brain | cluster/failover.rs | 大 |
+| blocking_waiters per-shard | `storage/mod.rs:159` BLPOP/BRPOP 等待者注册表用全局 RwLock，高并发阻塞操作时成为瓶颈。改为 per-shard waiters 或 DashMap | storage/mod.rs | 中 |
+
+### P3 — 代码质量 / 可维护性
+
+| 项目 | 说明 | 涉及文件 | 工作量 |
+|------|------|----------|--------|
+| 静态响应预编码 | `OK`/`PONG`/`NULL`/`0`/`1` 等高频响应仍通过 `RespValue` 构造后编码，可预编码为静态字节减少运行时开销 | server/handler.rs, command/resp*.rs | 小 |
+| scripting panic→error | `scripting.rs:1090,1139` Lua 返回非预期类型时直接 `panic!()`，用户脚本可 crash 服务器。改为返回 Redis error response | scripting.rs | 小 |
+| connection.rs UTF-8 安全 | `connection.rs:3188` 对客户端数据 `from_utf8().unwrap()`，恶意客户端发非 UTF-8 即可 crash。改为 `from_utf8_lossy()` 或返回错误 | server/connection.rs | 极小 |
+| 大文件拆分 | `connection.rs`(3467行)、`executor.rs`(1654行) 过大。connection.rs 可拆分 cluster redirect、blocking ops、pub/sub 到独立模块 | server/connection.rs, command/executor.rs | 中 |
+
+### P4 — 架构级改动（性能跳跃）
+
+> 以下改动可带来 15-30% 的性能跳跃，但工作量巨大且涉及核心架构替换，需根据实际部署场景评估 ROI。
+
+| 项目 | 说明 | 预估提升 | 工作量 |
+|------|------|----------|--------|
+| io_uring 替代 epoll | 当前 tokio 底层用 epoll，每次 I/O 至少 1 次 syscall（~100-200ns 上下文切换）。io_uring 通过共享内存环形队列实现批量提交 + 零 syscall 轮询，高 QPS 下显著减少内核态开销。可选方案：tokio-uring 或 monoio（字节 thread-per-core runtime）。仅 Linux 5.1+ | 15-30%（I/O 密集场景） | 巨大 |
+| 紧凑数据结构 | Redis 对小对象使用 ziplist/listpack 紧凑编码（连续内存、无指针开销），当前实现全部用标准库 VecDeque/HashMap/BTreeMap。引入 listpack 编码可大幅降低小对象内存占用和 cache miss | 内存降 30-50%（小对象场景），间接提升吞吐 | 巨大 |
+| thread-per-core 模型 | 当前 tokio work-stealing 模型存在跨线程任务窃取和缓存失效开销。改为 thread-per-core（每线程独立 reactor + 独立分片数据），消除跨线程同步。可参考 monoio/glommio。需重新设计连接分配和数据分片策略 | 10-20%（高并发场景） | 巨大 |
