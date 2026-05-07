@@ -192,6 +192,12 @@ bash scripts/bench/bench.sh
 | 读操作写锁降级 | `key_ops.rs:121-149`（key_type）、`key_ops.rs:231-249`（dbsize）为清理过期 key 获取写锁，但绝大多数 key 未过期。改为先读锁检查，仅过期时升级写锁 | storage/key_ops.rs | 小 |
 | RDB 保存零拷贝 | `rdb.rs:118-130` 保存时 clone 整个 StorageValue（List/Hash/ZSet 可能很大），大数据集下内存翻倍。改为持有读锁直接序列化，避免深拷贝 | rdb.rs | 中 |
 | Keyspace 通知 config 免 clone | `keyspace.rs:149,154` 每次写操作触发通知时 `config.read().unwrap().clone()`，高 QPS 下大量无意义分配。改为 `Arc<Config>` + atomic swap | keyspace.rs | 小 |
+| is_expired() 重复 syscall | `storage/mod.rs:115-118` `is_expired()` 每次调用 `SystemTime::now()`，KEYS/SCAN 扫描百万 key 时产生百万次 syscall。应在命令执行入口缓存当前时间戳，通过参数传递 | storage/mod.rs | 小 |
+| TCP_NODELAY 未设置 | `connection.rs` 未对 TCP socket 设置 `set_nodelay(true)`，Nagle 算法导致小响应延迟 40ms。对 Redis 这类低延迟服务影响显著 | server/connection.rs | 极小 |
+| WATCH spin loop 浪费 CPU | `storage/mod.rs:820-832` `get_version()` 用 100 次 try_read() 自旋等待锁，无退避策略。高并发 WATCH 场景下浪费 CPU | storage/mod.rs | 小 |
+| ACL 权限检查每命令加锁 | `acl.rs:495-510` 每条命令执行前 `check_command()` 获取 RwLock 读锁 + glob 匹配 key pattern。高 QPS 下锁竞争明显。改为 `ArcSwap` 或缓存编译后的 pattern | acl.rs | 中 |
+| Replication backlog drain O(n) | `replication.rs:104-124` backlog 满时 `VecDeque::drain(..to_drop)` 是 O(n) 操作，频繁写入时开销大。改为环形缓冲区实现 O(1) 淘汰 | replication.rs | 中 |
+| Eviction policy RwLock 热路径 | `storage/mod.rs:191,309` eviction_policy 用 `Arc<RwLock<EvictionPolicy>>` 保护，每次写操作都获取读锁检查策略。策略极少变更，改为 `AtomicU8` 编码或 `ArcSwap` | storage/mod.rs | 极小 |
 
 ### P2 — 架构改进
 
@@ -203,6 +209,10 @@ bash scripts/bench/bench.sh
 | Cluster quorum failover | `cluster/failover.rs` 单节点即可 PFAIL→FAIL 并触发故障转移，Redis Cluster 要求多数 master 同意。当前实现网络分区时可能 split-brain | cluster/failover.rs | 大 |
 | blocking_waiters per-shard | `storage/mod.rs:159` BLPOP/BRPOP 等待者注册表用全局 RwLock，高并发阻塞操作时成为瓶颈。改为 per-shard waiters 或 DashMap | storage/mod.rs | 中 |
 | hash_field_expirations 分片 | `storage/mod.rs:159` 单一全局 `RwLock<HashMap>` 管理所有 hash field TTL，所有操作竞争同一把锁。应按 key hash 分片，与主存储对齐 | storage/mod.rs | 中 |
+| Client 注册表 DashMap 化 | `connection.rs:615-616` clients HashMap 用 RwLock 保护，CLIENT 命令和连接建立/断开都竞争写锁。改为 DashMap 或按 client_id 分片 | server/connection.rs | 小 |
+| 空闲连接超时 | 当前无 idle connection 检测机制，僵尸连接永不释放。应实现 `timeout` 配置（对标 Redis 7 `timeout` 参数），定期清理空闲连接 | server/connection.rs | 中 |
+| 内存使用量实时追踪 | 当前仅存储 maxmemory 限制值，无实际内存使用量统计。eviction 无法精确触发。应实现 per-shard 内存计数器，写操作时增量更新 | storage/mod.rs | 中 |
+| Hash field 过期时间索引 | `storage/mod.rs:738-760` 清理过期 hash field 时遍历所有 field 找过期项，O(n) 复杂度。改为 BTreeMap 按过期时间索引，O(log n) 查找 | storage/mod.rs | 中 |
 
 ### P3 — 代码质量 / 可维护性
 
@@ -216,6 +226,10 @@ bash scripts/bench/bench.sh
 | PubSub channel 名重复 clone | `pubsub.rs` subscribe/publish 路径上 channel 名被 clone 3-4 次。改为 `Arc<str>` 共享所有权，消除重复分配 | pubsub.rs | 小 |
 | Replication read-clone 模式 | `replication.rs:239,255,782` master_replid/master_host 等不常变字段每次读取都 `read().unwrap().clone()`。改为 `ArcSwap` 实现无锁读 | replication.rs | 小 |
 | 连接上下文打包 | `server/mod.rs:262-298` 每个新连接 clone 20+ 个 Arc。打包为单一 `ConnectionContext` struct 只 clone 一次，减少代码冗余 | server/mod.rs | 小 |
+| Slowlog 双锁合并 | `slowlog.rs:72-96` `record()` 方法顺序获取两把 Mutex（entries + next_id），每条慢命令都触发。合并为单一 `Mutex<(VecDeque, u64)>` 减少 50% 锁获取 | slowlog.rs | 极小 |
+| Gossip 消息序列化优化 | `cluster/gossip.rs:91-102` 每次 PING/PONG 用 `format!()` 拼接字符串 + `split_whitespace()` 解析。集群 100 节点时每秒 100 次分配。改为预分配缓冲区或二进制协议 | cluster/gossip.rs | 中 |
+| 错误构造 format!() 开销 | `replication.rs`、`cluster/` 等多处错误路径用 `format!()` 构造错误消息，即使错误不被展示也分配 String。改为静态错误消息或延迟格式化 | 多文件 | 小 |
+| Inline 命令解析栈分配 | `protocol.rs:415-438` `parse_inline()` 每次分配 Vec 存储分词结果。对 redis-benchmark 等简单客户端影响大。改为栈上 `[&str; 8]` 小数组优化常见场景 | protocol.rs | 小 |
 
 ### P4 — 架构级改动（性能跳跃）
 
