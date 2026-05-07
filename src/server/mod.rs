@@ -270,6 +270,7 @@ impl Server {
             tokio::select! {
                 result = listener.accept() => {
                     let (stream, peer_addr) = result?;
+                    stream.set_nodelay(true).ok();
                     log::info!("客户端已连接: {}", peer_addr);
 
                     active.fetch_add(1, Ordering::SeqCst);

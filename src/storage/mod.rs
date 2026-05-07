@@ -141,10 +141,13 @@ impl ShardedMap {
     }
 
     pub fn get_shard(&self, key: &str) -> &RwLock<HashMap<String, Entry>> {
+        &self.shards[Self::shard_index(key)]
+    }
+
+    pub fn shard_index(key: &str) -> usize {
         let mut hasher = ahash::AHasher::default();
         key.hash(&mut hasher);
-        let hash = hasher.finish() as usize;
-        &self.shards[hash % NUM_SHARDS]
+        hasher.finish() as usize % NUM_SHARDS
     }
 
     pub fn all_shards(&self) -> &[RwLock<HashMap<String, Entry>>] {

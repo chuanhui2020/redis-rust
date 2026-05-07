@@ -20,33 +20,68 @@ impl StorageEngine {
         Ok(result)
     }
 
-    /// 简单的 glob 模式匹配（支持 * 和 ?）
+    /// 线性时间 glob 模式匹配（支持 *、? 和 [charset]）
     pub(crate) fn glob_match(text: &str, pattern: &str) -> bool {
-        let text_chars: Vec<char> = text.chars().collect();
-        let pat_chars: Vec<char> = pattern.chars().collect();
-        let n = text_chars.len();
-        let m = pat_chars.len();
+        let text = text.as_bytes();
+        let pat = pattern.as_bytes();
+        let (mut ti, mut pi) = (0usize, 0usize);
+        let (mut star_pi, mut star_ti) = (usize::MAX, 0usize);
 
-        let mut dp = vec![vec![false; m + 1]; n + 1];
-        dp[0][0] = true;
-
-        for j in 1..=m {
-            if pat_chars[j - 1] == '*' {
-                dp[0][j] = dp[0][j - 1];
-            }
-        }
-
-        for i in 1..=n {
-            for j in 1..=m {
-                match pat_chars[j - 1] {
-                    '*' => dp[i][j] = dp[i][j - 1] || dp[i - 1][j],
-                    '?' => dp[i][j] = dp[i - 1][j - 1],
-                    c => dp[i][j] = dp[i - 1][j - 1] && text_chars[i - 1] == c,
+        while ti < text.len() {
+            if pi < pat.len() && pat[pi] == b'*' {
+                star_pi = pi;
+                star_ti = ti;
+                pi += 1;
+            } else if pi < pat.len() && (pat[pi] == b'?' || pat[pi] == text[ti]) {
+                pi += 1;
+                ti += 1;
+            } else if pi < pat.len() && pat[pi] == b'[' {
+                pi += 1;
+                let negate = pi < pat.len() && pat[pi] == b'^';
+                if negate {
+                    pi += 1;
                 }
+                let mut matched = false;
+                while pi < pat.len() && pat[pi] != b']' {
+                    if pi + 2 < pat.len() && pat[pi + 1] == b'-' {
+                        if text[ti] >= pat[pi] && text[ti] <= pat[pi + 2] {
+                            matched = true;
+                        }
+                        pi += 3;
+                    } else {
+                        if text[ti] == pat[pi] {
+                            matched = true;
+                        }
+                        pi += 1;
+                    }
+                }
+                if pi < pat.len() {
+                    pi += 1;
+                }
+                if matched == negate {
+                    if star_pi != usize::MAX {
+                        pi = star_pi + 1;
+                        star_ti += 1;
+                        ti = star_ti;
+                    } else {
+                        return false;
+                    }
+                } else {
+                    ti += 1;
+                }
+            } else if star_pi != usize::MAX {
+                pi = star_pi + 1;
+                star_ti += 1;
+                ti = star_ti;
+            } else {
+                return false;
             }
         }
 
-        dp[n][m]
+        while pi < pat.len() && pat[pi] == b'*' {
+            pi += 1;
+        }
+        pi == pat.len()
     }
 
     /// 增量迭代键
@@ -91,29 +126,60 @@ impl StorageEngine {
     pub fn rename(&self, key: &str, newkey: &str) -> Result<()> {
         self.evict_if_needed()?;
         let db = self.db();
-        let mut map = db
-            .inner
-            .get_shard(key)
-            .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
 
-        match map.remove(key) {
-            Some(entry) => {
-                if entry.is_expired() {
-                    return Err(AppError::Storage("键不存在或已过期".to_string()));
+        let src_idx = ShardedMap::shard_index(key);
+        let dst_idx = ShardedMap::shard_index(newkey);
+
+        if src_idx == dst_idx {
+            let mut map = db
+                .inner
+                .get_shard(key)
+                .write()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            match map.remove(key) {
+                Some(entry) => {
+                    if entry.is_expired() {
+                        return Err(AppError::Storage("键不存在或已过期".to_string()));
+                    }
+                    self.bump_version(&mut map, key);
+                    map.insert(newkey.to_string(), entry);
+                    self.bump_version(&mut map, newkey);
+                    Ok(())
                 }
-                self.bump_version(&mut map, key);
-                drop(map);
-                let mut new_map = db
-                    .inner
-                    .get_shard(newkey)
-                    .write()
-                    .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
-                new_map.insert(newkey.to_string(), entry);
-                self.bump_version(&mut new_map, newkey);
-                Ok(())
+                None => Err(AppError::Storage("键不存在".to_string())),
             }
-            None => Err(AppError::Storage("键不存在".to_string())),
+        } else {
+            let shards = db.inner.all_shards();
+            let (first_idx, second_idx) = if src_idx < dst_idx {
+                (src_idx, dst_idx)
+            } else {
+                (dst_idx, src_idx)
+            };
+            let mut first = shards[first_idx]
+                .write()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            let mut second = shards[second_idx]
+                .write()
+                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+
+            let (src_map, dst_map) = if src_idx < dst_idx {
+                (&mut first, &mut second)
+            } else {
+                (&mut second, &mut first)
+            };
+
+            match src_map.remove(key) {
+                Some(entry) => {
+                    if entry.is_expired() {
+                        return Err(AppError::Storage("键不存在或已过期".to_string()));
+                    }
+                    self.bump_version(src_map, key);
+                    dst_map.insert(newkey.to_string(), entry);
+                    self.bump_version(dst_map, newkey);
+                    Ok(())
+                }
+                None => Err(AppError::Storage("键不存在".to_string())),
+            }
         }
     }
 
