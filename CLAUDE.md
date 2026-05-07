@@ -177,6 +177,7 @@ bash scripts/bench/bench.sh
 | ACL 密码 SHA1→SHA256 | `acl.rs:604-608` 用裸 SHA1 无盐哈希，Redis 7 用 SHA256。需对齐 Redis 7 行为 | acl.rs | 小 |
 | AOF fsync 错误传播 | `aof.rs:150,175,189,210` — `sync_data()` 失败只 log 不上报，`appendfsync always` 模式下客户端收到 OK 但数据未持久化。应传播错误或至少在 INFO 中统计失败次数 | aof.rs | 小 |
 | RDB 写入加 fsync | `rdb.rs:169` — `writer.flush()` 后无 `fsync()`，OS 崩溃时 RDB 可能不完整。加 `file.sync_all()` | rdb.rs | 极小 |
+| RENAME 跨 shard 死锁 | `key_ops.rs:91-118` 两个并发 RENAME 分别锁 shard A→B 和 B→A 时可死锁。应按 shard index 排序后统一获取锁 | storage/key_ops.rs | 小 |
 
 ### P1 — 性能热路径优化
 
@@ -186,6 +187,11 @@ bash scripts/bench/bench.sh
 | RESP buffer 回滚优化 | `protocol.rs:235` 解析 incomplete array 时 `buf.clone()` 做快照。改为记录偏移量做 checkpoint，避免整个 BytesMut clone | protocol.rs | 小 |
 | Lua VM 池化 | 当前每次 EVAL/EVALSHA 创建全新 Lua 实例（含内存分配、标准库注册、redis.call 绑定）。改为 per-tokio-worker VM pool，执行完 reset 全局状态复用 | scripting.rs | 中 |
 | Entry 元数据压缩 | `storage/mod.rs:86-92` 每 Entry 带 `last_access: Instant`(8B) + `access_count: u64`(8B)，百万 key = 16MB 纯开销。`access_count` 改 `u32`，`last_access` 改相对启动时间的 `u32` 秒数，每 Entry 省 8B | storage/mod.rs | 小 |
+| SCAN 全量收集优化 | `key_ops.rs:55-88` 当前 SCAN 先收集所有 shard 全部 key 到 Vec 再排序过滤，百万 key 场景每次 SCAN 产生巨大分配。改为 cursor 编码 shard_index + shard_offset 的惰性迭代 | storage/key_ops.rs | 中 |
+| Glob 匹配算法优化 | `key_ops.rs:24-50` 每次 glob_match 分配 O(n*m) DP 表，SCAN/KEYS 对每个 key 都调用。改为 O(n) 线性双指针算法（对标 Redis 官方实现） | storage/key_ops.rs | 小 |
+| 读操作写锁降级 | `key_ops.rs:121-149`（key_type）、`key_ops.rs:231-249`（dbsize）为清理过期 key 获取写锁，但绝大多数 key 未过期。改为先读锁检查，仅过期时升级写锁 | storage/key_ops.rs | 小 |
+| RDB 保存零拷贝 | `rdb.rs:118-130` 保存时 clone 整个 StorageValue（List/Hash/ZSet 可能很大），大数据集下内存翻倍。改为持有读锁直接序列化，避免深拷贝 | rdb.rs | 中 |
+| Keyspace 通知 config 免 clone | `keyspace.rs:149,154` 每次写操作触发通知时 `config.read().unwrap().clone()`，高 QPS 下大量无意义分配。改为 `Arc<Config>` + atomic swap | keyspace.rs | 小 |
 
 ### P2 — 架构改进
 
@@ -196,6 +202,7 @@ bash scripts/bench/bench.sh
 | Pub/Sub bounded channel | `connection.rs:684` 用 `mpsc::unbounded_channel()` 给订阅客户端，慢消费者可无限堆积导致 OOM。改为 bounded channel + 超限断开（对标 Redis 7 `client-output-buffer-limit pubsub`） | server/connection.rs, pubsub.rs | 中 |
 | Cluster quorum failover | `cluster/failover.rs` 单节点即可 PFAIL→FAIL 并触发故障转移，Redis Cluster 要求多数 master 同意。当前实现网络分区时可能 split-brain | cluster/failover.rs | 大 |
 | blocking_waiters per-shard | `storage/mod.rs:159` BLPOP/BRPOP 等待者注册表用全局 RwLock，高并发阻塞操作时成为瓶颈。改为 per-shard waiters 或 DashMap | storage/mod.rs | 中 |
+| hash_field_expirations 分片 | `storage/mod.rs:159` 单一全局 `RwLock<HashMap>` 管理所有 hash field TTL，所有操作竞争同一把锁。应按 key hash 分片，与主存储对齐 | storage/mod.rs | 中 |
 
 ### P3 — 代码质量 / 可维护性
 
@@ -205,6 +212,10 @@ bash scripts/bench/bench.sh
 | scripting panic→error | `scripting.rs:1090,1139` Lua 返回非预期类型时直接 `panic!()`，用户脚本可 crash 服务器。改为返回 Redis error response | scripting.rs | 小 |
 | connection.rs UTF-8 安全 | `connection.rs:3188` 对客户端数据 `from_utf8().unwrap()`，恶意客户端发非 UTF-8 即可 crash。改为 `from_utf8_lossy()` 或返回错误 | server/connection.rs | 极小 |
 | 大文件拆分 | `connection.rs`(3467行)、`executor.rs`(1654行) 过大。connection.rs 可拆分 cluster redirect、blocking ops、pub/sub 到独立模块 | server/connection.rs, command/executor.rs | 中 |
+| Hash/ZSet 热路径冗余 clone | `hash_ops.rs:103,234,295` hgetall 对所有 kv clone 再 collect；`zset_ops.rs:25-31` add 对 member 做 2-3 次 clone。应尽量用引用或 Cow 减少中间分配 | storage/hash_ops.rs, storage/zset_ops.rs | 小 |
+| PubSub channel 名重复 clone | `pubsub.rs` subscribe/publish 路径上 channel 名被 clone 3-4 次。改为 `Arc<str>` 共享所有权，消除重复分配 | pubsub.rs | 小 |
+| Replication read-clone 模式 | `replication.rs:239,255,782` master_replid/master_host 等不常变字段每次读取都 `read().unwrap().clone()`。改为 `ArcSwap` 实现无锁读 | replication.rs | 小 |
+| 连接上下文打包 | `server/mod.rs:262-298` 每个新连接 clone 20+ 个 Arc。打包为单一 `ConnectionContext` struct 只 clone 一次，减少代码冗余 | server/mod.rs | 小 |
 
 ### P4 — 架构级改动（性能跳跃）
 
