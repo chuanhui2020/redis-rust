@@ -2,6 +2,7 @@
 // ACL 权限系统模块
 // 实现 Redis 风格的访问控制列表，支持用户管理、命令权限、Key 模式和频道权限
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
@@ -180,7 +181,7 @@ impl AclManager {
         let mut inner = self
             .inner
             .write()
-            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("ACL 锁中毒: {}", e))))?;
 
         let user = inner
             .users
@@ -337,7 +338,7 @@ impl AclManager {
         let inner = self
             .inner
             .read()
-            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("ACL 锁中毒: {}", e))))?;
         Ok(inner.users.get(name).cloned())
     }
 
@@ -346,7 +347,7 @@ impl AclManager {
         let mut inner = self
             .inner
             .write()
-            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("ACL 锁中毒: {}", e))))?;
         let mut count = 0;
         for name in names {
             if *name == "default" {
@@ -364,7 +365,7 @@ impl AclManager {
         let inner = self
             .inner
             .read()
-            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("ACL 锁中毒: {}", e))))?;
         let mut result = Vec::new();
         for user in inner.users.values() {
             let rules = user.to_rules().join(" ");
@@ -393,7 +394,7 @@ impl AclManager {
         let inner = self
             .inner
             .read()
-            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("ACL 锁中毒: {}", e))))?;
         let n = count.unwrap_or(10);
         let result: Vec<AclLogEntry> = inner.log.iter().rev().take(n).cloned().collect();
         Ok(result)
@@ -404,7 +405,7 @@ impl AclManager {
         let mut inner = self
             .inner
             .write()
-            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("ACL 锁中毒: {}", e))))?;
         inner.log.clear();
         Ok(())
     }
@@ -420,7 +421,7 @@ impl AclManager {
         let mut inner = self
             .inner
             .write()
-            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("ACL 锁中毒: {}", e))))?;
         inner.log.push(AclLogEntry {
             reason: reason.to_string(),
             context: context.to_string(),
@@ -440,7 +441,7 @@ impl AclManager {
         let users = self
             .inner
             .read()
-            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("ACL 锁中毒: {}", e))))?;
         let mut content = String::new();
         for (name, user) in users.users.iter() {
             let rules = user.to_rules();
@@ -480,9 +481,7 @@ impl AclManager {
     pub fn genpass(&self, bits: Option<usize>) -> Result<String> {
         let bits = bits.unwrap_or(256);
         if !(64..=4096).contains(&bits) || !bits.is_multiple_of(8) {
-            return Err(AppError::Command(
-                "ACL GENPASS bits 必须是 64-4096 之间的 8 的倍数".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("ACL GENPASS bits 必须是 64-4096 之间的 8 的倍数")));
         }
         let bytes = bits / 8;
         let mut rng = rand::thread_rng();
@@ -496,7 +495,7 @@ impl AclManager {
         let inner = self
             .inner
             .read()
-            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("ACL 锁中毒: {}", e))))?;
 
         let user = match inner.users.get(username) {
             Some(u) => u,
@@ -546,7 +545,7 @@ impl AclManager {
         let inner = self
             .inner
             .read()
-            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("ACL 锁中毒: {}", e))))?;
 
         let user = match inner.users.get(username) {
             Some(u) => u,
@@ -574,7 +573,7 @@ impl AclManager {
         let inner = self
             .inner
             .read()
-            .map_err(|e| AppError::Storage(format!("ACL 锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("ACL 锁中毒: {}", e))))?;
 
         let user = match inner.users.get(username) {
             Some(u) => u,

@@ -1,5 +1,6 @@
 //! RESP (REdis Serialization Protocol) 协议解析模块
 
+use std::borrow::Cow;
 use bytes::{Buf, Bytes, BytesMut};
 use itoa;
 
@@ -103,26 +104,26 @@ impl RespParser {
             i += 1;
         }
         if i >= buf.len() {
-            return Err(AppError::Protocol("整数解析失败: 空".to_string()));
+            return Err(AppError::Protocol(Cow::Borrowed("整数解析失败: 空")));
         }
         while i < buf.len() {
             let b = buf[i];
             if !b.is_ascii_digit() {
-                return Err(AppError::Protocol(format!(
+                return Err(AppError::Protocol(Cow::Owned(format!(
                     "整数解析失败: 非法字符 {}",
                     b as char
-                )));
+                ))));
             }
             let digit = (b - b'0') as u64;
             val = val
                 .checked_mul(10)
                 .and_then(|v| v.checked_add(digit))
-                .ok_or_else(|| AppError::Protocol("整数解析失败: 溢出".to_string()))?;
+                .ok_or_else(|| AppError::Protocol(Cow::Borrowed("整数解析失败: 溢出")))?;
             i += 1;
         }
         if neg {
             if val > (i64::MAX as u64) + 1 {
-                return Err(AppError::Protocol("整数解析失败: 溢出".to_string()));
+                return Err(AppError::Protocol(Cow::Borrowed("整数解析失败: 溢出")));
             }
             if val == (i64::MAX as u64) + 1 {
                 Ok(i64::MIN)
@@ -131,7 +132,7 @@ impl RespParser {
             }
         } else {
             if val > i64::MAX as u64 {
-                return Err(AppError::Protocol("整数解析失败: 溢出".to_string()));
+                return Err(AppError::Protocol(Cow::Borrowed("整数解析失败: 溢出")));
             }
             Ok(val as i64)
         }
@@ -190,10 +191,10 @@ impl RespParser {
         }
 
         if len < 0 {
-            return Err(AppError::Protocol(format!(
+            return Err(AppError::Protocol(Cow::Owned(format!(
                 "批量字符串长度不能为负数（除 -1 外）: {}",
                 len
-            )));
+            ))));
         }
 
         let len = len as usize;
@@ -225,10 +226,10 @@ impl RespParser {
         }
 
         if len < 0 {
-            return Err(AppError::Protocol(format!(
+            return Err(AppError::Protocol(Cow::Owned(format!(
                 "数组长度不能为负数（除 -1 外）: {}",
                 len
-            )));
+            ))));
         }
 
         let len = len as usize;
@@ -258,7 +259,7 @@ impl RespParser {
             buf.advance(3);
             Ok(Some(RespValue::Null))
         } else {
-            Err(AppError::Protocol("无效的 Null 格式".to_string()))
+            Err(AppError::Protocol(Cow::Borrowed("无效的 Null 格式")))
         }
     }
 
@@ -274,7 +275,7 @@ impl RespParser {
             buf.advance(4);
             Ok(Some(RespValue::Bool(false)))
         } else {
-            Err(AppError::Protocol("无效的 Bool 格式".to_string()))
+            Err(AppError::Protocol(Cow::Borrowed("无效的 Bool 格式")))
         }
     }
 
@@ -286,9 +287,9 @@ impl RespParser {
         };
 
         let s = std::str::from_utf8(&buf[1..len_end])
-            .map_err(|_| AppError::Protocol("无效的 Double 字符串".to_string()))?;
+            .map_err(|_| AppError::Protocol(Cow::Borrowed("无效的 Double 字符串")))?;
         let val = s.parse::<f64>()
-            .map_err(|_| AppError::Protocol(format!("无法解析 Double: {}", s)))?;
+            .map_err(|_| AppError::Protocol(Cow::Owned(format!("无法解析 Double: {}", s))))?;
 
         buf.advance(len_end + 2);
         Ok(Some(RespValue::Double(val)))
@@ -303,7 +304,7 @@ impl RespParser {
 
         let len = Self::parse_integer_from_bytes(&buf[1..len_end])?;
         if len < 0 {
-            return Err(AppError::Protocol(format!("Map 长度不能为负数: {}", len)));
+            return Err(AppError::Protocol(Cow::Owned(format!("Map 长度不能为负数: {}", len))));
         }
 
         let len = len as usize;
@@ -341,7 +342,7 @@ impl RespParser {
 
         let len = Self::parse_integer_from_bytes(&buf[1..len_end])?;
         if len < 0 {
-            return Err(AppError::Protocol(format!("Set 长度不能为负数: {}", len)));
+            return Err(AppError::Protocol(Cow::Owned(format!("Set 长度不能为负数: {}", len))));
         }
 
         let len = len as usize;
@@ -371,7 +372,7 @@ impl RespParser {
 
         let len = Self::parse_integer_from_bytes(&buf[1..len_end])?;
         if len < 0 {
-            return Err(AppError::Protocol(format!("Push 长度不能为负数: {}", len)));
+            return Err(AppError::Protocol(Cow::Owned(format!("Push 长度不能为负数: {}", len))));
         }
 
         let len = len as usize;
@@ -424,7 +425,7 @@ impl RespParser {
         let parts: Vec<&str> = line.split_whitespace().collect();
 
         if parts.is_empty() {
-            return Err(AppError::Protocol("inline 命令为空".to_string()));
+            return Err(AppError::Protocol(Cow::Borrowed("inline 命令为空")));
         }
 
         // 将空格分隔的参数转换为 RESP Array of BulkStrings

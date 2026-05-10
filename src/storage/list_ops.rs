@@ -1,4 +1,5 @@
 //! List 数据类型操作（对标 Redis List 命令族）
+use std::borrow::Cow;
 use super::*;
 
 impl StorageEngine {
@@ -121,7 +122,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
@@ -162,7 +163,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
@@ -201,7 +202,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         self.check_and_remove_expired(&mut map, key);
         match map.get(key) {
@@ -241,7 +242,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         self.check_and_remove_expired(&mut map, key);
         let list = match map.get(key) {
@@ -308,7 +309,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         self.check_and_remove_expired(&mut map, key);
         let list = match map.get(key) {
@@ -361,7 +362,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
@@ -374,12 +375,12 @@ self.bump_version(&mut map, key);
                     idx += len;
                 }
                 if idx < 0 || idx >= len {
-                    return Err(AppError::Storage("ERR index out of range".to_string()));
+                    return Err(AppError::Storage(Cow::Borrowed("ERR index out of range")));
                 }
                 list[idx as usize] = value;
                 Ok(())
             }
-            None => Err(AppError::Storage("ERR no such key".to_string())),
+            None => Err(AppError::Storage(Cow::Borrowed("ERR no such key"))),
         }?;
         self.bump_version(&mut map, key);
         Ok(())
@@ -419,7 +420,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         self.check_and_remove_expired(&mut map, key);
         let result = match map.get_mut(key) {
@@ -480,7 +481,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
@@ -572,7 +573,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         self.check_and_remove_expired(&mut map, key);
         match map.get_mut(key) {
@@ -648,7 +649,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         self.check_and_remove_expired(&mut map, key);
         match map.get(key) {
@@ -789,7 +790,7 @@ self.bump_version(&mut map, key);
                 let mut waiters_map = db
                     .blocking_waiters
                     .write()
-                    .map_err(|e| AppError::Storage(format!("阻塞等待者锁中毒: {}", e)))?;
+                    .map_err(|e| AppError::Storage(Cow::Owned(format!("阻塞等待者锁中毒: {}", e))))?;
                 for key in keys {
                     waiters_map
                         .entry(key.clone())
@@ -864,7 +865,7 @@ self.bump_version(&mut map, key);
                 let mut waiters_map = db
                     .blocking_waiters
                     .write()
-                    .map_err(|e| AppError::Storage(format!("阻塞等待者锁中毒: {}", e)))?;
+                    .map_err(|e| AppError::Storage(Cow::Owned(format!("阻塞等待者锁中毒: {}", e))))?;
                 for key in keys {
                     waiters_map
                         .entry(key.clone())
@@ -1111,7 +1112,7 @@ self.bump_version(&mut map, key);
                 let mut waiters_map = db
                     .blocking_waiters
                     .write()
-                    .map_err(|e| AppError::Storage(format!("阻塞等待者锁中毒: {}", e)))?;
+                    .map_err(|e| AppError::Storage(Cow::Owned(format!("阻塞等待者锁中毒: {}", e))))?;
                 waiters_map
                     .entry(source.to_string())
                     .or_default()
@@ -1185,7 +1186,7 @@ self.bump_version(&mut map, key);
                 let mut waiters_map = db
                     .blocking_waiters
                     .write()
-                    .map_err(|e| AppError::Storage(format!("阻塞等待者锁中毒: {}", e)))?;
+                    .map_err(|e| AppError::Storage(Cow::Owned(format!("阻塞等待者锁中毒: {}", e))))?;
                 for key in keys {
                     waiters_map
                         .entry(key.clone())

@@ -17,6 +17,7 @@
 //! 核心类型为 [`ReplicationManager`]，它在主节点模式下管理已连接的副本列表、
 //! 广播写命令并维护积压缓冲区；在从节点模式下负责与主节点握手、同步及持续接收命令。
 
+use std::borrow::Cow;
 use crate::error::{AppError, Result};
 use crate::storage::StorageEngine;
 use rand::Rng;
@@ -681,7 +682,7 @@ impl ReplicationManager {
         let mut line = String::new();
         reader.read_line(&mut line).await.map_err(AppError::Io)?;
         if !line.trim().starts_with("+PONG") {
-            return Err(AppError::Command(format!("主节点未响应 PONG: {}", line)));
+            return Err(AppError::Command(Cow::Owned(format!("主节点未响应 PONG: {}", line))));
         }
 
         // 2. 发送 REPLCONF listening-port
@@ -698,10 +699,10 @@ impl ReplicationManager {
         line.clear();
         reader.read_line(&mut line).await.map_err(AppError::Io)?;
         if !line.trim().starts_with("+OK") {
-            return Err(AppError::Command(format!(
+            return Err(AppError::Command(Cow::Owned(format!(
                 "REPLCONF listening-port 失败: {}",
                 line
-            )));
+            ))));
         }
 
         // 3. 发送 REPLCONF capa eof capa psync2
@@ -712,7 +713,7 @@ impl ReplicationManager {
         line.clear();
         reader.read_line(&mut line).await.map_err(AppError::Io)?;
         if !line.trim().starts_with("+OK") {
-            return Err(AppError::Command(format!("REPLCONF capa 失败: {}", line)));
+            return Err(AppError::Command(Cow::Owned(format!("REPLCONF capa 失败: {}", line))));
         }
 
         // 4. 发送 PSYNC：如果已有 replid 和 offset，尝试增量同步
@@ -739,7 +740,7 @@ impl ReplicationManager {
             // 解析 replid 和 offset
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() < 3 {
-                return Err(AppError::Command("FULLRESYNC 响应格式错误".to_string()));
+                return Err(AppError::Command(Cow::Borrowed("FULLRESYNC 响应格式错误")));
             }
             let replid = parts[1].to_string();
             let offset = parts[2].parse::<i64>().unwrap_or(0);
@@ -749,14 +750,14 @@ impl ReplicationManager {
             reader.read_line(&mut line).await.map_err(AppError::Io)?;
             let rdb_len_str = line.trim();
             if !rdb_len_str.starts_with('$') {
-                return Err(AppError::Command(format!(
+                return Err(AppError::Command(Cow::Owned(format!(
                     "期望 RDB 长度行，收到: {}",
                     rdb_len_str
-                )));
+                ))));
             }
             let rdb_len: usize = rdb_len_str[1..]
                 .parse()
-                .map_err(|_| AppError::Command("RDB 长度解析失败".to_string()))?;
+                .map_err(|_| AppError::Command(Cow::Borrowed("RDB 长度解析失败")))?;
 
             // 6. 读取 RDB 数据
             let mut rdb_data = vec![0u8; rdb_len];
@@ -768,7 +769,7 @@ impl ReplicationManager {
             // 7. 清空现有数据后保存到临时文件并加载
             if let Err(e) = storage.flush() {
                 log::error!("全量同步前清空数据失败: {}", e);
-                return Err(AppError::Storage(format!("FLUSHALL 失败: {}", e)));
+                return Err(AppError::Storage(Cow::Owned(format!("FLUSHALL 失败: {}", e))));
             }
             let temp_path = format!("temp_rdb_{}.rdb", std::process::id());
             {
@@ -797,10 +798,10 @@ impl ReplicationManager {
             self.set_master_link_up(true);
             self.touch_master_last_io();
         } else {
-            return Err(AppError::Command(format!(
+            return Err(AppError::Command(Cow::Owned(format!(
                 "主节点未响应 FULLRESYNC 或 CONTINUE: {}",
                 line
-            )));
+            ))));
         }
 
         // 9. 进入命令接收循环，持续执行主节点发送的写命令

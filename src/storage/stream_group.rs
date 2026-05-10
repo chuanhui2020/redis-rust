@@ -1,5 +1,6 @@
 //! Stream 消费者组操作（XGROUP/XREADGROUP/XACK/XCLAIM/XPENDING）
 
+use std::borrow::Cow;
 use super::*;
 
 impl StorageEngine {
@@ -19,7 +20,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let _now = Self::now_millis();
 
@@ -28,7 +29,7 @@ impl StorageEngine {
                 if v.is_expired() {
                     map.remove(key);
                     if !mkstream {
-                        return Err(AppError::Storage("XGROUP CREATE 键不存在".to_string()));
+                        return Err(AppError::Storage(Cow::Borrowed("XGROUP CREATE 键不存在")));
                     }
                     let s = StreamData::new();
                     map.insert(key.to_string(), Entry::new(StorageValue::Stream(s)));
@@ -49,7 +50,7 @@ impl StorageEngine {
             }
             None => {
                 if !mkstream {
-                    return Err(AppError::Storage("XGROUP CREATE 键不存在".to_string()));
+                    return Err(AppError::Storage(Cow::Borrowed("XGROUP CREATE 键不存在")));
                 }
                 let s = StreamData::new();
                 map.insert(key.to_string(), Entry::new(StorageValue::Stream(s)));
@@ -64,9 +65,7 @@ impl StorageEngine {
         };
 
         if stream.groups.contains_key(group_name) {
-            return Err(AppError::Command(
-                "XGROUP CREATE 消费者组已存在".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("XGROUP CREATE 消费者组已存在")));
         }
 
         let last_id = if id == "$" {
@@ -91,7 +90,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -124,19 +123,19 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
                 if v.is_expired() {
                     map.remove(key);
-                    return Err(AppError::Storage("XGROUP SETID 键不存在".to_string()));
+                    return Err(AppError::Storage(Cow::Borrowed("XGROUP SETID 键不存在")));
                 }
                 Self::check_stream_type(&v.value)?;
                 match &mut v.value {
                     StorageValue::Stream(s) => {
                         let group = s.groups.get_mut(group_name).ok_or_else(|| {
-                            AppError::Storage("XGROUP SETID 消费者组不存在".to_string())
+                            AppError::Storage(Cow::Borrowed("XGROUP SETID 消费者组不存在"))
                         })?;
                         group.last_delivered_id = if id == "$" {
                             s.last_id
@@ -149,7 +148,7 @@ self.bump_version(&mut map, key);
                     _ => unreachable!(),
                 }
             }
-            None => Err(AppError::Storage("XGROUP SETID 键不存在".to_string())),
+            None => Err(AppError::Storage(Cow::Borrowed("XGROUP SETID 键不存在"))),
         }
     }
 
@@ -166,7 +165,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -178,7 +177,7 @@ self.bump_version(&mut map, key);
                     match &mut v.value {
                         StorageValue::Stream(s) => {
                             let group = s.groups.get_mut(group_name).ok_or_else(|| {
-                                AppError::Storage("XGROUP DELCONSUMER 消费者组不存在".to_string())
+                                AppError::Storage(Cow::Borrowed("XGROUP DELCONSUMER 消费者组不存在"))
                             })?;
                             let consumer = group.consumers.remove(consumer_name);
                             let count = consumer.map(|c| c.pel.len()).unwrap_or(0);
@@ -208,7 +207,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -220,9 +219,7 @@ self.bump_version(&mut map, key);
                     match &mut v.value {
                         StorageValue::Stream(s) => {
                             let group = s.groups.get_mut(group_name).ok_or_else(|| {
-                                AppError::Storage(
-                                    "XGROUP CREATECONSUMER 消费者组不存在".to_string(),
-                                )
+                                AppError::Storage(Cow::Borrowed("XGROUP CREATECONSUMER 消费者组不存在"))
                             })?;
                             if group.consumers.contains_key(consumer_name) {
                                 Ok(false)
@@ -264,7 +261,7 @@ self.bump_version(&mut map, key);
                 .inner
                 .get_shard(key)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             let read_new = ids[idx] == ">";
 
             let stream = match map.get_mut(key) {
@@ -361,7 +358,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -413,7 +410,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let now = Self::now_millis();
 
@@ -427,7 +424,7 @@ self.bump_version(&mut map, key);
                     match &mut v.value {
                         StorageValue::Stream(s) => {
                             let group = s.groups.get_mut(group_name).ok_or_else(|| {
-                                AppError::Storage("XCLAIM 消费者组不存在".to_string())
+                                AppError::Storage(Cow::Borrowed("XCLAIM 消费者组不存在"))
                             })?;
                             let mut result = Vec::new();
                             for id in ids {
@@ -489,7 +486,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let now = Self::now_millis();
 
@@ -503,7 +500,7 @@ self.bump_version(&mut map, key);
                     match &mut v.value {
                         StorageValue::Stream(s) => {
                             let group = s.groups.get_mut(group_name).ok_or_else(|| {
-                                AppError::Storage("XAUTOCLAIM 消费者组不存在".to_string())
+                                AppError::Storage(Cow::Borrowed("XAUTOCLAIM 消费者组不存在"))
                             })?;
                             let mut result = Vec::new();
                             let mut next_id = start;
@@ -582,7 +579,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -647,7 +644,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -681,7 +678,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -721,7 +718,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {

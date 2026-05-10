@@ -1,4 +1,5 @@
 //! Server/Admin 命令执行器
+use std::borrow::Cow;
 use super::*;
 
 use super::executor::CommandExecutor;
@@ -65,6 +66,16 @@ pub(crate) fn execute_config_get(executor: &CommandExecutor, key: String) -> Res
         } else {
             "no"
         };
+        Ok(RespValue::Array(vec![
+            RespValue::BulkString(Some(bytes::Bytes::from(key))),
+            RespValue::BulkString(Some(bytes::Bytes::from(val))),
+        ]))
+    } else if key_lower == "timeout" {
+        let val = executor
+            .timeout
+            .as_ref()
+            .map(|t| t.load(Ordering::Relaxed).to_string())
+            .unwrap_or_else(|| "0".to_string());
         Ok(RespValue::Array(vec![
             RespValue::BulkString(Some(bytes::Bytes::from(key))),
             RespValue::BulkString(Some(bytes::Bytes::from(val))),
@@ -142,6 +153,18 @@ pub(crate) fn execute_config_set(
             .aof_use_rdb_preamble
             .store(enabled, Ordering::Relaxed);
         Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
+    } else if key_lower == "timeout" {
+        match value.parse::<u64>() {
+            Ok(secs) => {
+                if let Some(ref timeout) = executor.timeout {
+                    timeout.store(secs, Ordering::Relaxed);
+                }
+                Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
+            }
+            Err(_) => Ok(RespValue::Error(
+                bytes::Bytes::from("ERR value is not an integer or out of range"),
+            )),
+        }
     } else {
         Ok(RespValue::Error(bytes::Bytes::from(format!(
             "ERR Unsupported CONFIG parameter: {}",
@@ -231,7 +254,7 @@ pub(crate) fn execute_latency_latest(executor: &CommandExecutor) -> Result<RespV
     let tracker = executor
         .latency
         .as_ref()
-        .ok_or_else(|| AppError::Command("延迟追踪器未初始化".to_string()))?;
+        .ok_or_else(|| AppError::Command(Cow::Borrowed("延迟追踪器未初始化")))?;
     let latest = tracker.latest()?;
     let parts: Vec<RespValue> = latest
         .into_iter()
@@ -264,7 +287,7 @@ pub(crate) fn execute_latency_history(
     let tracker = executor
         .latency
         .as_ref()
-        .ok_or_else(|| AppError::Command("延迟追踪器未初始化".to_string()))?;
+        .ok_or_else(|| AppError::Command(Cow::Borrowed("延迟追踪器未初始化")))?;
     let history = tracker.history(&event)?;
     let parts: Vec<RespValue> = history
         .into_iter()
@@ -295,7 +318,7 @@ pub(crate) fn execute_latency_reset(
     let tracker = executor
         .latency
         .as_ref()
-        .ok_or_else(|| AppError::Command("延迟追踪器未初始化".to_string()))?;
+        .ok_or_else(|| AppError::Command(Cow::Borrowed("延迟追踪器未初始化")))?;
     let count = if events.is_empty() {
         tracker.reset_all()?
     } else {
@@ -316,7 +339,7 @@ pub(crate) fn execute_latency_reset(
 /// - `Ok(RespValue::...)` - 执行成功
 /// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_reset(_executor: &CommandExecutor) -> Result<RespValue> {
-    Err(AppError::Command("RESET 应在连接层处理".to_string()))
+    Err(AppError::Command(Cow::Borrowed("RESET 应在连接层处理")))
 }
 
 /// 执行 HELLO 命令
@@ -335,7 +358,7 @@ pub(crate) fn execute_hello(
     _auth: Option<(String, String)>,
     _setname: Option<String>,
 ) -> Result<RespValue> {
-    Err(AppError::Command("HELLO 应在连接层处理".to_string()))
+    Err(AppError::Command(Cow::Borrowed("HELLO 应在连接层处理")))
 }
 
 /// 执行 MONITOR 命令
@@ -349,7 +372,7 @@ pub(crate) fn execute_hello(
 /// - `Ok(RespValue::...)` - 执行成功
 /// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_monitor(_executor: &CommandExecutor) -> Result<RespValue> {
-    Err(AppError::Command("MONITOR 应在连接层处理".to_string()))
+    Err(AppError::Command(Cow::Borrowed("MONITOR 应在连接层处理")))
 }
 
 /// 执行 COMMAND_INFO 命令
@@ -658,9 +681,7 @@ pub(crate) fn execute_command_get_keys(
     args: Vec<String>,
 ) -> Result<RespValue> {
     if args.is_empty() {
-        return Err(AppError::Command(
-            "COMMAND GETKEYS 需要命令参数".to_string(),
-        ));
+        return Err(AppError::Command(Cow::Borrowed("COMMAND GETKEYS 需要命令参数")));
     }
     // 简化实现：返回命令后的所有参数作为候选 key
     let keys: Vec<RespValue> = args[1..]
@@ -682,7 +703,7 @@ pub(crate) fn execute_command_get_keys(
 /// - `Err(AppError::...)` - 执行失败（键不存在、类型错误等）
 pub(crate) fn execute_bg_rewrite_aof(_executor: &CommandExecutor) -> Result<RespValue> {
     // BGREWRITEAOF 在 server.rs 中处理，需要 AOF writer
-    Err(AppError::Command("BGREWRITEAOF 应在连接层处理".to_string()))
+    Err(AppError::Command(Cow::Borrowed("BGREWRITEAOF 应在连接层处理")))
 }
 
 /// 执行 SELECT 命令
@@ -718,7 +739,7 @@ pub(crate) fn execute_eval(
 ) -> Result<RespValue> {
     match &executor.script_engine {
         Some(engine) => engine.eval(&script, keys, args, executor.storage.clone()),
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -740,7 +761,7 @@ pub(crate) fn execute_eval_sha(
 ) -> Result<RespValue> {
     match &executor.script_engine {
         Some(engine) => engine.evalsha(&sha1, keys, args, executor.storage.clone()),
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -760,7 +781,7 @@ pub(crate) fn execute_script_load(executor: &CommandExecutor, script: String) ->
             let sha1 = engine.script_load(&script)?;
             Ok(RespValue::BulkString(Some(Bytes::from(sha1))))
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -787,7 +808,7 @@ pub(crate) fn execute_script_exists(
                 .collect();
             Ok(RespValue::Array(arr))
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -807,7 +828,7 @@ pub(crate) fn execute_script_flush(executor: &CommandExecutor) -> Result<RespVal
             engine.script_flush()?;
             Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -831,7 +852,7 @@ pub(crate) fn execute_function_load(
             let name = engine.function_load(&code, replace)?;
             Ok(RespValue::SimpleString(name.into()))
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -858,7 +879,7 @@ pub(crate) fn execute_function_delete(
                 Ok(RespValue::Integer(0))
             }
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -911,7 +932,7 @@ pub(crate) fn execute_function_list(
             }
             Ok(RespValue::Array(parts))
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -931,7 +952,7 @@ pub(crate) fn execute_function_dump(executor: &CommandExecutor) -> Result<RespVa
             let dump = engine.function_dump()?;
             Ok(RespValue::BulkString(Some(Bytes::from(dump))))
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -955,7 +976,7 @@ pub(crate) fn execute_function_restore(
             engine.function_restore(&data, &policy)?;
             Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -981,7 +1002,7 @@ pub(crate) fn execute_function_stats(executor: &CommandExecutor) -> Result<RespV
             ];
             Ok(RespValue::Array(parts))
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -1004,7 +1025,7 @@ pub(crate) fn execute_function_flush(
             engine.function_flush(async_mode)?;
             Ok(RespValue::SimpleString(bytes::Bytes::from_static(b"OK")))
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -1029,7 +1050,7 @@ pub(crate) fn execute_f_call(
             let resp = engine.fcall(&name, keys.clone(), args.clone(), executor.storage.clone())?;
             Ok(resp)
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -1055,7 +1076,7 @@ pub(crate) fn execute_f_call_r_o(
                 engine.fcall_ro(&name, keys.clone(), args.clone(), executor.storage.clone())?;
             Ok(resp)
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -1085,7 +1106,7 @@ pub(crate) fn execute_eval_r_o(
             )?;
             Ok(resp)
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 
@@ -1111,7 +1132,7 @@ pub(crate) fn execute_eval_sha_r_o(
                 engine.evalsha(&sha1, keys.clone(), args.clone(), executor.storage.clone())?;
             Ok(resp)
         }
-        None => Err(AppError::Command("脚本引擎未初始化".to_string())),
+        None => Err(AppError::Command(Cow::Borrowed("脚本引擎未初始化"))),
     }
 }
 

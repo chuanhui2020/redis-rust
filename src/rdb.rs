@@ -1,6 +1,7 @@
 //! RDB 持久化模块，支持快照保存和加载
 // RDB 快照持久化模块
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -119,7 +120,7 @@ pub fn save_to_writer_with_repl(
         for shard in db.inner.all_shards() {
             let map = shard
                 .read()
-                .map_err(|e| AppError::Storage(format!("RDB 保存时锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("RDB 保存时锁中毒: {}", e))))?;
             for (key, entry) in map.iter() {
                 let ttl = entry.expire_at;
                 let is_expired = ttl.map_or(false, |expire_at| now >= expire_at);
@@ -490,16 +491,16 @@ pub fn load_from_reader(
     let mut magic_buf = vec![0u8; RDB_MAGIC.len()];
     reader.read_exact(&mut magic_buf)?;
     if magic_buf != RDB_MAGIC {
-        return Err(AppError::Storage("RDB 文件魔数不匹配".to_string()));
+        return Err(AppError::Storage(Cow::Borrowed("RDB 文件魔数不匹配")));
     }
 
     // 读取版本号
     let version = read_u32(reader)?;
     if version != RDB_VERSION {
-        return Err(AppError::Storage(format!(
+        return Err(AppError::Storage(Cow::Owned(format!(
             "RDB 文件版本不兼容: 期望 {}，实际 {}",
             RDB_VERSION, version
-        )));
+        ))));
     }
 
     // 重置 CRC
@@ -517,7 +518,7 @@ pub fn load_from_reader(
         match reader.read_exact(&mut peek_buf) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                return Err(AppError::Storage("RDB 文件截断：缺少 EOF 标记".to_string()));
+                return Err(AppError::Storage(Cow::Borrowed("RDB 文件截断：缺少 EOF 标记")));
             }
             Err(e) => return Err(AppError::Io(e)),
         }
@@ -553,7 +554,7 @@ pub fn load_from_reader(
         crc_hasher.update(&key_count.to_be_bytes());
 
         let db = storage.db_at(db_index as usize).ok_or_else(|| {
-            AppError::Storage(format!("RDB 文件包含无效的数据库索引: {}", db_index))
+            AppError::Storage(Cow::Owned(format!("RDB 文件包含无效的数据库索引: {}", db_index)))
         })?;
 
         for _ in 0..key_count {
@@ -565,10 +566,10 @@ pub fn load_from_reader(
     let stored_crc = read_u32(reader)?;
     let computed_crc = crc_hasher.finalize();
     if stored_crc != computed_crc {
-        return Err(AppError::Storage(format!(
+        return Err(AppError::Storage(Cow::Owned(format!(
             "RDB 文件 CRC32 校验失败: 期望 {:08x}，实际 {:08x}",
             stored_crc, computed_crc
-        )));
+        ))));
     }
 
     if check_trailing {
@@ -576,7 +577,7 @@ pub fn load_from_reader(
         let mut trailing = [0u8; 1];
         match reader.read(&mut trailing) {
             Ok(0) => Ok((loaded_replid, loaded_offset)),
-            Ok(_) => Err(AppError::Storage("RDB 文件尾部有多余数据".to_string())),
+            Ok(_) => Err(AppError::Storage(Cow::Borrowed("RDB 文件尾部有多余数据"))),
             Err(e) => Err(AppError::Io(e)),
         }
     } else {
@@ -827,10 +828,10 @@ fn read_key_value(
             StorageValue::Stream(StreamData { entries, last_id, length, groups })
         }
         _ => {
-            return Err(AppError::Storage(format!(
+            return Err(AppError::Storage(Cow::Owned(format!(
                 "RDB 文件包含未知的类型标记: {}",
                 type_byte
-            )));
+            ))));
         }
     };
 
@@ -838,7 +839,7 @@ fn read_key_value(
         .inner
         .get_shard(&key)
         .write()
-        .map_err(|e| AppError::Storage(format!("RDB 加载时锁中毒: {}", e)))?;
+        .map_err(|e| AppError::Storage(Cow::Owned(format!("RDB 加载时锁中毒: {}", e))))?;
     map.insert(key, crate::storage::Entry::with_expire(value, ttl));
     Ok(())
 }

@@ -102,6 +102,8 @@ pub struct ClientInfo {
     pub blocked: bool,
     /// 阻塞原因
     pub blocked_reason: Option<String>,
+    /// 上次交互时间
+    pub last_interaction: Instant,
 }
 
 /// TCP 服务器结构体
@@ -151,6 +153,8 @@ pub struct Server {
     shutdown_save: Arc<AtomicBool>,
     /// 活跃连接计数
     active_connections: Arc<AtomicUsize>,
+    /// 连接超时（秒，0 表示禁用）
+    pub timeout: Arc<AtomicU64>,
 }
 
 impl Server {
@@ -188,6 +192,7 @@ impl Server {
             shutdown_tx,
             shutdown_save: Arc::new(AtomicBool::new(true)),
             active_connections: Arc::new(AtomicUsize::new(0)),
+            timeout: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -221,6 +226,12 @@ impl Server {
     /// 设置 RDB 快照文件路径
     pub fn with_rdb_path(mut self, path: &str) -> Self {
         self.rdb_path = Some(path.to_string());
+        self
+    }
+
+    /// 设置连接超时（秒，0 表示禁用）
+    pub fn with_timeout(mut self, timeout_secs: u64) -> Self {
+        self.timeout = Arc::new(AtomicU64::new(timeout_secs));
         self
     }
 
@@ -297,6 +308,7 @@ impl Server {
                     let keyspace_notifier = self.keyspace_notifier.clone();
                     let shutdown_tx = self.shutdown_tx.clone();
                     let shutdown_save = self.shutdown_save.clone();
+                    let timeout = self.timeout.clone();
                     tokio::spawn(async move {
                         if let Err(e) = connection::handle_connection(
                             stream,
@@ -321,6 +333,7 @@ impl Server {
                             keyspace_notifier,
                             shutdown_tx,
                             shutdown_save,
+                            timeout,
                         )
                         .await
                         {

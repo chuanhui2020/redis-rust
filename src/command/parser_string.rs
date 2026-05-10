@@ -1,4 +1,5 @@
 //! String 命令解析器
+use std::borrow::Cow;
 use super::*;
 
 use super::parser::CommandParser;
@@ -9,7 +10,7 @@ impl CommandParser {
     /// 解析 GET 命令：GET key
     pub(crate) fn parse_get(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
-            return Err(AppError::Command("GET 命令需要 1 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("GET 命令需要 1 个参数")));
         }
 
         let key = self.extract_string(&arr[1])?;
@@ -19,9 +20,7 @@ impl CommandParser {
     /// 解析 SET 命令：SET key value [EX seconds]
     pub(crate) fn parse_set(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 3 {
-            return Err(AppError::Command(
-                "SET 命令至少需要 key 和 value".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("SET 命令至少需要 key 和 value")));
         }
 
         let key = self.extract_string(&arr[1])?;
@@ -40,49 +39,49 @@ impl CommandParser {
                 "EX" => {
                     i += 1;
                     if i >= arr.len() {
-                        return Err(AppError::Command("EX 需要值".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("EX 需要值")));
                     }
                     let seconds: u64 = self
                         .extract_string(&arr[i])?
                         .parse()
-                        .map_err(|_| AppError::Command("EX 值必须是正整数".to_string()))?;
+                        .map_err(|_| AppError::Command(Cow::Borrowed("EX 值必须是正整数")))?;
                     options.expire = Some(crate::storage::SetExpireOption::Ex(seconds));
                 }
                 "PX" => {
                     i += 1;
                     if i >= arr.len() {
-                        return Err(AppError::Command("PX 需要值".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("PX 需要值")));
                     }
                     let millis: u64 = self
                         .extract_string(&arr[i])?
                         .parse()
-                        .map_err(|_| AppError::Command("PX 值必须是正整数".to_string()))?;
+                        .map_err(|_| AppError::Command(Cow::Borrowed("PX 值必须是正整数")))?;
                     options.expire = Some(crate::storage::SetExpireOption::Px(millis));
                 }
                 "EXAT" => {
                     i += 1;
                     if i >= arr.len() {
-                        return Err(AppError::Command("EXAT 需要值".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("EXAT 需要值")));
                     }
                     let ts: u64 = self
                         .extract_string(&arr[i])?
                         .parse()
-                        .map_err(|_| AppError::Command("EXAT 值必须是正整数".to_string()))?;
+                        .map_err(|_| AppError::Command(Cow::Borrowed("EXAT 值必须是正整数")))?;
                     options.expire = Some(crate::storage::SetExpireOption::ExAt(ts));
                 }
                 "PXAT" => {
                     i += 1;
                     if i >= arr.len() {
-                        return Err(AppError::Command("PXAT 需要值".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("PXAT 需要值")));
                     }
                     let ts: u64 = self
                         .extract_string(&arr[i])?
                         .parse()
-                        .map_err(|_| AppError::Command("PXAT 值必须是正整数".to_string()))?;
+                        .map_err(|_| AppError::Command(Cow::Borrowed("PXAT 值必须是正整数")))?;
                     options.expire = Some(crate::storage::SetExpireOption::PxAt(ts));
                 }
                 _ => {
-                    return Err(AppError::Command(format!("SET 未知选项: {}", opt)));
+                    return Err(AppError::Command(Cow::Owned(format!("SET 未知选项: {}", opt))));
                 }
             }
             i += 1;
@@ -94,7 +93,7 @@ impl CommandParser {
     /// 解析 MGET 命令：MGET key [key ...]
     pub(crate) fn parse_mget(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("MGET 命令需要至少 1 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("MGET 命令需要至少 1 个参数")));
         }
 
         let keys = arr[1..]
@@ -107,9 +106,7 @@ impl CommandParser {
     /// 解析 MSET 命令：MSET key value [key value ...]
     pub(crate) fn parse_mset(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 3 || arr.len().is_multiple_of(2) {
-            return Err(AppError::Command(
-                "MSET 命令需要成对的 key value 参数".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("MSET 命令需要成对的 key value 参数")));
         }
 
         let mut pairs = Vec::new();
@@ -124,7 +121,7 @@ impl CommandParser {
     /// 解析 INCR 命令：INCR key
     pub(crate) fn parse_incr(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
-            return Err(AppError::Command("INCR 命令需要 1 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("INCR 命令需要 1 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         Ok(Command::Incr(key))
@@ -133,7 +130,7 @@ impl CommandParser {
     /// 解析 DECR 命令：DECR key
     pub(crate) fn parse_decr(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
-            return Err(AppError::Command("DECR 命令需要 1 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("DECR 命令需要 1 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         Ok(Command::Decr(key))
@@ -142,33 +139,33 @@ impl CommandParser {
     /// 解析 INCRBY 命令：INCRBY key delta
     pub(crate) fn parse_incrby(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command("INCRBY 命令需要 2 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("INCRBY 命令需要 2 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let delta: i64 = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("INCRBY 的增量必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("INCRBY 的增量必须是整数")))?;
         Ok(Command::IncrBy(key, delta))
     }
 
     /// 解析 DECRBY 命令：DECRBY key delta
     pub(crate) fn parse_decrby(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command("DECRBY 命令需要 2 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("DECRBY 命令需要 2 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let delta: i64 = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("DECRBY 的减量必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("DECRBY 的减量必须是整数")))?;
         Ok(Command::DecrBy(key, delta))
     }
 
     /// 解析 APPEND 命令：APPEND key value
     pub(crate) fn parse_append(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command("APPEND 命令需要 2 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("APPEND 命令需要 2 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let value = self.extract_bytes(&arr[2])?;
@@ -178,7 +175,7 @@ impl CommandParser {
     /// 解析 SETNX 命令：SETNX key value
     pub(crate) fn parse_setnx(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command("SETNX 命令需要 2 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("SETNX 命令需要 2 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let value = self.extract_bytes(&arr[2])?;
@@ -188,13 +185,13 @@ impl CommandParser {
     /// 解析 SETEX 命令：SETEX key seconds value
     pub(crate) fn parse_setex(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 4 {
-            return Err(AppError::Command("SETEX 命令需要 3 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("SETEX 命令需要 3 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let seconds: u64 = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("SETEX 的秒数必须是正整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("SETEX 的秒数必须是正整数")))?;
         let value = self.extract_bytes(&arr[3])?;
         Ok(Command::SetExCmd(key, value, seconds))
     }
@@ -202,13 +199,13 @@ impl CommandParser {
     /// 解析 PSETEX 命令：PSETEX key milliseconds value
     pub(crate) fn parse_psetex(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 4 {
-            return Err(AppError::Command("PSETEX 命令需要 3 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("PSETEX 命令需要 3 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let ms: u64 = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("PSETEX 的毫秒数必须是正整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("PSETEX 的毫秒数必须是正整数")))?;
         let value = self.extract_bytes(&arr[3])?;
         Ok(Command::PSetEx(key, value, ms))
     }
@@ -216,7 +213,7 @@ impl CommandParser {
     /// 解析 GETSET 命令：GETSET key value
     pub(crate) fn parse_getset(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command("GETSET 命令需要 2 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("GETSET 命令需要 2 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let value = self.extract_bytes(&arr[2])?;
@@ -226,7 +223,7 @@ impl CommandParser {
     /// 解析 GETDEL 命令：GETDEL key
     pub(crate) fn parse_getdel(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
-            return Err(AppError::Command("GETDEL 命令需要 1 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("GETDEL 命令需要 1 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         Ok(Command::GetDel(key))
@@ -235,7 +232,7 @@ impl CommandParser {
     /// 解析 GETEX 命令：GETEX key [EX seconds|PX milliseconds|EXAT timestamp|PXAT ms-timestamp|PERSIST]
     pub(crate) fn parse_getex(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("GETEX 命令需要至少 1 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("GETEX 命令需要至少 1 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         if arr.len() == 2 {
@@ -246,62 +243,58 @@ impl CommandParser {
         match opt.as_str() {
             "EX" => {
                 if arr.len() != 4 {
-                    return Err(AppError::Command("GETEX EX 需要 1 个参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("GETEX EX 需要 1 个参数")));
                 }
                 let seconds: u64 = self
                     .extract_string(&arr[3])?
                     .parse()
-                    .map_err(|_| AppError::Command("GETEX EX 值必须是正整数".to_string()))?;
+                    .map_err(|_| AppError::Command(Cow::Borrowed("GETEX EX 值必须是正整数")))?;
                 Ok(Command::GetEx(key, GetExOption::Ex(seconds)))
             }
             "PX" => {
                 if arr.len() != 4 {
-                    return Err(AppError::Command("GETEX PX 需要 1 个参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("GETEX PX 需要 1 个参数")));
                 }
                 let ms: u64 = self
                     .extract_string(&arr[3])?
                     .parse()
-                    .map_err(|_| AppError::Command("GETEX PX 值必须是正整数".to_string()))?;
+                    .map_err(|_| AppError::Command(Cow::Borrowed("GETEX PX 值必须是正整数")))?;
                 Ok(Command::GetEx(key, GetExOption::Px(ms)))
             }
             "EXAT" => {
                 if arr.len() != 4 {
-                    return Err(AppError::Command("GETEX EXAT 需要 1 个参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("GETEX EXAT 需要 1 个参数")));
                 }
                 let ts: u64 = self
                     .extract_string(&arr[3])?
                     .parse()
-                    .map_err(|_| AppError::Command("GETEX EXAT 值必须是正整数".to_string()))?;
+                    .map_err(|_| AppError::Command(Cow::Borrowed("GETEX EXAT 值必须是正整数")))?;
                 Ok(Command::GetEx(key, GetExOption::ExAt(ts)))
             }
             "PXAT" => {
                 if arr.len() != 4 {
-                    return Err(AppError::Command("GETEX PXAT 需要 1 个参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("GETEX PXAT 需要 1 个参数")));
                 }
                 let ts: u64 = self
                     .extract_string(&arr[3])?
                     .parse()
-                    .map_err(|_| AppError::Command("GETEX PXAT 值必须是正整数".to_string()))?;
+                    .map_err(|_| AppError::Command(Cow::Borrowed("GETEX PXAT 值必须是正整数")))?;
                 Ok(Command::GetEx(key, GetExOption::PxAt(ts)))
             }
             "PERSIST" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "GETEX PERSIST 不需要额外参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("GETEX PERSIST 不需要额外参数")));
                 }
                 Ok(Command::GetEx(key, GetExOption::Persist))
             }
-            _ => Err(AppError::Command(format!("GETEX 不支持的选项: {}", opt))),
+            _ => Err(AppError::Command(Cow::Owned(format!("GETEX 不支持的选项: {}", opt)))),
         }
     }
 
     /// 解析 MSETNX 命令：MSETNX key value [key value ...]
     pub(crate) fn parse_msetnx(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 3 || arr.len().is_multiple_of(2) {
-            return Err(AppError::Command(
-                "MSETNX 命令需要成对的 key-value 参数".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("MSETNX 命令需要成对的 key-value 参数")));
         }
         let mut pairs = Vec::new();
         for i in (1..arr.len()).step_by(2) {
@@ -315,28 +308,26 @@ impl CommandParser {
     /// 解析 INCRBYFLOAT 命令：INCRBYFLOAT key increment
     pub(crate) fn parse_incrbyfloat(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command(
-                "INCRBYFLOAT 命令需要 2 个参数".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("INCRBYFLOAT 命令需要 2 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let delta: f64 = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("INCRBYFLOAT 的增量必须是有效的浮点数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("INCRBYFLOAT 的增量必须是有效的浮点数")))?;
         Ok(Command::IncrByFloat(key, delta))
     }
 
     /// 解析 SETRANGE 命令：SETRANGE key offset value
     pub(crate) fn parse_setrange(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 4 {
-            return Err(AppError::Command("SETRANGE 命令需要 3 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("SETRANGE 命令需要 3 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let offset: usize = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("SETRANGE 的 offset 必须是非负整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("SETRANGE 的 offset 必须是非负整数")))?;
         let value = self.extract_bytes(&arr[3])?;
         Ok(Command::SetRange(key, offset, value))
     }
@@ -344,24 +335,24 @@ impl CommandParser {
     /// 解析 GETRANGE 命令：GETRANGE key start end
     pub(crate) fn parse_getrange(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 4 {
-            return Err(AppError::Command("GETRANGE 命令需要 3 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("GETRANGE 命令需要 3 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let start: i64 = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("GETRANGE 的 start 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("GETRANGE 的 start 必须是整数")))?;
         let end: i64 = self
             .extract_string(&arr[3])?
             .parse()
-            .map_err(|_| AppError::Command("GETRANGE 的 end 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("GETRANGE 的 end 必须是整数")))?;
         Ok(Command::GetRange(key, start, end))
     }
 
     /// 解析 STRLEN 命令：STRLEN key
     pub(crate) fn parse_strlen(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
-            return Err(AppError::Command("STRLEN 命令需要 1 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("STRLEN 命令需要 1 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         Ok(Command::StrLen(key))
@@ -379,17 +370,17 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_substr(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 4 {
-            return Err(AppError::Command("SUBSTR 命令需要 3 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("SUBSTR 命令需要 3 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let start: i64 = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("SUBSTR start 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("SUBSTR start 必须是整数")))?;
         let end: i64 = self
             .extract_string(&arr[3])?
             .parse()
-            .map_err(|_| AppError::Command("SUBSTR end 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("SUBSTR end 必须是整数")))?;
         Ok(Command::SubStr(key, start, end))
     }
 
@@ -405,7 +396,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_lcs(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 3 {
-            return Err(AppError::Command("LCS 命令需要至少 2 个 key".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("LCS 命令需要至少 2 个 key")));
         }
         let key1 = self.extract_string(&arr[1])?;
         let key2 = self.extract_string(&arr[2])?;
@@ -423,16 +414,16 @@ impl CommandParser {
                 "MINMATCHLEN" => {
                     i += 1;
                     if i >= arr.len() {
-                        return Err(AppError::Command("MINMATCHLEN 需要值".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("MINMATCHLEN 需要值")));
                     }
                     minmatchlen = self
                         .extract_string(&arr[i])?
                         .parse()
-                        .map_err(|_| AppError::Command("MINMATCHLEN 必须是整数".to_string()))?;
+                        .map_err(|_| AppError::Command(Cow::Borrowed("MINMATCHLEN 必须是整数")))?;
                 }
                 "WITHMATCHLEN" => withmatchlen = true,
                 _ => {
-                    return Err(AppError::Command(format!("LCS 未知选项: {}", opt)));
+                    return Err(AppError::Command(Cow::Owned(format!("LCS 未知选项: {}", opt))));
                 }
             }
             i += 1;

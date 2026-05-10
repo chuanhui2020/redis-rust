@@ -1,5 +1,6 @@
 //! Sorted Set 高级操作（ZUNIONSTORE/ZINTERSTORE/ZDIFF 等集合运算）
 
+use std::borrow::Cow;
 use crate::error::{AppError, Result};
 use crate::storage::{Entry, StorageEngine, StorageValue, ZSetData};
 use ordered_float::OrderedFloat;
@@ -25,7 +26,7 @@ impl StorageEngine {
                 .inner
                 .get_shard(key)
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             if let Some(v) = map.get(key) {
                 if v.is_expired() {
                     continue;
@@ -57,7 +58,7 @@ impl StorageEngine {
             .inner
             .get_shard(destination)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         map.insert(destination.to_string(), Entry::new(StorageValue::ZSet(result)));
 self.bump_version(&mut map, destination);
         Ok(result_len)
@@ -76,7 +77,7 @@ self.bump_version(&mut map, destination);
                 .inner
                 .get_shard(destination)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             map.remove(destination);
 self.bump_version(&mut map, destination);
             return Ok(0);
@@ -95,7 +96,7 @@ self.bump_version(&mut map, destination);
                 .inner
                 .get_shard(key)
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             if let Some(v) = map.get(key)
                 && !v.is_expired()
                 && let StorageValue::ZSet(z) = &v.value
@@ -138,7 +139,7 @@ self.bump_version(&mut map, destination);
             .inner
             .get_shard(destination)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         map.insert(destination.to_string(), Entry::new(StorageValue::ZSet(result)));
 self.bump_version(&mut map, destination);
         Ok(result_len)
@@ -157,7 +158,7 @@ self.bump_version(&mut map, destination);
                 .inner
                 .get_shard(key)
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             let current: HashMap<String, f64> = if let Some(v) = map.get(key) {
                 if v.is_expired() {
                     HashMap::new()
@@ -199,7 +200,7 @@ self.bump_version(&mut map, destination);
                 .inner
                 .get_shard(destination)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             map.remove(destination);
 self.bump_version(&mut map, destination);
             return Ok(0);
@@ -213,7 +214,7 @@ self.bump_version(&mut map, destination);
                 .inner
                 .get_shard(key)
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             let current: HashMap<String, f64> = if let Some(v) = map.get(key) {
                 if v.is_expired() {
                     HashMap::new()
@@ -243,7 +244,7 @@ self.bump_version(&mut map, destination);
             .inner
             .get_shard(destination)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         map.insert(destination.to_string(), Entry::new(StorageValue::ZSet(result)));
 self.bump_version(&mut map, destination);
         Ok(count)
@@ -273,7 +274,7 @@ self.bump_version(&mut map, destination);
                 .inner
                 .get_shard(key)
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             if let Some(v) = map.get(key)
                 && !v.is_expired()
                 && let StorageValue::ZSet(z) = &v.value
@@ -334,7 +335,7 @@ self.bump_version(&mut map, destination);
                 .inner
                 .get_shard(key)
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             if let Some(v) = map.get(key) {
                 if v.is_expired() {
                     continue;
@@ -384,7 +385,7 @@ self.bump_version(&mut map, destination);
                 .inner
                 .get_shard(src)
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             match map.get(src) {
                 Some(v) => {
                     if v.is_expired() {
@@ -395,14 +396,10 @@ self.bump_version(&mut map, destination);
                             StorageValue::ZSet(z) => {
                                 let pairs: Vec<(String, f64)> = if by_score {
                                     let min_score: f64 = min.parse().map_err(|_| {
-                                        AppError::Command(
-                                            "ZRANGESTORE BYSCORE min 必须是数字".to_string(),
-                                        )
+                                        AppError::Command(Cow::Borrowed("ZRANGESTORE BYSCORE min 必须是数字"))
                                     })?;
                                     let max_score: f64 = max.parse().map_err(|_| {
-                                        AppError::Command(
-                                            "ZRANGESTORE BYSCORE max 必须是数字".to_string(),
-                                        )
+                                        AppError::Command(Cow::Borrowed("ZRANGESTORE BYSCORE max 必须是数字"))
                                     })?;
                                     if rev {
                                         z.score_to_member
@@ -435,12 +432,10 @@ self.bump_version(&mut map, destination);
                                         .collect()
                                 } else {
                                     let start: isize = min.parse().map_err(|_| {
-                                        AppError::Command(
-                                            "ZRANGESTORE start 必须是整数".to_string(),
-                                        )
+                                        AppError::Command(Cow::Borrowed("ZRANGESTORE start 必须是整数"))
                                     })?;
                                     let stop: isize = max.parse().map_err(|_| {
-                                        AppError::Command("ZRANGESTORE stop 必须是整数".to_string())
+                                        AppError::Command(Cow::Borrowed("ZRANGESTORE stop 必须是整数"))
                                     })?;
                                     if rev {
                                         z.rev_range_by_rank(start, stop)
@@ -476,7 +471,7 @@ self.bump_version(&mut map, destination);
             .inner
             .get_shard(dst)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         if count > 0 {
             map.insert(dst.to_string(), Entry::new(StorageValue::ZSet(new_zset)));
 self.bump_version(&mut map, dst);
@@ -500,7 +495,7 @@ self.bump_version(&mut map, dst);
                 .inner
                 .get_shard(key)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             if let Some(v) = map.get_mut(key) {
                 if v.is_expired() {
                     continue;
@@ -699,7 +694,7 @@ self.bump_version(&mut map, key);
                 .inner
                 .get_shard(key)
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             if let Some(v) = map.get(key)
                 && !v.is_expired()
                 && let StorageValue::ZSet(z) = &v.value

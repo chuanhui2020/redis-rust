@@ -1,4 +1,5 @@
 //! Stream 数据类型操作（对标 Redis Stream 命令族）
+use std::borrow::Cow;
 use super::*;
 
 // ---------- Stream 数据结构 ----------
@@ -43,26 +44,24 @@ impl StreamId {
     /// 对应 Redis Stream ID 的解析规则，与 Redis 7 行为一致。
     pub fn parse(s: &str) -> Result<Self> {
         if s == "*" {
-            return Err(AppError::Command(
-                "StreamId::parse 不支持 * 通配符".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("StreamId::parse 不支持 * 通配符")));
         }
         let parts: Vec<&str> = s.split('-').collect();
         if parts.len() == 1 {
             let ms_time: u64 = parts[0]
                 .parse()
-                .map_err(|_| AppError::Command(format!("Stream ID 格式错误: {}", s)))?;
+                .map_err(|_| AppError::Command(Cow::Owned(format!("Stream ID 格式错误: {}", s))))?;
             return Ok(Self::new(ms_time, 0));
         }
         if parts.len() != 2 {
-            return Err(AppError::Command(format!("Stream ID 格式错误: {}", s)));
+            return Err(AppError::Command(Cow::Owned(format!("Stream ID 格式错误: {}", s))));
         }
         let ms_time: u64 = parts[0].parse().map_err(|_| {
-            AppError::Command(format!("Stream ID 毫秒时间戳必须是整数: {}", parts[0]))
+            AppError::Command(Cow::Owned(format!("Stream ID 毫秒时间戳必须是整数: {}", parts[0])))
         })?;
         let seq: u64 = parts[1]
             .parse()
-            .map_err(|_| AppError::Command(format!("Stream ID 序号必须是整数: {}", parts[1])))?;
+            .map_err(|_| AppError::Command(Cow::Owned(format!("Stream ID 序号必须是整数: {}", parts[1]))))?;
         Ok(Self::new(ms_time, seq))
     }
 
@@ -84,16 +83,16 @@ impl StreamId {
     pub fn parse_partial(s: &str) -> Result<(u64, Option<u64>)> {
         let parts: Vec<&str> = s.split('-').collect();
         if parts.len() != 2 {
-            return Err(AppError::Command(format!("Stream ID 格式错误: {}", s)));
+            return Err(AppError::Command(Cow::Owned(format!("Stream ID 格式错误: {}", s))));
         }
         let ms_time: u64 = parts[0].parse().map_err(|_| {
-            AppError::Command(format!("Stream ID 毫秒时间戳必须是整数: {}", parts[0]))
+            AppError::Command(Cow::Owned(format!("Stream ID 毫秒时间戳必须是整数: {}", parts[0])))
         })?;
         let seq = if parts[1] == "*" {
             None
         } else {
             Some(parts[1].parse().map_err(|_| {
-                AppError::Command(format!("Stream ID 序号必须是整数: {}", parts[1]))
+                AppError::Command(Cow::Owned(format!("Stream ID 序号必须是整数: {}", parts[1])))
             })?)
         };
         Ok((ms_time, seq))
@@ -274,7 +273,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let now = Self::now_millis();
         let mut create_new = false;
@@ -333,7 +332,7 @@ impl StorageEngine {
             // "ms-*" 格式
             let ms: u64 = ms_str
                 .parse()
-                .map_err(|_| AppError::Command("XADD ID 毫秒时间戳必须是整数".to_string()))?;
+                .map_err(|_| AppError::Command(Cow::Borrowed("XADD ID 毫秒时间戳必须是整数")))?;
             let seq = if ms == stream.last_id.ms_time {
                 stream.last_id.seq + 1
             } else {
@@ -346,15 +345,15 @@ impl StorageEngine {
 
         // ID 必须大于 0-0（除了显式指定 0-0 的情况）
         if new_id.ms_time == 0 && new_id.seq == 0 {
-            return Err(AppError::Command("XADD ID 必须大于 0-0".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("XADD ID 必须大于 0-0")));
         }
 
         // ID 必须大于等于 last_id（对于自动生成的总是满足）
         if new_id <= stream.last_id && id != "*" && !id.ends_with("-*") {
-            return Err(AppError::Command(format!(
+            return Err(AppError::Command(Cow::Owned(format!(
                 "XADD ID 必须大于 {}，但收到 {}",
                 stream.last_id, new_id
-            )));
+            ))));
         }
 
         stream.entries.insert(new_id, fields);
@@ -405,7 +404,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -453,7 +452,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -513,7 +512,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -575,7 +574,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -590,9 +589,7 @@ self.bump_version(&mut map, key);
                             let strategy_upper = strategy.to_ascii_uppercase();
                             if strategy_upper == "MAXLEN" {
                                 let max: usize = threshold.parse().map_err(|_| {
-                                    AppError::Command(
-                                        "XTRIM MAXLEN threshold 必须是整数".to_string(),
-                                    )
+                                    AppError::Command(Cow::Borrowed("XTRIM MAXLEN threshold 必须是整数"))
                                 })?;
                                 while s.length > max {
                                     if let Some(first_id) = s.entries.keys().next().copied() {
@@ -615,10 +612,10 @@ self.bump_version(&mut map, key);
                                     s.length -= 1;
                                 }
                             } else {
-                                return Err(AppError::Command(format!(
+                                return Err(AppError::Command(Cow::Owned(format!(
                                     "XTRIM 不支持策略: {}",
                                     strategy
-                                )));
+                                ))));
                             }
                             let removed = before - s.length;
                             if removed > 0 {
@@ -655,7 +652,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -719,7 +716,7 @@ self.bump_version(&mut map, key);
                 .inner
                 .get_shard(key)
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             let start_id = if ids[idx] == "$" {
                 // 找到该 stream 的 last_id
                 if let Some(StorageValue::Stream(s)) = map.get(key).map(|e| &e.value) {
@@ -781,7 +778,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -793,10 +790,10 @@ self.bump_version(&mut map, key);
                     match &mut v.value {
                         StorageValue::Stream(s) => {
                             if id <= s.last_id {
-                                return Err(AppError::Command(format!(
+                                return Err(AppError::Command(Cow::Owned(format!(
                                     "XSETID ID 必须大于当前 last_id {}，但收到 {}",
                                     s.last_id, id
-                                )));
+                                ))));
                             }
                             s.last_id = id;
 self.bump_version(&mut map, key);

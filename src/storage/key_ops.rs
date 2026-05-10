@@ -1,5 +1,6 @@
 //! Key 管理操作（KEYS/SCAN/RENAME/TYPE/EXPIRE/DUMP/RESTORE 等）
 
+use std::borrow::Cow;
 use super::*;
 
 impl StorageEngine {
@@ -9,7 +10,7 @@ impl StorageEngine {
         for shard in db.inner.all_shards() {
             let map = shard
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             for (key, entry) in map.iter() {
                 if !entry.is_expired() && Self::glob_match(key, pattern) {
                     result.push(key.clone());
@@ -93,7 +94,7 @@ impl StorageEngine {
         for shard in db.inner.all_shards() {
             let map = shard
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             for (key, entry) in map.iter() {
                 if !entry.is_expired() {
                     all_keys.push(key.clone());
@@ -135,18 +136,18 @@ impl StorageEngine {
                 .inner
                 .get_shard(key)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             match map.remove(key) {
                 Some(entry) => {
                     if entry.is_expired() {
-                        return Err(AppError::Storage("键不存在或已过期".to_string()));
+                        return Err(AppError::Storage(Cow::Borrowed("键不存在或已过期")));
                     }
                     self.bump_version(&mut map, key);
                     map.insert(newkey.to_string(), entry);
                     self.bump_version(&mut map, newkey);
                     Ok(())
                 }
-                None => Err(AppError::Storage("键不存在".to_string())),
+                None => Err(AppError::Storage(Cow::Borrowed("键不存在"))),
             }
         } else {
             let shards = db.inner.all_shards();
@@ -157,10 +158,10 @@ impl StorageEngine {
             };
             let mut first = shards[first_idx]
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             let mut second = shards[second_idx]
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
             let (src_map, dst_map) = if src_idx < dst_idx {
                 (&mut first, &mut second)
@@ -171,14 +172,14 @@ impl StorageEngine {
             match src_map.remove(key) {
                 Some(entry) => {
                     if entry.is_expired() {
-                        return Err(AppError::Storage("键不存在或已过期".to_string()));
+                        return Err(AppError::Storage(Cow::Borrowed("键不存在或已过期")));
                     }
                     self.bump_version(src_map, key);
                     dst_map.insert(newkey.to_string(), entry);
                     self.bump_version(dst_map, newkey);
                     Ok(())
                 }
-                None => Err(AppError::Storage("键不存在".to_string())),
+                None => Err(AppError::Storage(Cow::Borrowed("键不存在"))),
             }
         }
     }
@@ -190,7 +191,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(entry) => {
@@ -221,7 +222,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(entry) => {
@@ -245,7 +246,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(entry) => {
@@ -272,7 +273,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(entry) => {
@@ -300,7 +301,7 @@ impl StorageEngine {
         for shard in db.inner.all_shards() {
             let mut map = shard
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             let expired_keys: Vec<String> = map
                 .iter()
                 .filter(|(_, entry)| entry.is_expired())
@@ -334,7 +335,7 @@ impl StorageEngine {
             let expired_keys: Vec<String> = {
                 let map = shard
                     .read()
-                    .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                    .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
                 map.iter()
                     .filter(|(_, entry)| entry.is_expired())
                     .map(|(k, _)| k.clone())
@@ -345,7 +346,7 @@ impl StorageEngine {
             }
             let mut map = shard
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             for key in &expired_keys {
                 if let Some(entry) = map.get(key) {
                     if entry.is_expired() {
@@ -396,7 +397,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let value = match map.get(key) {
             Some(entry) => {
@@ -420,9 +421,7 @@ impl StorageEngine {
                 .collect(),
             StorageValue::ZSet(zset) => zset.member_to_score.keys().cloned().collect(),
             _ => {
-                return Err(AppError::Storage(
-                    "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                ));
+                return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
             }
         };
 
@@ -469,7 +468,7 @@ impl StorageEngine {
                 .inner
                 .get_shard(&dest)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             dst_map.insert(dest.clone(), Entry::new(StorageValue::List(list)));
 self.bump_version(&mut dst_map, &dest);
             return Ok(Vec::new());
@@ -490,7 +489,7 @@ self.bump_version(&mut dst_map, &dest);
                 .inner
                 .get_shard(key)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             if let Some(entry) = map.remove(key) {
                 if !entry.is_expired() {
                     count += 1;
@@ -519,7 +518,7 @@ self.bump_version(&mut dst_map, &dest);
             .inner
             .get_shard(source)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let source_entry = match src_map.get(source) {
             Some(entry) => {
@@ -536,7 +535,7 @@ self.bump_version(&mut dst_map, &dest);
             .inner
             .get_shard(destination)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         if !replace && dst_map.contains_key(destination) {
             return Ok(false);
         }
@@ -554,7 +553,7 @@ self.bump_version(&mut dst_map, destination);
             .inner
             .get_shard(key)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let value = match map.get(key) {
             Some(entry) => {
@@ -578,7 +577,7 @@ self.bump_version(&mut dst_map, destination);
             }
             StorageValue::Stream(_) => {
                 // Stream 类型暂不支持 DUMP/RESTORE
-                return Err(AppError::Storage("Stream 类型暂不支持 DUMP".to_string()));
+                return Err(AppError::Storage(Cow::Borrowed("Stream 类型暂不支持 DUMP")));
             }
             StorageValue::List(list) => {
                 result.push(3);
@@ -630,13 +629,13 @@ self.bump_version(&mut dst_map, destination);
     /// ttl_ms=0 表示不设置过期时间
     pub fn restore(&self, key: &str, ttl_ms: u64, serialized: &[u8], replace: bool) -> Result<()> {
         if serialized.len() < 2 {
-            return Err(AppError::Storage("DUMP 数据格式错误".to_string()));
+            return Err(AppError::Storage(Cow::Borrowed("DUMP 数据格式错误")));
         }
         if serialized[0] != b'R' || serialized[1] != 1 {
-            return Err(AppError::Storage("DUMP 数据版本不兼容".to_string()));
+            return Err(AppError::Storage(Cow::Borrowed("DUMP 数据版本不兼容")));
         }
         if serialized.len() < 3 {
-            return Err(AppError::Storage("DUMP 数据格式错误".to_string()));
+            return Err(AppError::Storage(Cow::Borrowed("DUMP 数据格式错误")));
         }
 
         self.evict_if_needed()?;
@@ -645,10 +644,10 @@ self.bump_version(&mut dst_map, destination);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         if !replace && map.contains_key(key) {
-            return Err(AppError::Storage("键已存在".to_string()));
+            return Err(AppError::Storage(Cow::Borrowed("键已存在")));
         }
 
         let mut pos = 3usize;
@@ -715,7 +714,7 @@ self.bump_version(&mut dst_map, destination);
                 (StorageValue::HyperLogLog(hll), None)
             }
             _ => {
-                return Err(AppError::Storage("未知的 DUMP 数据类型".to_string()));
+                return Err(AppError::Storage(Cow::Borrowed("未知的 DUMP 数据类型")));
             }
         };
 
@@ -730,7 +729,7 @@ self.bump_version(&mut map, key);
         for shard in db.inner.all_shards() {
             let map = shard
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             for (key, entry) in map.iter() {
                 if !entry.is_expired() {
                     let key_slot = crate::cluster::ClusterState::key_slot(key);
@@ -749,7 +748,7 @@ self.bump_version(&mut map, key);
         for shard in db.inner.all_shards() {
             let map = shard
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             for (key, entry) in map.iter() {
                 if !entry.is_expired() {
                     let key_slot = crate::cluster::ClusterState::key_slot(key);
@@ -769,9 +768,7 @@ self.bump_version(&mut map, key);
     /// 返回 true 表示移动成功，false 表示 key 不存在或目标数据库已存在该 key
     pub fn move_key(&self, key: &str, db_index: usize) -> Result<bool> {
         if db_index > 15 {
-            return Err(AppError::Command(
-                "MOVE 的目标数据库索引必须在 0-15 之间".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("MOVE 的目标数据库索引必须在 0-15 之间")));
         }
         let src_db_index = self.current_db.load(Ordering::Relaxed);
         if src_db_index == db_index {
@@ -787,7 +784,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let entry = match src_map.get(key) {
             Some(e) => {
@@ -805,7 +802,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         if dst_map.contains_key(key) {
             return Ok(false);
         }
@@ -814,7 +811,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         src_map.remove(key);
         dst_map.insert(key.to_string(), entry);
         drop(dst_map);
@@ -836,7 +833,7 @@ fn write_f64(buf: &mut Vec<u8>, v: f64) {
 /// DUMP/RESTORE 辅助函数：读取 u32（大端序）
 fn read_u32(data: &[u8], pos: &mut usize) -> Result<u32> {
     if *pos + 4 > data.len() {
-        return Err(AppError::Storage("DUMP 数据截断".to_string()));
+        return Err(AppError::Storage(Cow::Borrowed("DUMP 数据截断")));
     }
     let mut buf = [0u8; 4];
     buf.copy_from_slice(&data[*pos..*pos + 4]);
@@ -847,7 +844,7 @@ fn read_u32(data: &[u8], pos: &mut usize) -> Result<u32> {
 /// DUMP/RESTORE 辅助函数：读取 f64（大端序）
 fn read_f64(data: &[u8], pos: &mut usize) -> Result<f64> {
     if *pos + 8 > data.len() {
-        return Err(AppError::Storage("DUMP 数据截断".to_string()));
+        return Err(AppError::Storage(Cow::Borrowed("DUMP 数据截断")));
     }
     let mut buf = [0u8; 8];
     buf.copy_from_slice(&data[*pos..*pos + 8]);
@@ -858,7 +855,7 @@ fn read_f64(data: &[u8], pos: &mut usize) -> Result<f64> {
 /// DUMP/RESTORE 辅助函数：读取指定长度的字节
 fn read_bytes(data: &[u8], pos: &mut usize, len: usize) -> Result<Bytes> {
     if *pos + len > data.len() {
-        return Err(AppError::Storage("DUMP 数据截断".to_string()));
+        return Err(AppError::Storage(Cow::Borrowed("DUMP 数据截断")));
     }
     let result = Bytes::copy_from_slice(&data[*pos..*pos + len]);
     *pos += len;

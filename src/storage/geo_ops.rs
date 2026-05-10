@@ -1,5 +1,6 @@
 //! Geo 数据类型操作（GEOADD/GEODIST/GEOSEARCH 等）
 
+use std::borrow::Cow;
 use super::*;
 
 impl StorageEngine {
@@ -110,12 +111,10 @@ impl StorageEngine {
         // 验证经纬度范围
         for (lon, lat, _) in &items {
             if *lon < -180.0 || *lon > 180.0 {
-                return Err(AppError::Command("经度范围必须在 [-180, 180]".to_string()));
+                return Err(AppError::Command(Cow::Borrowed("经度范围必须在 [-180, 180]")));
             }
             if *lat < -85.05112878 || *lat > 85.05112878 {
-                return Err(AppError::Command(
-                    "纬度范围必须在 [-85.05112878, 85.05112878]".to_string(),
-                ));
+                return Err(AppError::Command(Cow::Borrowed("纬度范围必须在 [-85.05112878, 85.05112878]")));
             }
         }
 
@@ -144,7 +143,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -182,7 +181,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -218,7 +217,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -269,7 +268,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let zset = match map.get(key) {
             Some(v) => {
@@ -355,7 +354,7 @@ impl StorageEngine {
                 .inner
                 .get_shard(destination)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             map.remove(destination);
 self.bump_version(&mut map, destination);
             return Ok(0);
@@ -372,7 +371,7 @@ self.bump_version(&mut map, destination);
             .inner
             .get_shard(destination)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         let result_count = zset.member_to_score.len();
         map.insert(destination.to_string(), Entry::new(StorageValue::ZSet(zset)));
 self.bump_version(&mut map, destination);

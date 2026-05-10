@@ -1,5 +1,6 @@
 //! HyperLogLog 数据类型操作（PFADD/PFCOUNT/PFMERGE）
 
+use std::borrow::Cow;
 use super::*;
 
 /// HyperLogLog 数据结构，使用 16384 个 6 位寄存器
@@ -110,9 +111,7 @@ impl HyperLogLog {
     /// 从字节数组恢复寄存器
     pub fn load(data: &[u8]) -> Result<Self> {
         if data.len() != 16384 {
-            return Err(AppError::Storage(
-                "HyperLogLog DUMP 数据长度错误".to_string(),
-            ));
+            return Err(AppError::Storage(Cow::Borrowed("HyperLogLog DUMP 数据长度错误")));
         }
         let mut registers = [0u8; 16384];
         registers.copy_from_slice(data);
@@ -136,7 +135,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let mut updated = false;
         match map.get_mut(key) {
@@ -194,7 +193,7 @@ self.bump_version(&mut map, key);
                 .inner
                 .get_shard(key)
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             if let Some(v) = map.get(key)
                 && !v.is_expired()
             {
@@ -204,9 +203,7 @@ self.bump_version(&mut map, key);
                         has_data = true;
                     }
                     _ => {
-                        return Err(AppError::Storage(
-                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                        ));
+                        return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                     }
                 }
             }
@@ -233,7 +230,7 @@ self.bump_version(&mut map, key);
                 .inner
                 .get_shard(key)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             if let Some(v) = map.get(key)
                 && !v.is_expired()
             {
@@ -243,9 +240,7 @@ self.bump_version(&mut map, key);
                         has_data = true;
                     }
                     _ => {
-                        return Err(AppError::Storage(
-                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                        ));
+                        return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                     }
                 }
             }
@@ -256,7 +251,7 @@ self.bump_version(&mut map, key);
                 .inner
                 .get_shard(destkey)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             dst_map.insert(destkey.to_string(), Entry::new(StorageValue::HyperLogLog(merged)));
 self.bump_version(&mut dst_map, destkey);
             drop(dst_map);

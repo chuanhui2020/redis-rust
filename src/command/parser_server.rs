@@ -1,4 +1,5 @@
 //! Server/Admin 命令解析器
+use std::borrow::Cow;
 use super::{Command, CommandParser};
 use crate::error::{AppError, Result};
 use crate::protocol::RespValue;
@@ -16,7 +17,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_ping(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() > 2 {
-            return Err(AppError::Command("PING 命令参数过多".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("PING 命令参数过多")));
         }
 
         let message = if arr.len() == 2 {
@@ -39,7 +40,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_dbsize(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 1 {
-            return Err(AppError::Command("DBSIZE 命令不需要参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("DBSIZE 命令不需要参数")));
         }
         Ok(Command::DbSize)
     }
@@ -55,7 +56,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_info(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() > 2 {
-            return Err(AppError::Command("INFO 命令参数过多".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("INFO 命令参数过多")));
         }
         let section = if arr.len() == 2 {
             Some(self.extract_string(&arr[1])?)
@@ -76,7 +77,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_bgrewriteaof(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 1 {
-            return Err(AppError::Command("BGREWRITEAOF 命令不需要参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("BGREWRITEAOF 命令不需要参数")));
         }
         Ok(Command::BgRewriteAof)
     }
@@ -92,12 +93,12 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_select(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
-            return Err(AppError::Command("SELECT 命令需要 1 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("SELECT 命令需要 1 个参数")));
         }
         let index: usize = self
             .extract_string(&arr[1])?
             .parse()
-            .map_err(|_| AppError::Command("SELECT 的参数必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("SELECT 的参数必须是整数")))?;
         Ok(Command::Select(index))
     }
     /// 解析 AUTH 命令
@@ -121,7 +122,7 @@ impl CommandParser {
             let password = self.extract_string(&arr[2])?;
             Ok(Command::Auth(username, password))
         } else {
-            Err(AppError::Command("AUTH 命令需要 1 或 2 个参数".to_string()))
+            Err(AppError::Command(Cow::Borrowed("AUTH 命令需要 1 或 2 个参数")))
         }
     }
     /// 解析 UNKNOWN 命令
@@ -136,13 +137,13 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_acl(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("ACL 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("ACL 命令需要子命令")));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "SETUSER" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command("ACL SETUSER 需要用户名".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("ACL SETUSER 需要用户名")));
                 }
                 let username = self.extract_string(&arr[2])?;
                 let rules: Vec<String> = arr[3..]
@@ -153,16 +154,14 @@ impl CommandParser {
             }
             "GETUSER" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command("ACL GETUSER 需要 1 个参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("ACL GETUSER 需要 1 个参数")));
                 }
                 let username = self.extract_string(&arr[2])?;
                 Ok(Command::AclGetUser(username))
             }
             "DELUSER" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "ACL DELUSER 需要至少 1 个用户名".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("ACL DELUSER 需要至少 1 个用户名")));
                 }
                 let names: Vec<String> = arr[2..]
                     .iter()
@@ -193,7 +192,7 @@ impl CommandParser {
                     Ok(Command::AclGenPass(None))
                 } else {
                     let bits: usize = self.extract_string(&arr[2])?.parse().map_err(|_| {
-                        AppError::Command("ACL GENPASS bits 必须是整数".to_string())
+                        AppError::Command(Cow::Borrowed("ACL GENPASS bits 必须是整数"))
                     })?;
                     Ok(Command::AclGenPass(Some(bits)))
                 }
@@ -202,9 +201,7 @@ impl CommandParser {
             "LOAD" => Ok(Command::AclLoad),
             "DRYRUN" => {
                 if arr.len() < 4 {
-                    return Err(AppError::Command(
-                        "ACL DRYRUN 需要用户名和命令名".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("ACL DRYRUN 需要用户名和命令名")));
                 }
                 let username = self.extract_string(&arr[2])?;
                 let command: Vec<String> = arr[3..]
@@ -213,7 +210,7 @@ impl CommandParser {
                     .collect::<Result<Vec<_>>>()?;
                 Ok(Command::AclDryRun { username, command })
             }
-            _ => Err(AppError::Command(format!("ACL 未知子命令: {}", sub))),
+            _ => Err(AppError::Command(Cow::Owned(format!("ACL 未知子命令: {}", sub)))),
         }
     }
     /// 解析 UNKNOWN 命令
@@ -228,42 +225,38 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_client(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("CLIENT 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("CLIENT 命令需要子命令")));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "SETNAME" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "CLIENT SETNAME 命令需要 1 个参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT SETNAME 命令需要 1 个参数")));
                 }
                 let name = self.extract_string(&arr[2])?;
                 Ok(Command::ClientSetName(name))
             }
             "GETNAME" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command(
-                        "CLIENT GETNAME 命令不需要参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT GETNAME 命令不需要参数")));
                 }
                 Ok(Command::ClientGetName)
             }
             "LIST" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command("CLIENT LIST 命令不需要参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT LIST 命令不需要参数")));
                 }
                 Ok(Command::ClientList)
             }
             "ID" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command("CLIENT ID 命令不需要参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT ID 命令不需要参数")));
                 }
                 Ok(Command::ClientId)
             }
             "INFO" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command("CLIENT INFO 命令不需要参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT INFO 命令不需要参数")));
                 }
                 Ok(Command::ClientInfo)
             }
@@ -280,7 +273,7 @@ impl CommandParser {
                             i += 1;
                             if i < arr.len() {
                                 id = Some(self.extract_string(&arr[i])?.parse().map_err(|_| {
-                                    AppError::Command("CLIENT KILL ID 必须是整数".to_string())
+                                    AppError::Command(Cow::Borrowed("CLIENT KILL ID 必须是整数"))
                                 })?);
                             }
                         }
@@ -316,12 +309,10 @@ impl CommandParser {
             }
             "PAUSE" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "CLIENT PAUSE 需要 timeout 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT PAUSE 需要 timeout 参数")));
                 }
                 let timeout: u64 = self.extract_string(&arr[2])?.parse().map_err(|_| {
-                    AppError::Command("CLIENT PAUSE timeout 必须是整数".to_string())
+                    AppError::Command(Cow::Borrowed("CLIENT PAUSE timeout 必须是整数"))
                 })?;
                 let mode = if arr.len() >= 4 {
                     self.extract_string(&arr[3])?.to_ascii_uppercase()
@@ -332,72 +323,56 @@ impl CommandParser {
             }
             "UNPAUSE" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command(
-                        "CLIENT UNPAUSE 命令不需要参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT UNPAUSE 命令不需要参数")));
                 }
                 Ok(Command::ClientUnpause)
             }
             "NO-EVICT" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "CLIENT NO-EVICT 需要 ON|OFF 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT NO-EVICT 需要 ON|OFF 参数")));
                 }
                 let flag = match self.extract_string(&arr[2])?.to_ascii_uppercase().as_str() {
                     "ON" => true,
                     "OFF" => false,
                     _ => {
-                        return Err(AppError::Command(
-                            "CLIENT NO-EVICT 参数必须是 ON 或 OFF".to_string(),
-                        ));
+                        return Err(AppError::Command(Cow::Borrowed("CLIENT NO-EVICT 参数必须是 ON 或 OFF")));
                     }
                 };
                 Ok(Command::ClientNoEvict(flag))
             }
             "NO-TOUCH" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "CLIENT NO-TOUCH 需要 ON|OFF 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT NO-TOUCH 需要 ON|OFF 参数")));
                 }
                 let flag = match self.extract_string(&arr[2])?.to_ascii_uppercase().as_str() {
                     "ON" => true,
                     "OFF" => false,
                     _ => {
-                        return Err(AppError::Command(
-                            "CLIENT NO-TOUCH 参数必须是 ON 或 OFF".to_string(),
-                        ));
+                        return Err(AppError::Command(Cow::Borrowed("CLIENT NO-TOUCH 参数必须是 ON 或 OFF")));
                     }
                 };
                 Ok(Command::ClientNoTouch(flag))
             }
             "REPLY" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "CLIENT REPLY 需要 ON|OFF|SKIP 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT REPLY 需要 ON|OFF|SKIP 参数")));
                 }
                 let mode = match self.extract_string(&arr[2])?.to_ascii_uppercase().as_str() {
                     "ON" => crate::server::ReplyMode::On,
                     "OFF" => crate::server::ReplyMode::Off,
                     "SKIP" => crate::server::ReplyMode::Skip,
                     _ => {
-                        return Err(AppError::Command(
-                            "CLIENT REPLY 参数必须是 ON、OFF 或 SKIP".to_string(),
-                        ));
+                        return Err(AppError::Command(Cow::Borrowed("CLIENT REPLY 参数必须是 ON、OFF 或 SKIP")));
                     }
                 };
                 Ok(Command::ClientReply(mode))
             }
             "UNBLOCK" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "CLIENT UNBLOCK 需要 client-id 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT UNBLOCK 需要 client-id 参数")));
                 }
                 let target_id: u64 = self.extract_string(&arr[2])?.parse().map_err(|_| {
-                    AppError::Command("CLIENT UNBLOCK client-id 必须是整数".to_string())
+                    AppError::Command(Cow::Borrowed("CLIENT UNBLOCK client-id 必须是整数"))
                 })?;
                 let reason = if arr.len() >= 4 {
                     self.extract_string(&arr[3])?.to_ascii_uppercase()
@@ -408,18 +383,14 @@ impl CommandParser {
             }
             "TRACKING" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "CLIENT TRACKING 需要 ON 或 OFF".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT TRACKING 需要 ON 或 OFF")));
                 }
                 let mode = self.extract_string(&arr[2])?.to_ascii_uppercase();
                 let on = match mode.as_str() {
                     "ON" => true,
                     "OFF" => false,
                     _ => {
-                        return Err(AppError::Command(
-                            "CLIENT TRACKING 模式必须是 ON 或 OFF".to_string(),
-                        ));
+                        return Err(AppError::Command(Cow::Borrowed("CLIENT TRACKING 模式必须是 ON 或 OFF")));
                     }
                 };
                 let mut redirect = None;
@@ -435,20 +406,18 @@ impl CommandParser {
                         "REDIRECT" => {
                             i += 1;
                             if i >= arr.len() {
-                                return Err(AppError::Command(
-                                    "REDIRECT 需要 client-id".to_string(),
-                                ));
+                                return Err(AppError::Command(Cow::Borrowed("REDIRECT 需要 client-id")));
                             }
                             redirect =
                                 Some(self.extract_string(&arr[i])?.parse::<u64>().map_err(
-                                    |_| AppError::Command("无效的 client-id".to_string()),
+                                    |_| AppError::Command(Cow::Borrowed("无效的 client-id")),
                                 )?);
                         }
                         "BCAST" => bcast = true,
                         "PREFIX" => {
                             i += 1;
                             if i >= arr.len() {
-                                return Err(AppError::Command("PREFIX 需要前缀值".to_string()));
+                                return Err(AppError::Command(Cow::Borrowed("PREFIX 需要前缀值")));
                             }
                             prefixes.push(self.extract_string(&arr[i])?);
                         }
@@ -471,22 +440,18 @@ impl CommandParser {
             }
             "CACHING" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "CLIENT CACHING 需要 YES 或 NO".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLIENT CACHING 需要 YES 或 NO")));
                 }
                 let mode = self.extract_string(&arr[2])?.to_ascii_uppercase();
                 match mode.as_str() {
                     "YES" => Ok(Command::ClientCaching(true)),
                     "NO" => Ok(Command::ClientCaching(false)),
-                    _ => Err(AppError::Command(
-                        "CLIENT CACHING 必须是 YES 或 NO".to_string(),
-                    )),
+                    _ => Err(AppError::Command(Cow::Borrowed("CLIENT CACHING 必须是 YES 或 NO"))),
                 }
             }
             "GETREDIR" => Ok(Command::ClientGetRedir),
             "TRACKINGINFO" => Ok(Command::ClientTrackingInfo),
-            _ => Err(AppError::Command(format!("CLIENT 未知子命令: {}", sub))),
+            _ => Err(AppError::Command(Cow::Owned(format!("CLIENT 未知子命令: {}", sub)))),
         }
     }
     /// 解析 SORT 命令
@@ -501,7 +466,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_sort(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("SORT 命令需要至少 1 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("SORT 命令需要至少 1 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let mut by_pattern = None;
@@ -518,34 +483,34 @@ impl CommandParser {
             match arg.as_str() {
                 "BY" => {
                     if i + 1 >= arr.len() {
-                        return Err(AppError::Command("SORT BY 需要参数".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("SORT BY 需要参数")));
                     }
                     by_pattern = Some(self.extract_string(&arr[i + 1])?);
                     i += 2;
                 }
                 "LIMIT" => {
                     if i + 2 >= arr.len() {
-                        return Err(AppError::Command("SORT LIMIT 需要 2 个参数".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("SORT LIMIT 需要 2 个参数")));
                     }
                     limit_offset = Some(
                         self.extract_string(&arr[i + 1])?
                             .parse::<isize>()
                             .map_err(|_| {
-                                AppError::Command("SORT LIMIT offset 必须是整数".to_string())
+                                AppError::Command(Cow::Borrowed("SORT LIMIT offset 必须是整数"))
                             })?,
                     );
                     limit_count = Some(
                         self.extract_string(&arr[i + 2])?
                             .parse::<isize>()
                             .map_err(|_| {
-                                AppError::Command("SORT LIMIT count 必须是整数".to_string())
+                                AppError::Command(Cow::Borrowed("SORT LIMIT count 必须是整数"))
                             })?,
                     );
                     i += 3;
                 }
                 "GET" => {
                     if i + 1 >= arr.len() {
-                        return Err(AppError::Command("SORT GET 需要参数".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("SORT GET 需要参数")));
                     }
                     get_patterns.push(self.extract_string(&arr[i + 1])?);
                     i += 2;
@@ -564,13 +529,13 @@ impl CommandParser {
                 }
                 "STORE" => {
                     if i + 1 >= arr.len() {
-                        return Err(AppError::Command("SORT STORE 需要参数".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("SORT STORE 需要参数")));
                     }
                     store_key = Some(self.extract_string(&arr[i + 1])?);
                     i += 2;
                 }
                 _ => {
-                    return Err(AppError::Command(format!("SORT 未知参数: {}", arg)));
+                    return Err(AppError::Command(Cow::Owned(format!("SORT 未知参数: {}", arg))));
                 }
             }
         }
@@ -590,9 +555,7 @@ impl CommandParser {
     /// 解析 SORT_RO 命令：SORT_RO key [BY pattern] [LIMIT offset count] [GET pattern ...] [ASC|DESC] [ALPHA]
     pub(crate) fn parse_sort_ro(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "SORT_RO 命令需要至少 1 个参数".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("SORT_RO 命令需要至少 1 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let mut by_pattern = None;
@@ -608,34 +571,34 @@ impl CommandParser {
             match arg.as_str() {
                 "BY" => {
                     if i + 1 >= arr.len() {
-                        return Err(AppError::Command("SORT_RO BY 需要参数".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("SORT_RO BY 需要参数")));
                     }
                     by_pattern = Some(self.extract_string(&arr[i + 1])?);
                     i += 2;
                 }
                 "LIMIT" => {
                     if i + 2 >= arr.len() {
-                        return Err(AppError::Command("SORT_RO LIMIT 需要 2 个参数".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("SORT_RO LIMIT 需要 2 个参数")));
                     }
                     limit_offset = Some(
                         self.extract_string(&arr[i + 1])?
                             .parse::<isize>()
                             .map_err(|_| {
-                                AppError::Command("SORT_RO LIMIT offset 必须是整数".to_string())
+                                AppError::Command(Cow::Borrowed("SORT_RO LIMIT offset 必须是整数"))
                             })?,
                     );
                     limit_count = Some(
                         self.extract_string(&arr[i + 2])?
                             .parse::<isize>()
                             .map_err(|_| {
-                                AppError::Command("SORT_RO LIMIT count 必须是整数".to_string())
+                                AppError::Command(Cow::Borrowed("SORT_RO LIMIT count 必须是整数"))
                             })?,
                     );
                     i += 3;
                 }
                 "GET" => {
                     if i + 1 >= arr.len() {
-                        return Err(AppError::Command("SORT_RO GET 需要参数".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("SORT_RO GET 需要参数")));
                     }
                     get_patterns.push(self.extract_string(&arr[i + 1])?);
                     i += 2;
@@ -653,7 +616,7 @@ impl CommandParser {
                     i += 1;
                 }
                 _ => {
-                    return Err(AppError::Command(format!("SORT_RO 未知参数: {}", arg)));
+                    return Err(AppError::Command(Cow::Owned(format!("SORT_RO 未知参数: {}", arg))));
                 }
             }
         }
@@ -681,13 +644,13 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_move(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command("MOVE 命令需要 2 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("MOVE 命令需要 2 个参数")));
         }
         let key = self.extract_string(&arr[1])?;
         let db: usize = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("MOVE 的数据库索引必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("MOVE 的数据库索引必须是整数")))?;
         Ok(Command::Move(key, db))
     }
 
@@ -703,7 +666,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_eval(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("EVAL 命令需要至少 1 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("EVAL 命令需要至少 1 个参数")));
         }
         let script = self.extract_string(&arr[1])?;
         if arr.len() < 3 {
@@ -712,9 +675,9 @@ impl CommandParser {
         let numkeys: usize = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("EVAL numkeys 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("EVAL numkeys 必须是整数")))?;
         if arr.len() < 3 + numkeys {
-            return Err(AppError::Command("EVAL 提供的 key 数量不足".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("EVAL 提供的 key 数量不足")));
         }
         let mut keys = Vec::new();
         for i in 0..numkeys {
@@ -738,9 +701,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_evalsha(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "EVALSHA 命令需要至少 1 个参数".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("EVALSHA 命令需要至少 1 个参数")));
         }
         let sha1 = self.extract_string(&arr[1])?;
         if arr.len() < 3 {
@@ -749,9 +710,9 @@ impl CommandParser {
         let numkeys: usize = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("EVALSHA numkeys 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("EVALSHA numkeys 必须是整数")))?;
         if arr.len() < 3 + numkeys {
-            return Err(AppError::Command("EVALSHA 提供的 key 数量不足".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("EVALSHA 提供的 key 数量不足")));
         }
         let mut keys = Vec::new();
         for i in 0..numkeys {
@@ -775,24 +736,20 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_script(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("SCRIPT 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("SCRIPT 命令需要子命令")));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "LOAD" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "SCRIPT LOAD 命令需要 1 个参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SCRIPT LOAD 命令需要 1 个参数")));
                 }
                 let script = self.extract_string(&arr[2])?;
                 Ok(Command::ScriptLoad(script))
             }
             "EXISTS" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "SCRIPT EXISTS 命令需要至少 1 个参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SCRIPT EXISTS 命令需要至少 1 个参数")));
                 }
                 let mut sha1s = Vec::new();
                 for item in arr.iter().skip(2) {
@@ -802,26 +759,24 @@ impl CommandParser {
             }
             "FLUSH" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command("SCRIPT FLUSH 命令不需要参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("SCRIPT FLUSH 命令不需要参数")));
                 }
                 Ok(Command::ScriptFlush)
             }
             "DEBUG" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "SCRIPT DEBUG 命令需要 1 个参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SCRIPT DEBUG 命令需要 1 个参数")));
                 }
                 let mode = self.extract_string(&arr[2])?;
                 Ok(Command::ScriptDebug(mode))
             }
             "HELP" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command("SCRIPT HELP 命令不需要参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("SCRIPT HELP 命令不需要参数")));
                 }
                 Ok(Command::ScriptHelp)
             }
-            _ => Err(AppError::Command(format!("SCRIPT 未知子命令: {}", sub))),
+            _ => Err(AppError::Command(Cow::Owned(format!("SCRIPT 未知子命令: {}", sub)))),
         }
     }
     /// 解析 UNKNOWN 命令
@@ -836,7 +791,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_function(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("FUNCTION 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("FUNCTION 命令需要子命令")));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
@@ -851,16 +806,14 @@ impl CommandParser {
                     }
                 }
                 if arr.len() <= code_idx {
-                    return Err(AppError::Command("FUNCTION LOAD 需要函数代码".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("FUNCTION LOAD 需要函数代码")));
                 }
                 let code = self.extract_string(&arr[code_idx])?;
                 Ok(Command::FunctionLoad(code, replace))
             }
             "DELETE" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "FUNCTION DELETE 需要 1 个参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("FUNCTION DELETE 需要 1 个参数")));
                 }
                 let lib = self.extract_string(&arr[2])?;
                 Ok(Command::FunctionDelete(lib))
@@ -888,9 +841,7 @@ impl CommandParser {
             "DUMP" => Ok(Command::FunctionDump),
             "RESTORE" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "FUNCTION RESTORE 需要序列化数据".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("FUNCTION RESTORE 需要序列化数据")));
                 }
                 let data = self.extract_string(&arr[2])?;
                 let policy = if arr.len() >= 4 {
@@ -910,7 +861,7 @@ impl CommandParser {
                 };
                 Ok(Command::FunctionFlush(async_mode))
             }
-            _ => Err(AppError::Command(format!("FUNCTION 未知子命令: {}", sub))),
+            _ => Err(AppError::Command(Cow::Owned(format!("FUNCTION 未知子命令: {}", sub)))),
         }
     }
     /// 解析 UNKNOWN 命令
@@ -925,7 +876,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_fcall(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("FCALL 命令需要函数名".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("FCALL 命令需要函数名")));
         }
         let name = self.extract_string(&arr[1])?;
         if arr.len() < 3 {
@@ -934,9 +885,9 @@ impl CommandParser {
         let numkeys: usize = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("FCALL numkeys 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("FCALL numkeys 必须是整数")))?;
         if arr.len() < 3 + numkeys {
-            return Err(AppError::Command("FCALL 提供的 key 数量不足".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("FCALL 提供的 key 数量不足")));
         }
         let mut keys = Vec::new();
         for i in 0..numkeys {
@@ -960,7 +911,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_fcall_ro(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("FCALL_RO 命令需要函数名".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("FCALL_RO 命令需要函数名")));
         }
         let name = self.extract_string(&arr[1])?;
         if arr.len() < 3 {
@@ -969,11 +920,9 @@ impl CommandParser {
         let numkeys: usize = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("FCALL_RO numkeys 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("FCALL_RO numkeys 必须是整数")))?;
         if arr.len() < 3 + numkeys {
-            return Err(AppError::Command(
-                "FCALL_RO 提供的 key 数量不足".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("FCALL_RO 提供的 key 数量不足")));
         }
         let mut keys = Vec::new();
         for i in 0..numkeys {
@@ -997,7 +946,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_eval_ro(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("EVAL_RO 命令需要脚本".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("EVAL_RO 命令需要脚本")));
         }
         let script = self.extract_string(&arr[1])?;
         if arr.len() < 3 {
@@ -1006,9 +955,9 @@ impl CommandParser {
         let numkeys: usize = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("EVAL_RO numkeys 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("EVAL_RO numkeys 必须是整数")))?;
         if arr.len() < 3 + numkeys {
-            return Err(AppError::Command("EVAL_RO 提供的 key 数量不足".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("EVAL_RO 提供的 key 数量不足")));
         }
         let mut keys = Vec::new();
         for i in 0..numkeys {
@@ -1032,7 +981,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_evalsha_ro(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("EVALSHA_RO 命令需要 sha1".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("EVALSHA_RO 命令需要 sha1")));
         }
         let sha1 = self.extract_string(&arr[1])?;
         if arr.len() < 3 {
@@ -1041,11 +990,9 @@ impl CommandParser {
         let numkeys: usize = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("EVALSHA_RO numkeys 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("EVALSHA_RO numkeys 必须是整数")))?;
         if arr.len() < 3 + numkeys {
-            return Err(AppError::Command(
-                "EVALSHA_RO 提供的 key 数量不足".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("EVALSHA_RO 提供的 key 数量不足")));
         }
         let mut keys = Vec::new();
         for i in 0..numkeys {
@@ -1069,21 +1016,21 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_config(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("CONFIG 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("CONFIG 命令需要子命令")));
         }
 
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "GET" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command("CONFIG GET 需要 1 个参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("CONFIG GET 需要 1 个参数")));
                 }
                 let key = self.extract_string(&arr[2])?;
                 Ok(Command::ConfigGet(key))
             }
             "SET" => {
                 if arr.len() != 4 {
-                    return Err(AppError::Command("CONFIG SET 需要 2 个参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("CONFIG SET 需要 2 个参数")));
                 }
                 let key = self.extract_string(&arr[2])?;
                 let value = self.extract_string(&arr[3])?;
@@ -1106,13 +1053,13 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_memory(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("MEMORY 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("MEMORY 命令需要子命令")));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "USAGE" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command("MEMORY USAGE 需要 key 参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("MEMORY USAGE 需要 key 参数")));
                 }
                 let key = self.extract_string(&arr[2])?;
                 let mut samples = None;
@@ -1122,7 +1069,7 @@ impl CommandParser {
                     if arg == "SAMPLES" && i + 1 < arr.len() {
                         samples =
                             Some(self.extract_string(&arr[i + 1])?.parse().map_err(|_| {
-                                AppError::Command("MEMORY USAGE SAMPLES 必须是整数".to_string())
+                                AppError::Command(Cow::Borrowed("MEMORY USAGE SAMPLES 必须是整数"))
                             })?);
                         i += 2;
                     } else {
@@ -1132,7 +1079,7 @@ impl CommandParser {
                 Ok(Command::MemoryUsage(key, samples))
             }
             "DOCTOR" => Ok(Command::MemoryDoctor),
-            _ => Err(AppError::Command(format!("MEMORY 未知子命令: {}", sub))),
+            _ => Err(AppError::Command(Cow::Owned(format!("MEMORY 未知子命令: {}", sub)))),
         }
     }
     /// 解析 UNKNOWN 命令
@@ -1147,14 +1094,14 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_latency(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("LATENCY 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("LATENCY 命令需要子命令")));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "LATEST" => Ok(Command::LatencyLatest),
             "HISTORY" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command("LATENCY HISTORY 需要事件名".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("LATENCY HISTORY 需要事件名")));
                 }
                 let event = self.extract_string(&arr[2])?;
                 Ok(Command::LatencyHistory(event))
@@ -1166,7 +1113,7 @@ impl CommandParser {
                     .collect::<Result<Vec<_>>>()?;
                 Ok(Command::LatencyReset(events))
             }
-            _ => Err(AppError::Command(format!("LATENCY 未知子命令: {}", sub))),
+            _ => Err(AppError::Command(Cow::Owned(format!("LATENCY 未知子命令: {}", sub)))),
         }
     }
     /// 解析 HELLO 命令
@@ -1183,7 +1130,7 @@ impl CommandParser {
         let protover: u8 = if arr.len() >= 2 {
             self.extract_string(&arr[1])?
                 .parse()
-                .map_err(|_| AppError::Command("HELLO protover 必须是整数".to_string()))?
+                .map_err(|_| AppError::Command(Cow::Borrowed("HELLO protover 必须是整数")))?
         } else {
             2
         };
@@ -1223,14 +1170,14 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_slowlog(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("SLOWLOG 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("SLOWLOG 命令需要子命令")));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "GET" => {
                 let count = if arr.len() >= 3 {
                     self.extract_string(&arr[2])?.parse().map_err(|_| {
-                        AppError::Command("SLOWLOG GET count 必须是整数".to_string())
+                        AppError::Command(Cow::Borrowed("SLOWLOG GET count 必须是整数"))
                     })?
                 } else {
                     10
@@ -1239,17 +1186,17 @@ impl CommandParser {
             }
             "LEN" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command("SLOWLOG LEN 不需要参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("SLOWLOG LEN 不需要参数")));
                 }
                 Ok(Command::SlowLogLen)
             }
             "RESET" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command("SLOWLOG RESET 不需要参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("SLOWLOG RESET 不需要参数")));
                 }
                 Ok(Command::SlowLogReset)
             }
-            _ => Err(AppError::Command(format!("SLOWLOG 未知子命令: {}", sub))),
+            _ => Err(AppError::Command(Cow::Owned(format!("SLOWLOG 未知子命令: {}", sub)))),
         }
     }
     /// 解析 UNKNOWN 命令
@@ -1264,44 +1211,36 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_object(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("OBJECT 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("OBJECT 命令需要子命令")));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "ENCODING" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "OBJECT ENCODING 需要 1 个 key 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("OBJECT ENCODING 需要 1 个 key 参数")));
                 }
                 Ok(Command::ObjectEncoding(self.extract_string(&arr[2])?))
             }
             "REFCOUNT" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "OBJECT REFCOUNT 需要 1 个 key 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("OBJECT REFCOUNT 需要 1 个 key 参数")));
                 }
                 Ok(Command::ObjectRefCount(self.extract_string(&arr[2])?))
             }
             "IDLETIME" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "OBJECT IDLETIME 需要 1 个 key 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("OBJECT IDLETIME 需要 1 个 key 参数")));
                 }
                 Ok(Command::ObjectIdleTime(self.extract_string(&arr[2])?))
             }
             "FREQ" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "OBJECT FREQ 需要 1 个 key 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("OBJECT FREQ 需要 1 个 key 参数")));
                 }
                 Ok(Command::ObjectFreq(self.extract_string(&arr[2])?))
             }
             "HELP" => Ok(Command::ObjectHelp),
-            _ => Err(AppError::Command(format!("OBJECT 未知子命令: {}", sub))),
+            _ => Err(AppError::Command(Cow::Owned(format!("OBJECT 未知子命令: {}", sub)))),
         }
     }
     /// 解析 UNKNOWN 命令
@@ -1316,48 +1255,40 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_debug(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("DEBUG 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("DEBUG 命令需要子命令")));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "SET-ACTIVE-EXPIRE" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "DEBUG SET-ACTIVE-EXPIRE 需要 1 个参数 (0|1)".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("DEBUG SET-ACTIVE-EXPIRE 需要 1 个参数 (0|1)")));
                 }
                 let flag = match self.extract_string(&arr[2])?.as_str() {
                     "0" => false,
                     "1" => true,
                     _ => {
-                        return Err(AppError::Command(
-                            "DEBUG SET-ACTIVE-EXPIRE 参数必须是 0 或 1".to_string(),
-                        ));
+                        return Err(AppError::Command(Cow::Borrowed("DEBUG SET-ACTIVE-EXPIRE 参数必须是 0 或 1")));
                     }
                 };
                 Ok(Command::DebugSetActiveExpire(flag))
             }
             "SLEEP" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "DEBUG SLEEP 需要 1 个参数 (seconds)".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("DEBUG SLEEP 需要 1 个参数 (seconds)")));
                 }
                 let seconds: f64 = self
                     .extract_string(&arr[2])?
                     .parse()
-                    .map_err(|_| AppError::Command("DEBUG SLEEP 参数必须是数字".to_string()))?;
+                    .map_err(|_| AppError::Command(Cow::Borrowed("DEBUG SLEEP 参数必须是数字")))?;
                 Ok(Command::DebugSleep(seconds))
             }
             "OBJECT" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "DEBUG OBJECT 需要 1 个 key 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("DEBUG OBJECT 需要 1 个 key 参数")));
                 }
                 Ok(Command::DebugObject(self.extract_string(&arr[2])?))
             }
-            _ => Err(AppError::Command(format!("DEBUG 未知子命令: {}", sub))),
+            _ => Err(AppError::Command(Cow::Owned(format!("DEBUG 未知子命令: {}", sub)))),
         }
     }
     /// 解析 ECHO 命令
@@ -1372,7 +1303,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_echo(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 2 {
-            return Err(AppError::Command("ECHO 命令需要 1 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("ECHO 命令需要 1 个参数")));
         }
         Ok(Command::Echo(self.extract_string(&arr[1])?))
     }
@@ -1388,16 +1319,16 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_swapdb(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command("SWAPDB 命令需要 2 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("SWAPDB 命令需要 2 个参数")));
         }
         let idx1: usize = self
             .extract_string(&arr[1])?
             .parse()
-            .map_err(|_| AppError::Command("SWAPDB 索引必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("SWAPDB 索引必须是整数")))?;
         let idx2: usize = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("SWAPDB 索引必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("SWAPDB 索引必须是整数")))?;
         Ok(Command::SwapDb(idx1, idx2))
     }
     /// 解析 SHUTDOWN 命令

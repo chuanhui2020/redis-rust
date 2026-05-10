@@ -606,11 +606,13 @@ pub(crate) async fn handle_connection(
     keyspace_notifier: Arc<KeyspaceNotifier>,
     shutdown_tx: tokio::sync::watch::Sender<bool>,
     shutdown_save: Arc<std::sync::atomic::AtomicBool>,
+    timeout: Arc<AtomicU64>,
 ) -> Result<()> {
     // 分配客户端 ID
     let client_id = next_client_id.fetch_add(1, Ordering::SeqCst);
 
     // 注册客户端
+    let mut last_interaction = Instant::now();
     {
         let mut clients_guard = clients.write().unwrap();
         clients_guard.insert(
@@ -623,6 +625,7 @@ pub(crate) async fn handle_connection(
                 flags: HashSet::new(),
                 blocked: false,
                 blocked_reason: None,
+                last_interaction,
             },
         );
     }
@@ -669,6 +672,7 @@ pub(crate) async fn handle_connection(
 
     // 设置全局 Keyspace 通知器
     executor.set_keyspace_notifier(keyspace_notifier.clone());
+    executor.set_timeout(timeout.clone());
     storage.set_keyspace_notifier(keyspace_notifier);
     let handler = ConnectionHandler {
         parser: RespParser::new(),
@@ -715,6 +719,12 @@ pub(crate) async fn handle_connection(
 
             match maybe_resp {
                 Some(resp_value) => {
+                    last_interaction = Instant::now();
+                    if let Ok(mut guard) = clients.write() {
+                        if let Some(info) = guard.get_mut(&client_id) {
+                            info.last_interaction = last_interaction;
+                        }
+                    }
                     // 解析 RESP 为 Command
                     match handler.cmd_parser.parse(resp_value) {
                         Ok(cmd) => {
@@ -1856,8 +1866,9 @@ pub(crate) async fn handle_connection(
                                         guard
                                             .values()
                                             .map(|info| {
+                                                let idle_secs = info.last_interaction.elapsed().as_secs();
                                                 format!(
-                                                    "id={} addr={} name={} db={} flags={}",
+                                                    "id={} addr={} name={} db={} flags={} idle={}",
                                                     info.id,
                                                     info.addr,
                                                     info.name.as_deref().unwrap_or(""),
@@ -1867,6 +1878,7 @@ pub(crate) async fn handle_connection(
                                                         .cloned()
                                                         .collect::<Vec<_>>()
                                                         .join(","),
+                                                    idle_secs,
                                                 )
                                             })
                                             .collect::<Vec<_>>()
@@ -1881,14 +1893,16 @@ pub(crate) async fn handle_connection(
                                     }
                                 }
                                 Command::ClientInfo => {
+                                    let idle_secs = last_interaction.elapsed().as_secs();
                                     let info_str = format!(
-                                        "id={} addr={} name={} db={} flags={} blocked={}",
+                                        "id={} addr={} name={} db={} flags={} blocked={} idle={}",
                                         client_id,
                                         peer_addr,
                                         client_name.as_deref().unwrap_or(""),
                                         _current_db_index,
                                         client_flags.iter().cloned().collect::<Vec<_>>().join(","),
-                                        if blocked { "1" } else { "0" }
+                                        if blocked { "1" } else { "0" },
+                                        idle_secs,
                                     );
                                     let resp = RespValue::BulkString(Some(Bytes::from(info_str)));
                                     if let Err(e) = write_resp_buf(&mut stream, &handler, &resp, &mut encode_buf).await {
@@ -3386,58 +3400,140 @@ pub(crate) async fn handle_connection(
         if is_subscribed {
             // 订阅模式下需要同时监听网络和订阅消息
             let mut shutdown_rx = shutdown_tx.subscribe();
-            tokio::select! {
-                result = stream.get_mut().read_buf(&mut buf) => {
-                    match result {
-                        Ok(0) => {
-                            log::debug!("客户端发送 EOF，关闭连接");
-                            return Ok(());
-                        }
-                        Ok(n) => {
-                            log::debug!("从网络读取 {} 字节", n);
-                        }
-                        Err(e) => {
-                            let kind = e.kind();
-                            if kind == std::io::ErrorKind::ConnectionReset
-                                || kind == std::io::ErrorKind::BrokenPipe
-                                || kind == std::io::ErrorKind::ConnectionAborted
-                            {
-                                log::debug!("客户端断开连接: {}", e);
-                            } else {
-                                log::debug!("读取数据失败: {}", e);
+            let timeout_secs = timeout.load(Ordering::Relaxed);
+            if timeout_secs > 0 {
+                let elapsed = last_interaction.elapsed().as_secs();
+                if elapsed >= timeout_secs {
+                    log::debug!("连接空闲超时，关闭连接");
+                    return Ok(());
+                }
+                let remaining = Duration::from_secs(timeout_secs - elapsed);
+                tokio::select! {
+                    result = tokio::time::timeout(remaining, stream.get_mut().read_buf(&mut buf)) => {
+                        match result {
+                            Ok(Ok(0)) => {
+                                log::debug!("客户端发送 EOF，关闭连接");
+                                return Ok(());
                             }
-                            return Ok(());
+                            Ok(Ok(n)) => {
+                                last_interaction = Instant::now();
+                                log::debug!("从网络读取 {} 字节", n);
+                            }
+                            Ok(Err(e)) => {
+                                let kind = e.kind();
+                                if kind == std::io::ErrorKind::ConnectionReset
+                                    || kind == std::io::ErrorKind::BrokenPipe
+                                    || kind == std::io::ErrorKind::ConnectionAborted
+                                {
+                                    log::debug!("客户端断开连接: {}", e);
+                                } else {
+                                    log::debug!("读取数据失败: {}", e);
+                                }
+                                return Ok(());
+                            }
+                            Err(_) => {
+                                log::debug!("连接空闲超时，关闭连接");
+                                return Ok(());
+                            }
                         }
                     }
-                }
-                maybe_msg = msg_rx.recv() => {
-                    if !super::pubsub::handle_pubsub_message(maybe_msg, &mut stream, &handler).await? {
+                    maybe_msg = msg_rx.recv() => {
+                        if !super::pubsub::handle_pubsub_message(maybe_msg, &mut stream, &handler).await? {
+                            return Ok(());
+                        }
+                        let _ = stream.flush().await;
+                    }
+                    _ = shutdown_rx.changed() => {
+                        log::info!("连接 {} 收到服务器关闭信号", peer_addr);
+                        let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR Server shutdown"));
+                        let mut shutdown_buf = Vec::with_capacity(64);
+                        let _ = write_resp_buf(&mut stream, &handler, &resp, &mut shutdown_buf).await;
+                        let _ = stream.flush().await;
                         return Ok(());
                     }
-                    let _ = stream.flush().await;
                 }
-                _ = shutdown_rx.changed() => {
-                    log::info!("连接 {} 收到服务器关闭信号", peer_addr);
-                    let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR Server shutdown"));
-                    let mut shutdown_buf = Vec::with_capacity(64);
-                    let _ = write_resp_buf(&mut stream, &handler, &resp, &mut shutdown_buf).await;
-                    let _ = stream.flush().await;
-                    return Ok(());
+            } else {
+                tokio::select! {
+                    result = stream.get_mut().read_buf(&mut buf) => {
+                        match result {
+                            Ok(0) => {
+                                log::debug!("客户端发送 EOF，关闭连接");
+                                return Ok(());
+                            }
+                            Ok(n) => {
+                                log::debug!("从网络读取 {} 字节", n);
+                            }
+                            Err(e) => {
+                                let kind = e.kind();
+                                if kind == std::io::ErrorKind::ConnectionReset
+                                    || kind == std::io::ErrorKind::BrokenPipe
+                                    || kind == std::io::ErrorKind::ConnectionAborted
+                                {
+                                    log::debug!("客户端断开连接: {}", e);
+                                } else {
+                                    log::debug!("读取数据失败: {}", e);
+                                }
+                                return Ok(());
+                            }
+                        }
+                    }
+                    maybe_msg = msg_rx.recv() => {
+                        if !super::pubsub::handle_pubsub_message(maybe_msg, &mut stream, &handler).await? {
+                            return Ok(());
+                        }
+                        let _ = stream.flush().await;
+                    }
+                    _ = shutdown_rx.changed() => {
+                        log::info!("连接 {} 收到服务器关闭信号", peer_addr);
+                        let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR Server shutdown"));
+                        let mut shutdown_buf = Vec::with_capacity(64);
+                        let _ = write_resp_buf(&mut stream, &handler, &resp, &mut shutdown_buf).await;
+                        let _ = stream.flush().await;
+                        return Ok(());
+                    }
                 }
             }
         } else {
             let mut shutdown_rx = shutdown_tx.subscribe();
-            let bytes_read = match tokio::select! {
-                result = stream.get_mut().read_buf(&mut buf) => result,
-                _ = shutdown_rx.changed() => {
-                    log::info!("连接 {} 收到服务器关闭信号", peer_addr);
-                    let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR Server shutdown"));
-                    let mut shutdown_buf = Vec::with_capacity(64);
-                    let _ = write_resp_buf(&mut stream, &handler, &resp, &mut shutdown_buf).await;
-                    let _ = stream.flush().await;
+            let timeout_secs = timeout.load(Ordering::Relaxed);
+            let read_result = if timeout_secs > 0 {
+                let elapsed = last_interaction.elapsed().as_secs();
+                if elapsed >= timeout_secs {
+                    log::debug!("连接空闲超时，关闭连接");
                     return Ok(());
                 }
-            } {
+                let remaining = Duration::from_secs(timeout_secs - elapsed);
+                tokio::select! {
+                    result = tokio::time::timeout(remaining, stream.get_mut().read_buf(&mut buf)) => match result {
+                        Ok(r) => r,
+                        Err(_) => {
+                            log::debug!("连接空闲超时，关闭连接");
+                            return Ok(());
+                        }
+                    },
+                    _ = shutdown_rx.changed() => {
+                        log::info!("连接 {} 收到服务器关闭信号", peer_addr);
+                        let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR Server shutdown"));
+                        let mut shutdown_buf = Vec::with_capacity(64);
+                        let _ = write_resp_buf(&mut stream, &handler, &resp, &mut shutdown_buf).await;
+                        let _ = stream.flush().await;
+                        return Ok(());
+                    }
+                }
+            } else {
+                tokio::select! {
+                    result = stream.get_mut().read_buf(&mut buf) => result,
+                    _ = shutdown_rx.changed() => {
+                        log::info!("连接 {} 收到服务器关闭信号", peer_addr);
+                        let resp = RespValue::Error(bytes::Bytes::from_static(b"ERR Server shutdown"));
+                        let mut shutdown_buf = Vec::with_capacity(64);
+                        let _ = write_resp_buf(&mut stream, &handler, &resp, &mut shutdown_buf).await;
+                        let _ = stream.flush().await;
+                        return Ok(());
+                    }
+                }
+            };
+            let bytes_read = match read_result {
                 Ok(0) => {
                     log::debug!("客户端发送 EOF，关闭连接");
                     if !watched.is_empty() {
@@ -3461,6 +3557,7 @@ pub(crate) async fn handle_connection(
                     return Ok(());
                 }
             };
+            last_interaction = Instant::now();
             log::debug!("从网络读取 {} 字节", bytes_read);
         }
     }

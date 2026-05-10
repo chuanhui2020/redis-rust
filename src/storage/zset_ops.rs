@@ -1,5 +1,6 @@
 //! Sorted Set 数据类型操作（对标 Redis ZSet 命令族）
 
+use std::borrow::Cow;
 use super::*;
 
 #[derive(Debug, Clone)]
@@ -169,9 +170,7 @@ impl ZSetData {
     /// min/max 格式: "[member" 或 "(member" 或 "-" 或 "+"
     pub fn range_by_lex(&self, min: &str, max: &str) -> Result<Vec<String>> {
         if !self.all_same_score() {
-            return Err(AppError::Storage(
-                "ZRANGEBYLEX 要求所有成员具有相同分数".to_string(),
-            ));
+            return Err(AppError::Storage(Cow::Borrowed("ZRANGEBYLEX 要求所有成员具有相同分数")));
         }
         let (min_inclusive, min_val) = parse_lex_bound(min);
         let (max_inclusive, max_val) = parse_lex_bound(max);
@@ -208,9 +207,7 @@ impl ZSetData {
     /// 按字典序范围获取成员（降序，要求所有成员具有相同分数）
     pub fn rev_range_by_lex(&self, min: &str, max: &str) -> Result<Vec<String>> {
         if !self.all_same_score() {
-            return Err(AppError::Storage(
-                "ZREVRANGEBYLEX 要求所有成员具有相同分数".to_string(),
-            ));
+            return Err(AppError::Storage(Cow::Borrowed("ZREVRANGEBYLEX 要求所有成员具有相同分数")));
         }
         let (min_inclusive, min_val) = parse_lex_bound(min);
         let (max_inclusive, max_val) = parse_lex_bound(max);
@@ -342,29 +339,23 @@ impl BitFieldEncoding {
     pub fn parse(s: &str) -> Result<Self> {
         let s = s.to_ascii_lowercase();
         if s.len() < 2 {
-            return Err(AppError::Command("BITFIELD 编码格式错误".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("BITFIELD 编码格式错误")));
         }
         let signed = match s.chars().next() {
             Some('i') => true,
             Some('u') => false,
             _ => {
-                return Err(AppError::Command(
-                    "BITFIELD 编码必须以 i 或 u 开头".to_string(),
-                ));
+                return Err(AppError::Command(Cow::Borrowed("BITFIELD 编码必须以 i 或 u 开头")));
             }
         };
         let bits: usize = s[1..]
             .parse()
-            .map_err(|_| AppError::Command("BITFIELD 编码位宽必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("BITFIELD 编码位宽必须是整数")))?;
         if bits == 0 || bits > 64 {
-            return Err(AppError::Command(
-                "BITFIELD 编码位宽必须在 1-64 之间".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("BITFIELD 编码位宽必须在 1-64 之间")));
         }
         if !signed && bits == 64 {
-            return Err(AppError::Command(
-                "BITFIELD 无符号编码最大支持 u63".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("BITFIELD 无符号编码最大支持 u63")));
         }
         Ok(BitFieldEncoding { signed, bits })
     }
@@ -394,12 +385,12 @@ impl BitFieldOffset {
         if let Some(num_str) = s.strip_prefix('#') {
             let num: usize = num_str
                 .parse()
-                .map_err(|_| AppError::Command("BITFIELD #偏移必须是整数".to_string()))?;
+                .map_err(|_| AppError::Command(Cow::Borrowed("BITFIELD #偏移必须是整数")))?;
             Ok(BitFieldOffset::Hash(num))
         } else {
             let num: usize = s
                 .parse()
-                .map_err(|_| AppError::Command("BITFIELD 偏移必须是整数".to_string()))?;
+                .map_err(|_| AppError::Command(Cow::Borrowed("BITFIELD 偏移必须是整数")))?;
             Ok(BitFieldOffset::Num(num))
         }
     }
@@ -577,7 +568,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -630,7 +621,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -663,7 +654,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -689,7 +680,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -722,7 +713,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -755,7 +746,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -781,7 +772,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -813,7 +804,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -839,7 +830,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -866,7 +857,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -910,7 +901,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -936,7 +927,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -969,7 +960,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -1010,7 +1001,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -1055,7 +1046,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -1086,7 +1077,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -1130,7 +1121,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -1180,7 +1171,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -1216,7 +1207,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -1242,7 +1233,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -1269,7 +1260,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -1307,7 +1298,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -1349,7 +1340,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(v) => {
@@ -1402,7 +1393,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(v) => {
@@ -1415,10 +1406,10 @@ self.bump_version(&mut map, key);
                         StorageValue::ZSet(z) => {
                             let mut result: Vec<(String, f64)> = if by_score {
                                 let min_score: f64 = min.parse().map_err(|_| {
-                                    AppError::Command("ZRANGE BYSCORE min 必须是数字".to_string())
+                                    AppError::Command(Cow::Borrowed("ZRANGE BYSCORE min 必须是数字"))
                                 })?;
                                 let max_score: f64 = max.parse().map_err(|_| {
-                                    AppError::Command("ZRANGE BYSCORE max 必须是数字".to_string())
+                                    AppError::Command(Cow::Borrowed("ZRANGE BYSCORE max 必须是数字"))
                                 })?;
                                 if rev {
                                     z.score_to_member
@@ -1451,10 +1442,10 @@ self.bump_version(&mut map, key);
                                     .collect()
                             } else {
                                 let start: isize = min.parse().map_err(|_| {
-                                    AppError::Command("ZRANGE start 必须是整数".to_string())
+                                    AppError::Command(Cow::Borrowed("ZRANGE start 必须是整数"))
                                 })?;
                                 let stop: isize = max.parse().map_err(|_| {
-                                    AppError::Command("ZRANGE stop 必须是整数".to_string())
+                                    AppError::Command(Cow::Borrowed("ZRANGE stop 必须是整数"))
                                 })?;
                                 if rev {
                                     z.rev_range_by_rank(start, stop)

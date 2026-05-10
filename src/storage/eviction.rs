@@ -4,6 +4,7 @@
 //! 从所有 shard 中随机选取最多 16 个 key，然后在样本中根据策略选出最优者淘汰。
 //! 这样避免了 O(N) 全表扫描，在大数据量下性能稳定。
 
+use std::borrow::Cow;
 use crate::error::{AppError, Result};
 use crate::storage::{Entry, EvictionPolicy, StorageEngine};
 use rand::Rng;
@@ -30,9 +31,7 @@ impl StorageEngine {
 
             match policy {
                 EvictionPolicy::NoEviction => {
-                    return Err(AppError::Storage(
-                        "OOM command not allowed when used memory > 'maxmemory'.".to_string(),
-                    ));
+                    return Err(AppError::Storage(Cow::Borrowed("OOM command not allowed when used memory > 'maxmemory'.")));
                 }
                 EvictionPolicy::AllKeysLru => {
                     self.evict_lru(false)?;

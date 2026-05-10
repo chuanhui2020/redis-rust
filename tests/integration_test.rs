@@ -7403,6 +7403,83 @@ async fn test_client_list_info() {
 }
 
 #[tokio::test]
+async fn test_timeout_disconnects_idle_client() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None)
+        .with_timeout(1);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // Verify connection works
+    let resp = exec(&mut stream, &["PING"]).await;
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"PONG")));
+
+    // Wait longer than timeout for the connection to be closed
+    sleep(Duration::from_millis(1500)).await;
+
+    // Try to read - should get EOF (connection closed)
+    let mut buf = [0u8; 1];
+    let n = stream.read(&mut buf).await.unwrap();
+    assert_eq!(n, 0, "空闲连接应在超时后被关闭");
+}
+
+#[tokio::test]
+async fn test_config_set_timeout() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    // Get current timeout (should be 0)
+    let resp = exec(&mut stream, &["CONFIG", "GET", "timeout"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from_static(b"0"))));
+        }
+        other => panic!("期望 Array，得到 {:?}", other),
+    }
+
+    // Set timeout to 2 seconds
+    let resp = exec(&mut stream, &["CONFIG", "SET", "timeout", "2"]).await;
+    assert_eq!(resp, RespValue::SimpleString(bytes::Bytes::from_static(b"OK")));
+
+    // Verify timeout was set
+    let resp = exec(&mut stream, &["CONFIG", "GET", "timeout"]).await;
+    match resp {
+        RespValue::Array(arr) => {
+            assert_eq!(arr.len(), 2);
+            assert_eq!(arr[1], RespValue::BulkString(Some(bytes::Bytes::from_static(b"2"))));
+        }
+        other => panic!("期望 Array，得到 {:?}", other),
+    }
+
+    // Wait for connection to timeout
+    sleep(Duration::from_millis(2500)).await;
+
+    let mut buf = [0u8; 1];
+    let n = stream.read(&mut buf).await.unwrap();
+    assert_eq!(n, 0, "CONFIG SET timeout 后连接应在超时后被关闭");
+}
+
+#[tokio::test]
+async fn test_client_info_idle_field() {
+    let storage = StorageEngine::new();
+    let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);
+    let (addr, _handle) = server.start().await.unwrap();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    let resp = exec(&mut stream, &["CLIENT", "INFO"]).await;
+    match resp {
+        RespValue::BulkString(Some(data)) => {
+            let s = String::from_utf8_lossy(&data);
+            assert!(s.contains("idle="), "CLIENT INFO 应包含 idle= 字段");
+        }
+        other => panic!("期望 BulkString(Some(...))，得到 {:?}", other),
+    }
+}
+
+#[tokio::test]
 async fn test_echo_basic() {
     let storage = StorageEngine::new();
     let server = Server::new("127.0.0.1:0", storage, None, PubSubManager::new(), None);

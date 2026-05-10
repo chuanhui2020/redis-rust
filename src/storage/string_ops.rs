@@ -1,4 +1,5 @@
 //! String 数据类型操作（对标 Redis String 命令族）
+use std::borrow::Cow;
 use super::*;
 
 impl StorageEngine {
@@ -26,22 +27,20 @@ impl StorageEngine {
         {
             let map = shard
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
             if let Some(entry) = map.get(key) {
                 if !entry.is_expired() {
                     let result = match &entry.value {
                         StorageValue::String(v) => Ok(Some(v.clone())),
-                        _ => Err(AppError::Storage(
-                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                        )),
+                        _ => Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值"))),
                     };
                     if result.is_ok() {
                         drop(map);
                         if self.maxmemory.load(Ordering::Relaxed) > 0 {
                             let mut map = shard
                                 .write()
-                                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
                             if let Some(entry) = map.get_mut(key) {
                                 entry.last_access = Instant::now();
                                 entry.access_count += 1;
@@ -57,7 +56,7 @@ impl StorageEngine {
 
         let mut map = shard
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         if let Some(entry) = map.get(key) {
             if entry.is_expired() {
                 map.remove(key);
@@ -94,38 +93,34 @@ impl StorageEngine {
                 .inner
                 .get_shard(&key)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             let watch_count = self.watch_count.load(Ordering::Relaxed);
-            match map.entry(key) {
-                std::collections::hash_map::Entry::Occupied(mut e) => {
-                    let entry = e.get_mut();
-                    entry.value = StorageValue::String(value);
-                    entry.expire_at = None;
-                    if has_maxmem {
-                        entry.last_access = Instant::now();
-                        entry.access_count = 1;
-                    }
-                    if watch_count > 0 {
-                        entry.version = self
-                            .version_counter
-                            .fetch_add(1, Ordering::Relaxed)
-                            .wrapping_add(1);
-                    }
+            if let Some(entry) = map.get_mut(&key) {
+                entry.value = StorageValue::String(value);
+                entry.expire_at = None;
+                if has_maxmem {
+                    entry.last_access = Instant::now();
+                    entry.access_count = 1;
                 }
-                std::collections::hash_map::Entry::Vacant(e) => {
-                    let mut entry = Entry::new(StorageValue::String(value));
-                    if has_maxmem {
-                        entry.last_access = Instant::now();
-                        entry.access_count = 1;
-                    }
-                    if watch_count > 0 {
-                        entry.version = self
-                            .version_counter
-                            .fetch_add(1, Ordering::Relaxed)
-                            .wrapping_add(1);
-                    }
-                    e.insert(entry);
+                if watch_count > 0 {
+                    entry.version = self
+                        .version_counter
+                        .fetch_add(1, Ordering::Relaxed)
+                        .wrapping_add(1);
                 }
+            } else {
+                let mut entry = Entry::new(StorageValue::String(value));
+                if has_maxmem {
+                    entry.last_access = Instant::now();
+                    entry.access_count = 1;
+                }
+                if watch_count > 0 {
+                    entry.version = self
+                        .version_counter
+                        .fetch_add(1, Ordering::Relaxed)
+                        .wrapping_add(1);
+                }
+                map.insert(key, entry);
             }
         }
         if has_maxmem {
@@ -162,7 +157,7 @@ impl StorageEngine {
             .inner
             .get_shard(&key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         let mut entry = Entry::with_expire(StorageValue::String(value), Some(expire_at));
         if self.watch_count.load(Ordering::Relaxed) > 0 {
             entry.version = self
@@ -206,30 +201,26 @@ impl StorageEngine {
             .inner
             .get_shard(&key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         let watch_count = self.watch_count.load(Ordering::Relaxed);
-        match map.entry(key) {
-            std::collections::hash_map::Entry::Occupied(mut e) => {
-                let entry = e.get_mut();
-                entry.value = StorageValue::String(value);
-                entry.expire_at = None;
-                if watch_count > 0 {
-                    entry.version = self
-                        .version_counter
-                        .fetch_add(1, Ordering::Relaxed)
-                        .wrapping_add(1);
-                }
+        if let Some(entry) = map.get_mut(&key) {
+            entry.value = StorageValue::String(value);
+            entry.expire_at = None;
+            if watch_count > 0 {
+                entry.version = self
+                    .version_counter
+                    .fetch_add(1, Ordering::Relaxed)
+                    .wrapping_add(1);
             }
-            std::collections::hash_map::Entry::Vacant(e) => {
-                let mut entry = Entry::new(StorageValue::String(value));
-                if watch_count > 0 {
-                    entry.version = self
-                        .version_counter
-                        .fetch_add(1, Ordering::Relaxed)
-                        .wrapping_add(1);
-                }
-                e.insert(entry);
+        } else {
+            let mut entry = Entry::new(StorageValue::String(value));
+            if watch_count > 0 {
+                entry.version = self
+                    .version_counter
+                    .fetch_add(1, Ordering::Relaxed)
+                    .wrapping_add(1);
             }
+            map.insert(key, entry);
         }
         drop(map);
         if has_maxmem {
@@ -259,16 +250,14 @@ impl StorageEngine {
             .inner
             .get_shard(&key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let old_value = if options.get {
             match map.get(&key) {
                 Some(entry) if !entry.is_expired() => Some(match &entry.value {
                     StorageValue::String(b) => b.clone(),
                     _ => {
-                        return Err(AppError::Storage(
-                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                        ));
+                        return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                     }
                 }),
                 _ => {
@@ -344,9 +333,7 @@ impl StorageEngine {
             Some(b) => match std::str::from_utf8(&b) {
                 Ok(s) => s.to_string(),
                 Err(_) => {
-                    return Err(AppError::Storage(
-                        "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                    ));
+                    return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                 }
             },
             None => return Ok(None),
@@ -355,9 +342,7 @@ impl StorageEngine {
             Some(b) => match std::str::from_utf8(&b) {
                 Ok(s) => s.to_string(),
                 Err(_) => {
-                    return Err(AppError::Storage(
-                        "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                    ));
+                    return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                 }
             },
             None => return Ok(None),
@@ -412,7 +397,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(entry) => {
@@ -451,7 +436,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(entry) => {
@@ -492,7 +477,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let exists_and_not_expired = match map.get(key) {
             Some(entry) => !entry.is_expired(),
@@ -534,7 +519,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(entry) => {
@@ -562,7 +547,7 @@ self.bump_version(&mut map, key);
             for shard in db.inner.all_shards() {
                 let mut map = shard
                     .write()
-                    .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                    .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
                 map.clear();
             }
         }
@@ -588,7 +573,7 @@ self.bump_version(&mut map, key);
                 .inner
                 .get_shard(key)
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             match map.get(key.as_str()) {
                 Some(entry) => {
                     if entry.is_expired() {
@@ -624,7 +609,7 @@ self.bump_version(&mut map, key);
                 .inner
                 .get_shard(key)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             map.insert(key.clone(), Entry::new(StorageValue::String(value.clone())));
         }
         Ok(())
@@ -645,16 +630,14 @@ self.bump_version(&mut map, key);
         match value {
             Some(StorageValue::String(v)) => String::from_utf8_lossy(v)
                 .parse()
-                .map_err(|_| AppError::Storage("值不是有效的整数字符串".to_string())),
+                .map_err(|_| AppError::Storage(Cow::Borrowed("值不是有效的整数字符串"))),
 
             Some(StorageValue::List(_))
             | Some(StorageValue::Hash(_))
             | Some(StorageValue::Set(_))
             | Some(StorageValue::ZSet(_))
             | Some(StorageValue::HyperLogLog(_))
-            | Some(StorageValue::Stream(_)) => Err(AppError::Storage(
-                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-            )),
+            | Some(StorageValue::Stream(_)) => Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值"))),
             None => Ok(0),
         }
     }
@@ -708,7 +691,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let current = match map.get(key) {
             Some(entry) => {
@@ -718,9 +701,7 @@ self.bump_version(&mut map, key);
                 } else {
                     match &entry.value {
                         StorageValue::List(_) => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ));
+                            return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                         }
                         _ => Self::parse_int_value(Some(&entry.value))?,
                     }
@@ -775,7 +756,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let existing = match map.get(key) {
             Some(entry) => {
@@ -786,9 +767,7 @@ self.bump_version(&mut map, key);
                     match &entry.value {
                         StorageValue::String(b) => b.clone(),
                         _ => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ));
+                            return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                         }
                     }
                 }
@@ -832,7 +811,7 @@ impl StorageEngine {
             .inner
             .get_shard(&key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let mut entry = Entry::new(StorageValue::String(value));
         if self.watch_count.load(Ordering::Relaxed) > 0 {
@@ -915,7 +894,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let old = match map.get(key) {
             Some(entry) => {
@@ -926,9 +905,7 @@ impl StorageEngine {
                     match &entry.value {
                         StorageValue::String(b) => Some(b.clone()),
                         _ => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ));
+                            return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                         }
                     }
                 }
@@ -962,7 +939,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let result = match map.get(key) {
             Some(entry) => {
@@ -973,9 +950,7 @@ self.bump_version(&mut map, key);
                     match &entry.value {
                         StorageValue::String(b) => Some(b.clone()),
                         _ => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ));
+                            return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                         }
                     }
                 }
@@ -1010,7 +985,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let result = match map.get(key) {
             Some(entry) => {
@@ -1021,9 +996,7 @@ self.bump_version(&mut map, key);
                     match &entry.value {
                         StorageValue::String(b) => Some(b.clone()),
                         _ => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ));
+                            return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                         }
                     }
                 }
@@ -1077,7 +1050,7 @@ self.bump_version(&mut map, key);
                 .inner
                 .get_shard(key)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             if let Some(entry) = map.get(key) {
                 if !entry.is_expired() {
                     return Ok(0);
@@ -1090,7 +1063,7 @@ self.bump_version(&mut map, key);
                 .inner
                 .get_shard(key)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             map.insert(key.clone(), Entry::new(StorageValue::String(value.clone())));
 self.bump_version(&mut map, key);
         }
@@ -1117,7 +1090,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let current = match map.get(key) {
             Some(entry) => {
@@ -1128,13 +1101,11 @@ self.bump_version(&mut map, key);
                     match &entry.value {
                         StorageValue::String(b) => {
                             String::from_utf8_lossy(b).parse::<f64>().map_err(|_| {
-                                AppError::Storage("值不是有效的浮点数字符串".to_string())
+                                AppError::Storage(Cow::Borrowed("值不是有效的浮点数字符串"))
                             })?
                         }
                         _ => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ));
+                            return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                         }
                     }
                 }
@@ -1173,7 +1144,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let mut existing = match map.get(key) {
             Some(entry) => {
@@ -1184,9 +1155,7 @@ self.bump_version(&mut map, key);
                     match &entry.value {
                         StorageValue::String(b) => b.to_vec(),
                         _ => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ));
+                            return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                         }
                     }
                 }
@@ -1228,7 +1197,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let bytes = match map.get(key) {
             Some(entry) => {
@@ -1239,9 +1208,7 @@ self.bump_version(&mut map, key);
                 match &entry.value {
                     StorageValue::String(b) => b.clone(),
                     _ => {
-                        return Err(AppError::Storage(
-                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                        ));
+                        return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                     }
                 }
             }
@@ -1288,7 +1255,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(entry) => {
@@ -1298,9 +1265,7 @@ self.bump_version(&mut map, key);
                 } else {
                     match &entry.value {
                         StorageValue::String(b) => Ok(b.len()),
-                        _ => Err(AppError::Storage(
-                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                        )),
+                        _ => Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值"))),
                     }
                 }
             }

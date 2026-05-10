@@ -1,5 +1,6 @@
 //! 命令解析器入口，将 RESP 数组解析为 Command 枚举
 
+use std::borrow::Cow;
 use super::*;
 
 use crate::error::{AppError, Result};
@@ -20,21 +21,21 @@ impl CommandParser {
     pub fn parse(&self, value: RespValue) -> Result<Command> {
         match value {
             RespValue::Array(arr) => self.parse_array(arr),
-            _ => Err(AppError::Command("命令必须是 RESP 数组".to_string())),
+            _ => Err(AppError::Command(Cow::Borrowed("命令必须是 RESP 数组"))),
         }
     }
 
     /// 解析 RESP 数组为具体命令
     fn parse_array(&self, arr: Vec<RespValue>) -> Result<Command> {
         if arr.is_empty() {
-            return Err(AppError::Command("空命令数组".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("空命令数组")));
         }
 
         // 第一个元素是命令名
         let cmd_name = match &arr[0] {
             RespValue::BulkString(Some(data)) => String::from_utf8_lossy(data).to_ascii_uppercase(),
             RespValue::SimpleString(s) => String::from_utf8_lossy(s).to_ascii_uppercase(),
-            _ => return Err(AppError::Command("命令名必须是字符串".to_string())),
+            _ => return Err(AppError::Command(Cow::Borrowed("命令名必须是字符串"))),
         };
 
         match cmd_name.as_str() {
@@ -314,7 +315,7 @@ impl CommandParser {
     /// 解析 MULTI 命令：MULTI
     fn parse_multi(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 1 {
-            return Err(AppError::Command("MULTI 命令不需要参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("MULTI 命令不需要参数")));
         }
         Ok(Command::Multi)
     }
@@ -322,7 +323,7 @@ impl CommandParser {
     /// 解析 EXEC 命令：EXEC
     fn parse_exec(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 1 {
-            return Err(AppError::Command("EXEC 命令不需要参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("EXEC 命令不需要参数")));
         }
         Ok(Command::Exec)
     }
@@ -330,7 +331,7 @@ impl CommandParser {
     /// 解析 DISCARD 命令：DISCARD
     fn parse_discard(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 1 {
-            return Err(AppError::Command("DISCARD 命令不需要参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("DISCARD 命令不需要参数")));
         }
         Ok(Command::Discard)
     }
@@ -338,7 +339,7 @@ impl CommandParser {
     /// 解析 UNWATCH 命令：UNWATCH
     fn parse_unwatch(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 1 {
-            return Err(AppError::Command("UNWATCH 命令不需要参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("UNWATCH 命令不需要参数")));
         }
         Ok(Command::Unwatch)
     }
@@ -346,7 +347,7 @@ impl CommandParser {
     /// 解析 WATCH 命令：WATCH key [key ...]
     fn parse_watch(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("WATCH 命令需要至少 1 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("WATCH 命令需要至少 1 个参数")));
         }
         let keys = arr[1..]
             .iter()
@@ -382,7 +383,7 @@ impl CommandParser {
     /// 解析 ROLE 命令：ROLE
     fn parse_role(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 1 {
-            return Err(AppError::Command("ROLE 命令不需要参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("ROLE 命令不需要参数")));
         }
         Ok(Command::Role)
     }
@@ -390,9 +391,7 @@ impl CommandParser {
     /// 解析 REPLCONF 命令：REPLCONF arg [arg ...]
     fn parse_replconf(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "REPLCONF 命令需要至少 1 个参数".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("REPLCONF 命令需要至少 1 个参数")));
         }
         let args = arr[1..]
             .iter()
@@ -404,13 +403,13 @@ impl CommandParser {
     /// 解析 PSYNC 命令：PSYNC replid offset
     fn parse_psync(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command("PSYNC 命令需要 2 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("PSYNC 命令需要 2 个参数")));
         }
         let replid = self.extract_string(&arr[1])?;
         let offset = self
             .extract_string(&arr[2])?
             .parse::<i64>()
-            .map_err(|_| AppError::Command("PSYNC offset 必须是有效的整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("PSYNC offset 必须是有效的整数")))?;
         Ok(Command::Psync { replid, offset })
     }
 
@@ -452,7 +451,7 @@ impl CommandParser {
     /// 解析 REPLICAOF 命令：REPLICAOF host port | REPLICAOF NO ONE
     fn parse_replicaof(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command("REPLICAOF 命令需要 2 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("REPLICAOF 命令需要 2 个参数")));
         }
         let arg1 = self.extract_string(&arr[1])?;
         let arg2 = self.extract_string(&arr[2])?;
@@ -461,7 +460,7 @@ impl CommandParser {
         } else {
             let port = arg2
                 .parse::<u16>()
-                .map_err(|_| AppError::Command("REPLICAOF 端口必须是有效的整数".to_string()))?;
+                .map_err(|_| AppError::Command(Cow::Borrowed("REPLICAOF 端口必须是有效的整数")))?;
             Ok(Command::ReplicaOf { host: arg1, port })
         }
     }
@@ -469,16 +468,16 @@ impl CommandParser {
     /// 解析 WAIT 命令：WAIT numreplicas timeout
     fn parse_wait(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command("WAIT 命令需要 2 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("WAIT 命令需要 2 个参数")));
         }
         let numreplicas = self
             .extract_string(&arr[1])?
             .parse::<i64>()
-            .map_err(|_| AppError::Command("WAIT numreplicas 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("WAIT numreplicas 必须是整数")))?;
         let timeout = self
             .extract_string(&arr[2])?
             .parse::<i64>()
-            .map_err(|_| AppError::Command("WAIT timeout 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("WAIT timeout 必须是整数")))?;
         Ok(Command::Wait {
             numreplicas,
             timeout,
@@ -488,20 +487,20 @@ impl CommandParser {
     /// 解析 WAITAOF 命令：WAITAOF numlocal numreplicas timeout
     fn parse_waitaof(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 4 {
-            return Err(AppError::Command("WAITAOF 命令需要 3 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("WAITAOF 命令需要 3 个参数")));
         }
         let numlocal = self
             .extract_string(&arr[1])?
             .parse::<i64>()
-            .map_err(|_| AppError::Command("WAITAOF numlocal 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("WAITAOF numlocal 必须是整数")))?;
         let numreplicas = self
             .extract_string(&arr[2])?
             .parse::<i64>()
-            .map_err(|_| AppError::Command("WAITAOF numreplicas 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("WAITAOF numreplicas 必须是整数")))?;
         let timeout = self
             .extract_string(&arr[3])?
             .parse::<i64>()
-            .map_err(|_| AppError::Command("WAITAOF timeout 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("WAITAOF timeout 必须是整数")))?;
         Ok(Command::WaitAof {
             numlocal,
             numreplicas,
@@ -512,37 +511,33 @@ impl CommandParser {
     /// 解析 MODULE 子命令
     fn parse_module(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("MODULE 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("MODULE 命令需要子命令")));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "LIST" => Ok(Command::ModuleList),
             "LOAD" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "MODULE LOAD 命令需要 path 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("MODULE LOAD 命令需要 path 参数")));
                 }
                 let path = self.extract_string(&arr[2])?;
                 Ok(Command::ModuleLoad(path))
             }
             "UNLOAD" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "MODULE UNLOAD 命令需要 name 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("MODULE UNLOAD 命令需要 name 参数")));
                 }
                 let name = self.extract_string(&arr[2])?;
                 Ok(Command::ModuleUnload(name))
             }
-            _ => Err(AppError::Command(format!("未知的 MODULE 子命令: {}", sub))),
+            _ => Err(AppError::Command(Cow::Owned(format!("未知的 MODULE 子命令: {}", sub)))),
         }
     }
 
     /// 解析 CLUSTER 子命令
     fn parse_cluster(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("CLUSTER 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("CLUSTER 命令需要子命令")));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
@@ -553,27 +548,23 @@ impl CommandParser {
             "SHARDS" => Ok(Command::ClusterShards),
             "MEET" => {
                 if arr.len() != 4 {
-                    return Err(AppError::Command(
-                        "CLUSTER MEET 命令需要 ip 和 port 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLUSTER MEET 命令需要 ip 和 port 参数")));
                 }
                 let ip = self.extract_string(&arr[2])?;
                 let port = self.extract_string(&arr[3])?.parse::<u16>().map_err(|_| {
-                    AppError::Command("CLUSTER MEET port 必须是有效的整数".to_string())
+                    AppError::Command(Cow::Borrowed("CLUSTER MEET port 必须是有效的整数"))
                 })?;
                 Ok(Command::ClusterMeet { ip, port })
             }
             "ADDSLOTS" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "CLUSTER ADDSLOTS 命令需要至少 1 个 slot".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLUSTER ADDSLOTS 命令需要至少 1 个 slot")));
                 }
                 let slots = arr[2..]
                     .iter()
                     .map(|v| {
                         self.extract_string(v)?.parse::<usize>().map_err(|_| {
-                            AppError::Command("CLUSTER ADDSLOTS slot 必须是有效的整数".to_string())
+                            AppError::Command(Cow::Borrowed("CLUSTER ADDSLOTS slot 必须是有效的整数"))
                         })
                     })
                     .collect::<Result<Vec<usize>>>()?;
@@ -581,15 +572,13 @@ impl CommandParser {
             }
             "DELSLOTS" => {
                 if arr.len() < 3 {
-                    return Err(AppError::Command(
-                        "CLUSTER DELSLOTS 命令需要至少 1 个 slot".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLUSTER DELSLOTS 命令需要至少 1 个 slot")));
                 }
                 let slots = arr[2..]
                     .iter()
                     .map(|v| {
                         self.extract_string(v)?.parse::<usize>().map_err(|_| {
-                            AppError::Command("CLUSTER DELSLOTS slot 必须是有效的整数".to_string())
+                            AppError::Command(Cow::Borrowed("CLUSTER DELSLOTS slot 必须是有效的整数"))
                         })
                     })
                     .collect::<Result<Vec<usize>>>()?;
@@ -597,15 +586,13 @@ impl CommandParser {
             }
             "SETSLOT" => {
                 if arr.len() < 4 {
-                    return Err(AppError::Command(
-                        "CLUSTER SETSLOT 命令需要 slot 和 state 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLUSTER SETSLOT 命令需要 slot 和 state 参数")));
                 }
                 let slot = self
                     .extract_string(&arr[2])?
                     .parse::<usize>()
                     .map_err(|_| {
-                        AppError::Command("CLUSTER SETSLOT slot 必须是有效的整数".to_string())
+                        AppError::Command(Cow::Borrowed("CLUSTER SETSLOT slot 必须是有效的整数"))
                     })?;
                 let state = self.extract_string(&arr[3])?.to_ascii_uppercase();
                 let node_id = if arr.len() > 4 {
@@ -621,9 +608,7 @@ impl CommandParser {
             }
             "REPLICATE" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "CLUSTER REPLICATE 命令需要 node-id 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLUSTER REPLICATE 命令需要 node-id 参数")));
                 }
                 let node_id = self.extract_string(&arr[2])?;
                 Ok(Command::ClusterReplicate(node_id))
@@ -646,57 +631,45 @@ impl CommandParser {
             }
             "KEYSLOT" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "CLUSTER KEYSLOT 命令需要 key 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLUSTER KEYSLOT 命令需要 key 参数")));
                 }
                 let key = self.extract_string(&arr[2])?;
                 Ok(Command::ClusterKeySlot(key))
             }
             "COUNTKEYSINSLOT" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "CLUSTER COUNTKEYSINSLOT 命令需要 slot 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLUSTER COUNTKEYSINSLOT 命令需要 slot 参数")));
                 }
                 let slot = self
                     .extract_string(&arr[2])?
                     .parse::<usize>()
                     .map_err(|_| {
-                        AppError::Command(
-                            "CLUSTER COUNTKEYSINSLOT slot 必须是有效的整数".to_string(),
-                        )
+                        AppError::Command(Cow::Borrowed("CLUSTER COUNTKEYSINSLOT slot 必须是有效的整数"))
                     })?;
                 Ok(Command::ClusterCountKeysInSlot(slot))
             }
             "GETKEYSINSLOT" => {
                 if arr.len() != 4 {
-                    return Err(AppError::Command(
-                        "CLUSTER GETKEYSINSLOT 命令需要 slot 和 count 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLUSTER GETKEYSINSLOT 命令需要 slot 和 count 参数")));
                 }
                 let slot = self
                     .extract_string(&arr[2])?
                     .parse::<usize>()
                     .map_err(|_| {
-                        AppError::Command("CLUSTER GETKEYSINSLOT slot 必须是有效的整数".to_string())
+                        AppError::Command(Cow::Borrowed("CLUSTER GETKEYSINSLOT slot 必须是有效的整数"))
                     })?;
                 let count = self
                     .extract_string(&arr[3])?
                     .parse::<usize>()
                     .map_err(|_| {
-                        AppError::Command(
-                            "CLUSTER GETKEYSINSLOT count 必须是有效的整数".to_string(),
-                        )
+                        AppError::Command(Cow::Borrowed("CLUSTER GETKEYSINSLOT count 必须是有效的整数"))
                     })?;
                 Ok(Command::ClusterGetKeysInSlot(slot, count))
             }
             "LINKS" => Ok(Command::ClusterLinks),
             "COUNTFAILUREREPORTS" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "CLUSTER COUNTFAILUREREPORTS 命令需要 node-id 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLUSTER COUNTFAILUREREPORTS 命令需要 node-id 参数")));
                 }
                 let node_id = self.extract_string(&arr[2])?;
                 Ok(Command::ClusterCountFailureReports(node_id))
@@ -705,77 +678,65 @@ impl CommandParser {
             "SAVECONFIG" => Ok(Command::ClusterSaveConfig),
             "SET-CONFIG-EPOCH" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "CLUSTER SET-CONFIG-EPOCH 命令需要 epoch 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("CLUSTER SET-CONFIG-EPOCH 命令需要 epoch 参数")));
                 }
                 let epoch = self.extract_string(&arr[2])?.parse::<u64>().map_err(|_| {
-                    AppError::Command("CLUSTER SET-CONFIG-EPOCH epoch 必须是有效的整数".to_string())
+                    AppError::Command(Cow::Borrowed("CLUSTER SET-CONFIG-EPOCH epoch 必须是有效的整数"))
                 })?;
                 Ok(Command::ClusterSetConfigEpoch(epoch))
             }
             "MYSHARDID" => Ok(Command::ClusterMyShardId),
-            _ => Err(AppError::Command(format!("未知的 CLUSTER 子命令: {}", sub))),
+            _ => Err(AppError::Command(Cow::Owned(format!("未知的 CLUSTER 子命令: {}", sub)))),
         }
     }
 
     /// 解析 SENTINEL 子命令
     fn parse_sentinel(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("SENTINEL 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("SENTINEL 命令需要子命令")));
         }
         let sub = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match sub.as_str() {
             "MASTERS" => Ok(Command::SentinelMasters),
             "MASTER" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "SENTINEL MASTER 命令需要 name 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SENTINEL MASTER 命令需要 name 参数")));
                 }
                 let name = self.extract_string(&arr[2])?;
                 Ok(Command::SentinelMaster(name))
             }
             "REPLICAS" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "SENTINEL REPLICAS 命令需要 name 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SENTINEL REPLICAS 命令需要 name 参数")));
                 }
                 let name = self.extract_string(&arr[2])?;
                 Ok(Command::SentinelReplicas(name))
             }
             "SENTINELS" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "SENTINEL SENTINELS 命令需要 name 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SENTINEL SENTINELS 命令需要 name 参数")));
                 }
                 let name = self.extract_string(&arr[2])?;
                 Ok(Command::SentinelSentinels(name))
             }
             "GET-MASTER-ADDR-BY-NAME" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "SENTINEL GET-MASTER-ADDR-BY-NAME 命令需要 name 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SENTINEL GET-MASTER-ADDR-BY-NAME 命令需要 name 参数")));
                 }
                 let name = self.extract_string(&arr[2])?;
                 Ok(Command::SentinelGetMasterAddrByName(name))
             }
             "MONITOR" => {
                 if arr.len() != 6 {
-                    return Err(AppError::Command(
-                        "SENTINEL MONITOR 命令需要 name ip port quorum 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SENTINEL MONITOR 命令需要 name ip port quorum 参数")));
                 }
                 let name = self.extract_string(&arr[2])?;
                 let ip = self.extract_string(&arr[3])?;
                 let port = self.extract_string(&arr[4])?.parse::<u16>().map_err(|_| {
-                    AppError::Command("SENTINEL MONITOR port 必须是有效的整数".to_string())
+                    AppError::Command(Cow::Borrowed("SENTINEL MONITOR port 必须是有效的整数"))
                 })?;
                 let quorum = self.extract_string(&arr[5])?.parse::<u32>().map_err(|_| {
-                    AppError::Command("SENTINEL MONITOR quorum 必须是有效的整数".to_string())
+                    AppError::Command(Cow::Borrowed("SENTINEL MONITOR quorum 必须是有效的整数"))
                 })?;
                 Ok(Command::SentinelMonitor {
                     name,
@@ -786,18 +747,14 @@ impl CommandParser {
             }
             "REMOVE" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "SENTINEL REMOVE 命令需要 name 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SENTINEL REMOVE 命令需要 name 参数")));
                 }
                 let name = self.extract_string(&arr[2])?;
                 Ok(Command::SentinelRemove(name))
             }
             "SET" => {
                 if arr.len() != 5 {
-                    return Err(AppError::Command(
-                        "SENTINEL SET 命令需要 name option value 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SENTINEL SET 命令需要 name option value 参数")));
                 }
                 let name = self.extract_string(&arr[2])?;
                 let option = self.extract_string(&arr[3])?;
@@ -810,27 +767,21 @@ impl CommandParser {
             }
             "FAILOVER" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "SENTINEL FAILOVER 命令需要 name 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SENTINEL FAILOVER 命令需要 name 参数")));
                 }
                 let name = self.extract_string(&arr[2])?;
                 Ok(Command::SentinelFailover(name))
             }
             "RESET" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "SENTINEL RESET 命令需要 pattern 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SENTINEL RESET 命令需要 pattern 参数")));
                 }
                 let pattern = self.extract_string(&arr[2])?;
                 Ok(Command::SentinelReset(pattern))
             }
             "CKQUORUM" => {
                 if arr.len() != 3 {
-                    return Err(AppError::Command(
-                        "SENTINEL CKQUORUM 命令需要 name 参数".to_string(),
-                    ));
+                    return Err(AppError::Command(Cow::Borrowed("SENTINEL CKQUORUM 命令需要 name 参数")));
                 }
                 let name = self.extract_string(&arr[2])?;
                 Ok(Command::SentinelCkquorum(name))
@@ -838,18 +789,17 @@ impl CommandParser {
             "MYID" => Ok(Command::SentinelMyId),
             "IS-MASTER-DOWN-BY-ADDR" => {
                 if arr.len() < 5 {
-                    return Err(AppError::Command("SENTINEL IS-MASTER-DOWN-BY-ADDR 命令需要 ip port current-epoch [runid] 参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("SENTINEL IS-MASTER-DOWN-BY-ADDR 命令需要 ip port current-epoch [runid] 参数")));
                 }
                 let ip = self.extract_string(&arr[2])?;
                 let port = self.extract_string(&arr[3])?.parse::<u16>().map_err(|_| {
-                    AppError::Command(
-                        "SENTINEL IS-MASTER-DOWN-BY-ADDR port 必须是有效的整数".to_string(),
-                    )
+                    AppError::Command(Cow::Borrowed("SENTINEL IS-MASTER-DOWN-BY-ADDR port 必须是有效的整数"))
                 })?;
                 let current_epoch = self.extract_string(&arr[4])?.parse::<u64>().map_err(|_| {
                     AppError::Command(
-                        "SENTINEL IS-MASTER-DOWN-BY-ADDR current-epoch 必须是有效的整数"
-                            .to_string(),
+                        Cow::Borrowed(
+                            "SENTINEL IS-MASTER-DOWN-BY-ADDR current-epoch 必须是有效的整数",
+                        ),
                     )
                 })?;
                 let runid = if arr.len() >= 6 {
@@ -864,32 +814,32 @@ impl CommandParser {
                     runid,
                 })
             }
-            _ => Err(AppError::Command(format!(
+            _ => Err(AppError::Command(Cow::Owned(format!(
                 "未知的 SENTINEL 子命令: {}",
                 sub
-            ))),
+            )))),
         }
     }
 
     /// 解析 MIGRATE 命令：MIGRATE host port key|"" destination-db timeout [COPY] [REPLACE] [AUTH password] [KEYS key [key ...]]
     fn parse_migrate(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 6 {
-            return Err(AppError::Command("MIGRATE 需要至少 5 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("MIGRATE 需要至少 5 个参数")));
         }
         let host = self.extract_string(&arr[1])?;
         let port: u16 = self
             .extract_string(&arr[2])?
             .parse()
-            .map_err(|_| AppError::Command("MIGRATE port 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("MIGRATE port 必须是整数")))?;
         let key_or_empty = self.extract_string(&arr[3])?;
         let db: usize = self
             .extract_string(&arr[4])?
             .parse()
-            .map_err(|_| AppError::Command("MIGRATE db 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("MIGRATE db 必须是整数")))?;
         let timeout: u64 = self
             .extract_string(&arr[5])?
             .parse()
-            .map_err(|_| AppError::Command("MIGRATE timeout 必须是整数".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("MIGRATE timeout 必须是整数")))?;
 
         let mut copy = false;
         let mut replace = false;
@@ -947,25 +897,23 @@ impl CommandParser {
             match arg.as_str() {
                 "TO" => {
                     if i + 2 >= arr.len() {
-                        return Err(AppError::Command(
-                            "FAILOVER TO 需要 host 和 port".to_string(),
-                        ));
+                        return Err(AppError::Command(Cow::Borrowed("FAILOVER TO 需要 host 和 port")));
                     }
                     host = Some(self.extract_string(&arr[i + 1])?);
                     port = Some(self.extract_string(&arr[i + 2])?.parse::<u16>().map_err(
-                        |_| AppError::Command("FAILOVER TO port 必须是整数".to_string()),
+                        |_| AppError::Command(Cow::Borrowed("FAILOVER TO port 必须是整数")),
                     )?);
                     i += 3;
                 }
                 "TIMEOUT" => {
                     if i + 1 >= arr.len() {
-                        return Err(AppError::Command("FAILOVER TIMEOUT 需要值".to_string()));
+                        return Err(AppError::Command(Cow::Borrowed("FAILOVER TIMEOUT 需要值")));
                     }
                     timeout = self
                         .extract_string(&arr[i + 1])?
                         .parse::<i64>()
                         .map_err(|_| {
-                            AppError::Command("FAILOVER TIMEOUT 必须是整数".to_string())
+                            AppError::Command(Cow::Borrowed("FAILOVER TIMEOUT 必须是整数"))
                         })?;
                     i += 2;
                 }
@@ -974,7 +922,7 @@ impl CommandParser {
                     i += 1;
                 }
                 _ => {
-                    return Err(AppError::Command(format!("FAILOVER 未知参数: {}", arg)));
+                    return Err(AppError::Command(Cow::Owned(format!("FAILOVER 未知参数: {}", arg))));
                 }
             }
         }
@@ -991,7 +939,7 @@ impl CommandParser {
         match value {
             RespValue::BulkString(Some(data)) => Ok(String::from_utf8_lossy(data).to_string()),
             RespValue::SimpleString(s) => Ok(String::from_utf8_lossy(s).to_string()),
-            _ => Err(AppError::Command("期望字符串类型的参数".to_string())),
+            _ => Err(AppError::Command(Cow::Borrowed("期望字符串类型的参数"))),
         }
     }
 
@@ -1000,7 +948,7 @@ impl CommandParser {
         match value {
             RespValue::BulkString(Some(data)) => Ok(data.clone()),
             RespValue::SimpleString(s) => Ok(s.clone()),
-            _ => Err(AppError::Command("期望字符串类型的参数".to_string())),
+            _ => Err(AppError::Command(Cow::Borrowed("期望字符串类型的参数"))),
         }
     }
 }

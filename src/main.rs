@@ -53,6 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cluster_announce_bus_port = None::<u16>;
     let mut maxmemory = None::<u64>;
     let mut maxmemory_policy = None::<String>;
+    let mut timeout = None::<u64>;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--port" {
@@ -96,6 +97,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         } else if arg == "--maxmemory-policy" {
             maxmemory_policy = args.next();
+        } else if arg == "--timeout" {
+            if let Some(v) = args.next() {
+                timeout = v.parse().ok();
+            }
         }
     }
     // Sentinel 模式下默认端口为 26379
@@ -286,6 +291,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_rdb_path(RDB_PATH)
         .with_acl(acl)
         .with_replication(replication);
+    if let Some(secs) = timeout {
+        server = server.with_timeout(secs);
+    }
     if let Some(ref c) = cluster {
         server = server.with_cluster(c.clone());
     }

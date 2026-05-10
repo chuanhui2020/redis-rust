@@ -1,5 +1,6 @@
 //! Hash 数据类型操作（对标 Redis Hash 命令族）
 
+use std::borrow::Cow;
 use super::*;
 
 impl StorageEngine {
@@ -141,7 +142,7 @@ impl StorageEngine {
                 let h = Self::as_hash_mut(&mut v.value).unwrap();
                 let current = match h.get(&field) {
                     Some(b) => String::from_utf8_lossy(b).parse::<i64>().map_err(|_| {
-                        AppError::Storage("hash value is not an integer".to_string())
+                        AppError::Storage(Cow::Borrowed("hash value is not an integer"))
                     })?,
 
                     None => 0i64,
@@ -174,7 +175,7 @@ self.bump_version(&mut map, key);
                 let h = Self::as_hash_mut(&mut v.value).unwrap();
                 let current = match h.get(&field) {
                     Some(b) => String::from_utf8_lossy(b).parse::<f64>().map_err(|_| {
-                        AppError::Storage("hash value is not a valid float".to_string())
+                        AppError::Storage(Cow::Borrowed("hash value is not a valid float"))
                     })?,
 
                     None => 0.0,

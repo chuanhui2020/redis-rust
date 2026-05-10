@@ -18,6 +18,7 @@
 // - 未实现函数级 ACL 权限控制和 read-only 强制检查（fcall_ro 与 fcall 目前行为相同）
 // - Lua 沙箱未限制全局变量写入和最大执行步数
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -184,16 +185,14 @@ impl ScriptEngine {
         let scripts = self
             .scripts
             .lock()
-            .map_err(|e| AppError::Storage(format!("脚本缓存锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("脚本缓存锁中毒: {}", e))))?;
         match scripts.get(sha1) {
             Some(script) => {
                 let script = script.clone();
                 drop(scripts);
                 self.eval(&script, keys, args, storage)
             }
-            None => Err(AppError::Command(
-                "NOSCRIPT No matching script. Please use EVAL.".to_string(),
-            )),
+            None => Err(AppError::Command(Cow::Borrowed("NOSCRIPT No matching script. Please use EVAL."))),
         }
     }
 
@@ -212,7 +211,7 @@ impl ScriptEngine {
         let mut scripts = self
             .scripts
             .lock()
-            .map_err(|e| AppError::Storage(format!("脚本缓存锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("脚本缓存锁中毒: {}", e))))?;
         scripts.insert(sha1.clone(), script.to_string());
         Ok(sha1)
     }
@@ -228,7 +227,7 @@ impl ScriptEngine {
         let scripts = self
             .scripts
             .lock()
-            .map_err(|e| AppError::Storage(format!("脚本缓存锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("脚本缓存锁中毒: {}", e))))?;
         Ok(sha1s.iter().map(|s| scripts.contains_key(s)).collect())
     }
 
@@ -237,7 +236,7 @@ impl ScriptEngine {
         let mut scripts = self
             .scripts
             .lock()
-            .map_err(|e| AppError::Storage(format!("脚本缓存锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("脚本缓存锁中毒: {}", e))))?;
         scripts.clear();
         Ok(())
     }
@@ -270,18 +269,16 @@ impl ScriptEngine {
         let (engine, lib_name, body) = parse_shebang(code)?;
 
         if engine != "lua" {
-            return Err(AppError::Command(format!("不支持的函数引擎: {}", engine)));
+            return Err(AppError::Command(Cow::Owned(format!("不支持的函数引擎: {}", engine))));
         }
 
         {
             let libs = self
                 .libraries
                 .lock()
-                .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("函数库锁中毒: {}", e))))?;
             if libs.contains_key(&lib_name) && !replace {
-                return Err(AppError::Command(
-                    "函数库已存在，使用 REPLACE 覆盖".to_string(),
-                ));
+                return Err(AppError::Command(Cow::Borrowed("函数库已存在，使用 REPLACE 覆盖")));
             }
         }
 
@@ -328,12 +325,12 @@ impl ScriptEngine {
         // 执行库代码
         lua.load(&body)
             .exec()
-            .map_err(|e| AppError::Command(format!("函数库加载失败: {}", e)))?;
+            .map_err(|e| AppError::Command(Cow::Owned(format!("函数库加载失败: {}", e))))?;
 
         // 收集注册的函数
         let mut r = registered
             .lock()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         let mut functions = HashMap::new();
         for (name, bytecode, flags) in r.drain(..) {
             functions.insert(
@@ -349,7 +346,7 @@ impl ScriptEngine {
         let mut libs = self
             .libraries
             .lock()
-            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("函数库锁中毒: {}", e))))?;
         libs.insert(
             lib_name.clone(),
             FunctionLibrary {
@@ -374,7 +371,7 @@ impl ScriptEngine {
         let mut libs = self
             .libraries
             .lock()
-            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("函数库锁中毒: {}", e))))?;
         Ok(libs.remove(library_name).is_some())
     }
 
@@ -394,7 +391,7 @@ impl ScriptEngine {
         let libs = self
             .libraries
             .lock()
-            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("函数库锁中毒: {}", e))))?;
         let mut result = Vec::new();
         for (name, lib) in libs.iter() {
             if let Some(pattern) = library_pattern
@@ -444,7 +441,7 @@ impl ScriptEngine {
         let libs = self
             .libraries
             .lock()
-            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("函数库锁中毒: {}", e))))?;
         let mut lines = Vec::new();
         lines.push(libs.len().to_string());
         for (name, lib) in libs.iter() {
@@ -482,9 +479,7 @@ impl ScriptEngine {
             }
             "APPEND" | "REPLACE" => {}
             _ => {
-                return Err(AppError::Command(
-                    "FUNCTION RESTORE policy 必须是 FLUSH/APPEND/REPLACE".to_string(),
-                ));
+                return Err(AppError::Command(Cow::Borrowed("FUNCTION RESTORE policy 必须是 FLUSH/APPEND/REPLACE")));
             }
         }
 
@@ -493,22 +488,22 @@ impl ScriptEngine {
             .next()
             .unwrap_or("0")
             .parse()
-            .map_err(|_| AppError::Command("FUNCTION RESTORE 数据格式错误".to_string()))?;
+            .map_err(|_| AppError::Command(Cow::Borrowed("FUNCTION RESTORE 数据格式错误")))?;
 
         for _ in 0..num_libs {
             let name = iter
                 .next()
-                .ok_or_else(|| AppError::Command("FUNCTION RESTORE 数据格式错误".to_string()))?
+                .ok_or_else(|| AppError::Command(Cow::Borrowed("FUNCTION RESTORE 数据格式错误")))?
                 .to_string();
             let engine = iter
                 .next()
-                .ok_or_else(|| AppError::Command("FUNCTION RESTORE 数据格式错误".to_string()))?
+                .ok_or_else(|| AppError::Command(Cow::Borrowed("FUNCTION RESTORE 数据格式错误")))?
                 .to_string();
             let num_code_lines: usize = iter
                 .next()
                 .unwrap_or("0")
                 .parse()
-                .map_err(|_| AppError::Command("FUNCTION RESTORE 数据格式错误".to_string()))?;
+                .map_err(|_| AppError::Command(Cow::Borrowed("FUNCTION RESTORE 数据格式错误")))?;
             let mut code_lines = Vec::new();
             for _ in 0..num_code_lines {
                 code_lines.push(iter.next().unwrap_or("").to_string());
@@ -519,17 +514,17 @@ impl ScriptEngine {
                 .next()
                 .unwrap_or("0")
                 .parse()
-                .map_err(|_| AppError::Command("FUNCTION RESTORE 数据格式错误".to_string()))?;
+                .map_err(|_| AppError::Command(Cow::Borrowed("FUNCTION RESTORE 数据格式错误")))?;
 
             let mut functions = HashMap::new();
             for _ in 0..num_funcs {
                 let fname = iter
                     .next()
-                    .ok_or_else(|| AppError::Command("FUNCTION RESTORE 数据格式错误".to_string()))?
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("FUNCTION RESTORE 数据格式错误")))?
                     .to_string();
                 let flags_str = iter
                     .next()
-                    .ok_or_else(|| AppError::Command("FUNCTION RESTORE 数据格式错误".to_string()))?
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("FUNCTION RESTORE 数据格式错误")))?
                     .to_string();
                 let flags: Vec<String> = if flags_str.is_empty() {
                     vec![]
@@ -538,13 +533,13 @@ impl ScriptEngine {
                 };
                 let _bc_len: usize =
                     iter.next().unwrap_or("0").parse().map_err(|_| {
-                        AppError::Command("FUNCTION RESTORE 数据格式错误".to_string())
+                        AppError::Command(Cow::Borrowed("FUNCTION RESTORE 数据格式错误"))
                     })?;
                 let bc_hex = iter.next().ok_or_else(|| {
-                    AppError::Command("FUNCTION RESTORE 数据格式错误".to_string())
+                    AppError::Command(Cow::Borrowed("FUNCTION RESTORE 数据格式错误"))
                 })?;
                 let bytecode = hex_decode(bc_hex).map_err(|_| {
-                    AppError::Command("FUNCTION RESTORE 字节码格式错误".to_string())
+                    AppError::Command(Cow::Borrowed("FUNCTION RESTORE 字节码格式错误"))
                 })?;
                 functions.insert(
                     fname.clone(),
@@ -560,7 +555,7 @@ impl ScriptEngine {
                 let mut libs = self
                     .libraries
                     .lock()
-                    .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
+                    .map_err(|e| AppError::Storage(Cow::Owned(format!("函数库锁中毒: {}", e))))?;
                 if policy == "APPEND" && libs.contains_key(&name) {
                     continue;
                 }
@@ -587,7 +582,7 @@ impl ScriptEngine {
         let libs = self
             .libraries
             .lock()
-            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("函数库锁中毒: {}", e))))?;
         let lib_count = libs.len();
         let func_count = libs.values().map(|l| l.functions.len()).sum();
         Ok((lib_count, func_count))
@@ -605,7 +600,7 @@ impl ScriptEngine {
         let mut libs = self
             .libraries
             .lock()
-            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("函数库锁中毒: {}", e))))?;
         libs.clear();
         Ok(())
     }
@@ -655,16 +650,16 @@ impl ScriptEngine {
         let libs = self
             .libraries
             .lock()
-            .map_err(|e| AppError::Storage(format!("函数库锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("函数库锁中毒: {}", e))))?;
         for lib in libs.values() {
             if let Some(info) = lib.functions.get(function_name) {
                 return Ok(info.clone());
             }
         }
-        Err(AppError::Command(format!(
+        Err(AppError::Command(Cow::Owned(format!(
             "函数 '{}' 不存在",
             function_name
-        )))
+        ))))
     }
 
     /// 执行函数
@@ -730,12 +725,12 @@ impl ScriptEngine {
         let func: mlua::Function = lua
             .load(&func_info.bytecode)
             .into_function()
-            .map_err(|e| AppError::Command(format!("函数字节码加载失败: {}", e)))?;
+            .map_err(|e| AppError::Command(Cow::Owned(format!("函数字节码加载失败: {}", e))))?;
 
         // 调用函数
         let result: Value = func
             .call((keys_table, argv_table))
-            .map_err(|e| AppError::Command(format!("函数执行失败: {}", e)))?;
+            .map_err(|e| AppError::Command(Cow::Owned(format!("函数执行失败: {}", e))))?;
 
         lua_value_to_resp(&result)
     }
@@ -806,10 +801,10 @@ fn lua_arg_to_string(value: &Value) -> Result<String> {
         Value::Boolean(true) => Ok("1".to_string()),
         Value::Boolean(false) => Ok("".to_string()),
         Value::Nil => Ok("".to_string()),
-        _ => Err(AppError::Command(format!(
+        _ => Err(AppError::Command(Cow::Owned(format!(
             "不支持的 Lua 参数类型: {:?}",
             value
-        ))),
+        )))),
     }
 }
 
@@ -920,7 +915,7 @@ fn compute_sha1(s: &str) -> String {
 fn parse_shebang(code: &str) -> Result<(String, String, String)> {
     let trimmed = code.trim_start();
     if !trimmed.starts_with("#!") {
-        return Err(AppError::Command("函数库代码必须以 #! 开头".to_string()));
+        return Err(AppError::Command(Cow::Borrowed("函数库代码必须以 #! 开头")));
     }
     let end = trimmed.find('\n').unwrap_or(trimmed.len());
     let shebang = trimmed[2..end].trim();
@@ -928,7 +923,7 @@ fn parse_shebang(code: &str) -> Result<(String, String, String)> {
 
     let parts: Vec<&str> = shebang.split_whitespace().collect();
     if parts.is_empty() {
-        return Err(AppError::Command("#! 行格式错误".to_string()));
+        return Err(AppError::Command(Cow::Borrowed("#! 行格式错误")));
     }
 
     let engine = parts[0].to_string();
@@ -945,7 +940,7 @@ fn parse_shebang(code: &str) -> Result<(String, String, String)> {
     }
 
     let lib_name =
-        lib_name.ok_or_else(|| AppError::Command("#! 行必须包含 name=library_name".to_string()))?;
+        lib_name.ok_or_else(|| AppError::Command(Cow::Borrowed("#! 行必须包含 name=library_name")))?;
 
     Ok((engine, lib_name, body))
 }
@@ -1012,7 +1007,7 @@ fn hex_encode(data: &[u8]) -> String {
 /// 将十六进制字符串解码为字节数组。
 fn hex_decode(s: &str) -> Result<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
-        return Err(AppError::Command("hex 字符串长度必须是偶数".to_string()));
+        return Err(AppError::Command(Cow::Borrowed("hex 字符串长度必须是偶数")));
     }
     let mut result = Vec::with_capacity(s.len() / 2);
     for i in (0..s.len()).step_by(2) {
@@ -1030,7 +1025,7 @@ fn hex_char_value(c: u8) -> Result<u8> {
         b'0'..=b'9' => Ok(c - b'0'),
         b'a'..=b'f' => Ok(c - b'a' + 10),
         b'A'..=b'F' => Ok(c - b'A' + 10),
-        _ => Err(AppError::Command("非法 hex 字符".to_string())),
+        _ => Err(AppError::Command(Cow::Borrowed("非法 hex 字符"))),
     }
 }
 

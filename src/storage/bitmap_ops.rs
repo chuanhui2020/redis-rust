@@ -1,5 +1,6 @@
 //! Bitmap 数据类型操作（SETBIT/GETBIT/BITCOUNT/BITOP/BITFIELD）
 
+use std::borrow::Cow;
 use super::*;
 
 fn read_bitfield_unsigned(bytes: &[u8], offset: usize, bits: usize) -> u64 {
@@ -117,7 +118,7 @@ fn incr_with_overflow(
     }
 }
 
-fn get_string_bytes(map: &mut HashMap<String, Entry>, key: &str) -> Result<Vec<u8>> {
+fn get_string_bytes(map: &mut TrackedMap, key: &str) -> Result<Vec<u8>> {
     match map.get(key) {
         Some(entry) => {
             if entry.is_expired() {
@@ -126,9 +127,7 @@ fn get_string_bytes(map: &mut HashMap<String, Entry>, key: &str) -> Result<Vec<u
             } else {
                 match &entry.value {
                     StorageValue::String(b) => Ok(b.to_vec()),
-                    _ => Err(AppError::Storage(
-                        "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                    )),
+                    _ => Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值"))),
                 }
             }
         }
@@ -144,7 +143,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let mut bytes = get_string_bytes(&mut map, key)?;
 
@@ -175,7 +174,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(entry) => {
@@ -192,9 +191,7 @@ self.bump_version(&mut map, key);
                                 Ok(((b[byte_index] >> bit_index) & 1) as i64)
                             }
                         }
-                        _ => Err(AppError::Storage(
-                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                        )),
+                        _ => Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值"))),
                     }
                 }
             }
@@ -208,7 +205,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let bytes = match map.get(key) {
             Some(entry) => {
@@ -219,9 +216,7 @@ self.bump_version(&mut map, key);
                     match &entry.value {
                         StorageValue::String(b) => b.clone(),
                         _ => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ));
+                            return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                         }
                     }
                 }
@@ -290,7 +285,7 @@ self.bump_version(&mut map, key);
                 .inner
                 .get_shard(key)
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             if let Some(entry) = map.get(key) {
                 if !entry.is_expired() {
                     if let StorageValue::String(b) = &entry.value {
@@ -307,7 +302,7 @@ self.bump_version(&mut map, key);
                 .inner
                 .get_shard(destkey)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             dst_map.remove(destkey);
 self.bump_version(&mut dst_map, destkey);
             return Ok(0);
@@ -341,7 +336,7 @@ self.bump_version(&mut dst_map, destkey);
             .inner
             .get_shard(destkey)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         dst_map.insert(
             destkey.to_string(),
             Entry::new(StorageValue::String(Bytes::from(result))),
@@ -365,7 +360,7 @@ self.bump_version(&mut dst_map, destkey);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let bytes = match map.get(key) {
             Some(entry) => {
@@ -376,9 +371,7 @@ self.bump_version(&mut dst_map, destkey);
                     match &entry.value {
                         StorageValue::String(b) => b.clone(),
                         _ => {
-                            return Err(AppError::Storage(
-                                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                            ));
+                            return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                         }
                     }
                 }
@@ -446,7 +439,7 @@ self.bump_version(&mut dst_map, destkey);
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let mut bytes = get_string_bytes(&mut map, key)?;
 
@@ -503,7 +496,7 @@ self.bump_version(&mut map, key);
             .inner
             .get_shard(key)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let bytes = match map.get(key) {
             Some(entry) => {
@@ -513,9 +506,7 @@ self.bump_version(&mut map, key);
                 match &entry.value {
                     StorageValue::String(b) => b.to_vec(),
                     _ => {
-                        return Err(AppError::Storage(
-                            "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-                        ));
+                        return Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值")));
                     }
                 }
             }
@@ -531,7 +522,7 @@ self.bump_version(&mut map, key);
                     results.push(BitFieldResult::Value(value));
                 }
                 _ => {
-                    return Err(AppError::Command("BITFIELD_RO 只支持 GET 操作".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("BITFIELD_RO 只支持 GET 操作")));
                 }
             }
         }

@@ -1,4 +1,5 @@
 //! Pub/Sub 命令解析器
+use std::borrow::Cow;
 use super::{Command, CommandParser};
 use crate::error::{AppError, Result};
 use crate::protocol::RespValue;
@@ -16,9 +17,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_subscribe(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "SUBSCRIBE 命令需要至少 1 个参数".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("SUBSCRIBE 命令需要至少 1 个参数")));
         }
         let channels = arr[1..]
             .iter()
@@ -59,7 +58,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_publish(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command("PUBLISH 命令需要 2 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("PUBLISH 命令需要 2 个参数")));
         }
         let channel = self.extract_string(&arr[1])?;
         let message = self.extract_bytes(&arr[2])?;
@@ -77,9 +76,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_psubscribe(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "PSUBSCRIBE 命令需要至少 1 个参数".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("PSUBSCRIBE 命令需要至少 1 个参数")));
         }
         let patterns = arr[1..]
             .iter()
@@ -120,9 +117,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_ssubscribe(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command(
-                "SSUBSCRIBE 命令需要至少 1 个参数".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("SSUBSCRIBE 命令需要至少 1 个参数")));
         }
         let channels = arr[1..]
             .iter()
@@ -163,7 +158,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_spublish(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() != 3 {
-            return Err(AppError::Command("SPUBLISH 命令需要 2 个参数".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("SPUBLISH 命令需要 2 个参数")));
         }
         let channel = self.extract_string(&arr[1])?;
         let message = self.extract_bytes(&arr[2])?;
@@ -181,7 +176,7 @@ impl CommandParser {
     /// - `Err(AppError::Command)` - 参数不足或格式错误
     pub(crate) fn parse_pubsub(&self, arr: &[RespValue]) -> Result<Command> {
         if arr.len() < 2 {
-            return Err(AppError::Command("PUBSUB 命令需要子命令".to_string()));
+            return Err(AppError::Command(Cow::Borrowed("PUBSUB 命令需要子命令")));
         }
         let subcmd = self.extract_string(&arr[1])?.to_ascii_uppercase();
         match subcmd.as_str() {
@@ -206,7 +201,7 @@ impl CommandParser {
             }
             "NUMPAT" => {
                 if arr.len() != 2 {
-                    return Err(AppError::Command("PUBSUB NUMPAT 不需要参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("PUBSUB NUMPAT 不需要参数")));
                 }
                 Ok(Command::PubSubNumPat)
             }
@@ -229,10 +224,10 @@ impl CommandParser {
                 };
                 Ok(Command::PubSubShardNumSub(channels))
             }
-            _ => Err(AppError::Command(format!(
+            _ => Err(AppError::Command(Cow::Owned(format!(
                 "未知的 PUBSUB 子命令: {}",
                 subcmd
-            ))),
+            )))),
         }
     }
 }

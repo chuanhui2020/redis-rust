@@ -2,6 +2,7 @@
 // 延迟追踪模块
 // 记录各种事件的延迟，用于 LATENCY 命令
 
+use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
@@ -46,7 +47,7 @@ impl LatencyTracker {
         let mut inner = self
             .inner
             .lock()
-            .map_err(|e| AppError::Storage(format!("延迟追踪器锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("延迟追踪器锁中毒: {}", e))))?;
         let entry = LatencyEntry {
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -72,7 +73,7 @@ impl LatencyTracker {
         let inner = self
             .inner
             .lock()
-            .map_err(|e| AppError::Storage(format!("延迟追踪器锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("延迟追踪器锁中毒: {}", e))))?;
         let mut result = Vec::new();
         for (name, queue) in inner.events.iter() {
             if let Some(entry) = queue.back() {
@@ -93,7 +94,7 @@ impl LatencyTracker {
         let inner = self
             .inner
             .lock()
-            .map_err(|e| AppError::Storage(format!("延迟追踪器锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("延迟追踪器锁中毒: {}", e))))?;
         Ok(inner
             .events
             .get(event_name)
@@ -106,7 +107,7 @@ impl LatencyTracker {
         let mut inner = self
             .inner
             .lock()
-            .map_err(|e| AppError::Storage(format!("延迟追踪器锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("延迟追踪器锁中毒: {}", e))))?;
         let mut count = 0;
         for name in event_names {
             if let Some(queue) = inner.events.get_mut(*name) {
@@ -122,7 +123,7 @@ impl LatencyTracker {
         let mut inner = self
             .inner
             .lock()
-            .map_err(|e| AppError::Storage(format!("延迟追踪器锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("延迟追踪器锁中毒: {}", e))))?;
         let count: usize = inner.events.values().map(|q| q.len()).sum();
         inner.events.clear();
         Ok(count)

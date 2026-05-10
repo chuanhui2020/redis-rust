@@ -1,6 +1,7 @@
 //! 错误类型定义模块，提供统一的 AppError 枚举和 Result 别名
 // 错误类型定义，统一处理项目中的各类错误
 
+use std::borrow::Cow;
 use thiserror::Error;
 
 /// 应用级别的统一错误类型
@@ -12,28 +13,28 @@ pub enum AppError {
 
     /// RESP 协议解析错误
     #[error("协议解析错误: {0}")]
-    Protocol(String),
+    Protocol(Cow<'static, str>),
 
     /// 命令相关错误
     #[error("命令错误: {0}")]
-    Command(String),
+    Command(Cow<'static, str>),
 
     /// 存储引擎错误
     #[error("存储错误: {0}")]
-    Storage(String),
+    Storage(Cow<'static, str>),
 
     /// Lua 脚本错误
     #[error("Lua 错误: {0}")]
-    Lua(String),
+    Lua(Cow<'static, str>),
 
     /// 未知错误
     #[error("未知错误: {0}")]
-    Unknown(String),
+    Unknown(Cow<'static, str>),
 }
 
 impl From<mlua::Error> for AppError {
     fn from(err: mlua::Error) -> Self {
-        AppError::Lua(err.to_string())
+        AppError::Lua(Cow::Owned(err.to_string()))
     }
 }
 

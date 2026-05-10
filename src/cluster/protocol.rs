@@ -205,13 +205,13 @@ pub fn encode_message(
 }
 
 /// 从字节流解码消息
-pub fn decode_message(data: &[u8]) -> Result<ClusterMessage, String> {
+pub fn decode_message(data: &[u8]) -> Result<ClusterMessage, std::borrow::Cow<'static, str>> {
     if data.len() < 16 {
-        return Err("数据长度不足，无法解析消息头".to_string());
+        return Err(std::borrow::Cow::Borrowed("数据长度不足，无法解析消息头"));
     }
 
     if &data[0..4] != MAGIC {
-        return Err("消息头 magic 不匹配".to_string());
+        return Err(std::borrow::Cow::Borrowed("消息头 magic 不匹配"));
     }
 
     let msg_type = data[4];
@@ -220,14 +220,14 @@ pub fn decode_message(data: &[u8]) -> Result<ClusterMessage, String> {
     let current_epoch = u64::from_be_bytes(
         data[8..16]
             .try_into()
-            .map_err(|e| format!("invalid epoch bytes: {}", e))?,
+            .map_err(|e| std::borrow::Cow::Owned(format!("invalid epoch bytes: {}", e)))?,
     );
 
     let mut offset = 16usize;
 
     // sender_id（40 字节）
     if data.len() < offset + 40 {
-        return Err("数据长度不足，无法解析 sender_id".to_string());
+        return Err(std::borrow::Cow::Borrowed("数据长度不足，无法解析 sender_id"));
     }
     let sender_id = String::from_utf8_lossy(&data[offset..offset + 40])
         .trim_end_matches('\0')
@@ -236,7 +236,7 @@ pub fn decode_message(data: &[u8]) -> Result<ClusterMessage, String> {
 
     // num_slots_info（2 字节）
     if data.len() < offset + 2 {
-        return Err("数据长度不足，无法解析 slot 数量".to_string());
+        return Err(std::borrow::Cow::Borrowed("数据长度不足，无法解析 slot 数量"));
     }
     let num_slots = u16::from_be_bytes([data[offset], data[offset + 1]]);
     offset += 2;
@@ -244,7 +244,7 @@ pub fn decode_message(data: &[u8]) -> Result<ClusterMessage, String> {
     let mut slots = Vec::new();
     for _ in 0..num_slots {
         if data.len() < offset + 44 {
-            return Err("数据长度不足，无法解析 slot 信息条目".to_string());
+            return Err(std::borrow::Cow::Borrowed("数据长度不足，无法解析 slot 信息条目"));
         }
         let slot_start = u16::from_be_bytes([data[offset], data[offset + 1]]);
         let slot_end = u16::from_be_bytes([data[offset + 2], data[offset + 3]]);
@@ -261,7 +261,7 @@ pub fn decode_message(data: &[u8]) -> Result<ClusterMessage, String> {
 
     // num_nodes_info（2 字节）
     if data.len() < offset + 2 {
-        return Err("数据长度不足，无法解析节点数量".to_string());
+        return Err(std::borrow::Cow::Borrowed("数据长度不足，无法解析节点数量"));
     }
     let num_nodes = u16::from_be_bytes([data[offset], data[offset + 1]]);
     offset += 2;
@@ -269,7 +269,7 @@ pub fn decode_message(data: &[u8]) -> Result<ClusterMessage, String> {
     let mut nodes = Vec::new();
     for _ in 0..num_nodes {
         if data.len() < offset + 47 {
-            return Err("数据长度不足，无法解析节点信息条目".to_string());
+            return Err(std::borrow::Cow::Borrowed("数据长度不足，无法解析节点信息条目"));
         }
         let node_id = String::from_utf8_lossy(&data[offset..offset + 40])
             .trim_end_matches('\0')

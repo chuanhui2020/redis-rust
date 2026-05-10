@@ -1,8 +1,9 @@
 //! 命令执行器，调用存储引擎执行命令并返回 RESP 响应
 
+use std::borrow::Cow;
 use super::*;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::aof::AofAsyncWriter;
@@ -37,6 +38,8 @@ pub struct CommandExecutor {
     batch_mode: Arc<AtomicBool>,
     /// Pipeline 批量 side effects 缓冲区
     batch_buffer: Arc<Mutex<Vec<Command>>>,
+    /// 连接超时（秒，0 表示禁用）
+    pub(crate) timeout: Option<Arc<AtomicU64>>,
 }
 
 impl CommandExecutor {
@@ -54,6 +57,7 @@ impl CommandExecutor {
             aof_use_rdb_preamble: Arc::new(AtomicBool::new(false)),
             batch_mode: Arc::new(AtomicBool::new(false)),
             batch_buffer: Arc::new(Mutex::new(Vec::new())),
+            timeout: None,
         }
     }
 
@@ -71,6 +75,7 @@ impl CommandExecutor {
             aof_use_rdb_preamble: Arc::new(AtomicBool::new(false)),
             batch_mode: Arc::new(AtomicBool::new(false)),
             batch_buffer: Arc::new(Mutex::new(Vec::new())),
+            timeout: None,
         }
     }
 
@@ -107,6 +112,11 @@ impl CommandExecutor {
     /// 设置 Keyspace 通知器
     pub fn set_keyspace_notifier(&mut self, notifier: Arc<KeyspaceNotifier>) {
         self.keyspace_notifier = Some(notifier);
+    }
+
+    /// 设置连接超时
+    pub fn set_timeout(&mut self, timeout: Arc<AtomicU64>) {
+        self.timeout = Some(timeout);
     }
 
     /// 设置是否使用 AOF RDB preamble
@@ -681,12 +691,12 @@ impl CommandExecutor {
                 ]))
             }
             Command::Select(index) => executor_admin::execute_select(self, index),
-            Command::Auth(_, _) => Err(AppError::Command("AUTH 应在连接层处理".to_string())),
+            Command::Auth(_, _) => Err(AppError::Command(Cow::Borrowed("AUTH 应在连接层处理"))),
             Command::AclSetUser(username, rules) => {
                 let acl = self
                     .acl
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("ACL 未启用")))?;
                 let rules_ref: Vec<&str> = rules.iter().map(|s| s.as_str()).collect();
                 acl.setuser(&username, &rules_ref)?;
                 Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
@@ -695,7 +705,7 @@ impl CommandExecutor {
                 let acl = self
                     .acl
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("ACL 未启用")))?;
                 match acl.getuser(&username)? {
                     Some(user) => {
                         let rules = user.to_rules();
@@ -712,7 +722,7 @@ impl CommandExecutor {
                 let acl = self
                     .acl
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("ACL 未启用")))?;
                 let names_ref: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
                 let count = acl.deluser(&names_ref)?;
                 Ok(RespValue::Integer(count as i64))
@@ -721,7 +731,7 @@ impl CommandExecutor {
                 let acl = self
                     .acl
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("ACL 未启用")))?;
                 let list = acl.list()?;
                 let parts: Vec<RespValue> = list
                     .into_iter()
@@ -733,7 +743,7 @@ impl CommandExecutor {
                 let acl = self
                     .acl
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("ACL 未启用")))?;
                 let cmds = acl.cat(category.as_deref())?;
                 let parts: Vec<RespValue> = cmds
                     .into_iter()
@@ -746,14 +756,14 @@ impl CommandExecutor {
                 let acl = self
                     .acl
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("ACL 未启用")))?;
                 if let Some(arg) = arg {
                     if arg.eq_ignore_ascii_case("RESET") {
                         acl.log_reset()?;
                         Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
                     } else {
                         let count = arg.parse::<usize>().map_err(|_| {
-                            AppError::Command("ACL LOG count 必须是整数".to_string())
+                            AppError::Command(Cow::Borrowed("ACL LOG count 必须是整数"))
                         })?;
                         let logs = acl.log(Some(count))?;
                         let parts: Vec<RespValue> = logs
@@ -797,7 +807,7 @@ impl CommandExecutor {
                 let acl = self
                     .acl
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("ACL 未启用")))?;
                 let pass = acl.genpass(bits)?;
                 Ok(RespValue::BulkString(Some(Bytes::from(pass))))
             }
@@ -805,7 +815,7 @@ impl CommandExecutor {
                 let acl = self
                     .acl
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("ACL 未启用")))?;
                 acl.save("users.acl")?;
                 Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
             }
@@ -813,7 +823,7 @@ impl CommandExecutor {
                 let acl = self
                     .acl
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("ACL 未启用")))?;
                 acl.load("users.acl")?;
                 Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
             }
@@ -821,9 +831,9 @@ impl CommandExecutor {
                 let acl = self
                     .acl
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("ACL 未启用".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("ACL 未启用")))?;
                 if command.is_empty() {
-                    return Err(AppError::Command("ACL DRYRUN 需要命令参数".to_string()));
+                    return Err(AppError::Command(Cow::Borrowed("ACL DRYRUN 需要命令参数")));
                 }
                 let cmd_name = &command[0];
                 let keys: Vec<&str> = command[1..].iter().map(|s| s.as_str()).collect();
@@ -852,9 +862,9 @@ impl CommandExecutor {
             | Command::ClientCaching(_)
             | Command::ClientGetRedir
             | Command::ClientTrackingInfo => {
-                Err(AppError::Command("CLIENT 应在连接层处理".to_string()))
+                Err(AppError::Command(Cow::Borrowed("CLIENT 应在连接层处理")))
             }
-            Command::Quit => Err(AppError::Command("QUIT 应在连接层处理".to_string())),
+            Command::Quit => Err(AppError::Command(Cow::Borrowed("QUIT 应在连接层处理"))),
             Command::Eval(script, keys, args) => {
                 executor_admin::execute_eval(self, script, keys, args)
             }
@@ -866,9 +876,7 @@ impl CommandExecutor {
             Command::ScriptFlush => executor_admin::execute_script_flush(self),
             Command::ScriptDebug(mode) => match mode.to_ascii_uppercase().as_str() {
                 "YES" | "SYNC" | "NO" => Ok(RespValue::SimpleString(Bytes::from_static(b"OK"))),
-                _ => Err(AppError::Command(
-                    "SCRIPT DEBUG 模式必须是 YES、SYNC 或 NO".to_string(),
-                )),
+                _ => Err(AppError::Command(Cow::Borrowed("SCRIPT DEBUG 模式必须是 YES、SYNC 或 NO"))),
             },
             Command::ScriptHelp => {
                 let help = vec![
@@ -917,8 +925,8 @@ impl CommandExecutor {
             Command::EvalShaRO(sha1, keys, args) => {
                 executor_admin::execute_eval_sha_r_o(self, sha1, keys, args)
             }
-            Command::Save => Err(AppError::Command("SAVE 应在连接层处理".to_string())),
-            Command::BgSave => Err(AppError::Command("BGSAVE 应在连接层处理".to_string())),
+            Command::Save => Err(AppError::Command(Cow::Borrowed("SAVE 应在连接层处理"))),
+            Command::BgSave => Err(AppError::Command(Cow::Borrowed("BGSAVE 应在连接层处理"))),
             Command::SlowLogGet(count) => executor_admin::execute_slow_log_get(self, count),
             Command::SlowLogLen => executor_admin::execute_slow_log_len(self),
             Command::SlowLogReset => executor_admin::execute_slow_log_reset(self),
@@ -1394,44 +1402,40 @@ impl CommandExecutor {
             | Command::PSubscribe(_)
             | Command::PUnsubscribe(_) => {
                 // Pub/Sub 命令在 server.rs 中直接处理，不应到达此处
-                Err(AppError::Command("pub/sub 命令应在连接层处理".to_string()))
+                Err(AppError::Command(Cow::Borrowed("pub/sub 命令应在连接层处理")))
             }
             Command::Publish(channel, message) => {
                 // PUBLISH 需要 PubSubManager，但当前执行器未持有它。
                 // 为保持兼容，返回提示性错误（实际在 server.rs 中处理）
-                Err(AppError::Command(format!(
+                Err(AppError::Command(Cow::Owned(format!(
                     "PUBLISH 命令应在连接层处理 (channel={}, message={})",
                     channel,
                     String::from_utf8_lossy(&message),
-                )))
+                ))))
             }
             Command::PubSubChannels(_) | Command::PubSubNumSub(_) | Command::PubSubNumPat => {
                 // PUBSUB 内省命令需要 PubSubManager，在连接层处理
-                Err(AppError::Command("PUBSUB 命令应在连接层处理".to_string()))
+                Err(AppError::Command(Cow::Borrowed("PUBSUB 命令应在连接层处理")))
             }
             Command::SSubscribe(_) | Command::SUnsubscribe(_) => {
                 // 分片 Pub/Sub 命令在 server.rs 中直接处理，不应到达此处
-                Err(AppError::Command(
-                    "分片 pub/sub 命令应在连接层处理".to_string(),
-                ))
+                Err(AppError::Command(Cow::Borrowed("分片 pub/sub 命令应在连接层处理")))
             }
             Command::SPublish(channel, message) => {
                 // SPUBLISH 需要 PubSubManager，但当前执行器未持有它。
-                Err(AppError::Command(format!(
+                Err(AppError::Command(Cow::Owned(format!(
                     "SPUBLISH 命令应在连接层处理 (channel={}, message={})",
                     channel,
                     String::from_utf8_lossy(&message),
-                )))
+                ))))
             }
             Command::PubSubShardChannels(_) | Command::PubSubShardNumSub(_) => {
                 // PUBSUB 分片内省命令需要 PubSubManager，在连接层处理
-                Err(AppError::Command(
-                    "PUBSUB 分片命令应在连接层处理".to_string(),
-                ))
+                Err(AppError::Command(Cow::Borrowed("PUBSUB 分片命令应在连接层处理")))
             }
             Command::Multi | Command::Exec | Command::Discard | Command::Watch(_) => {
                 // 事务命令在 server.rs 中直接处理，不应到达此处
-                Err(AppError::Command("事务命令应在连接层处理".to_string()))
+                Err(AppError::Command(Cow::Borrowed("事务命令应在连接层处理")))
             }
             Command::Unwatch => Ok(RespValue::SimpleString(Bytes::from_static(b"OK"))),
             Command::ReplConf { args } => {
@@ -1449,7 +1453,7 @@ impl CommandExecutor {
                 let repl = self
                     .replication
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("复制管理器未初始化".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("复制管理器未初始化")))?;
                 let master_replid = repl.get_master_replid();
                 let master_offset = repl.get_master_repl_offset();
                 Ok(RespValue::SimpleString(Bytes::from(format!(
@@ -1461,7 +1465,7 @@ impl CommandExecutor {
                 let repl = self
                     .replication
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("复制管理器未初始化".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("复制管理器未初始化")))?;
                 let master_replid = repl.get_master_replid();
 
                 if offset >= 0 && replid == master_replid {
@@ -1490,7 +1494,7 @@ impl CommandExecutor {
                 let repl = self
                     .replication
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("复制管理器未初始化".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("复制管理器未初始化")))?;
                 match repl.get_role() {
                     crate::replication::ReplicationRole::Master => {
                         let offset = repl.get_master_repl_offset();
@@ -1526,7 +1530,7 @@ impl CommandExecutor {
                 let repl = self
                     .replication
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("复制管理器未初始化".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("复制管理器未初始化")))?;
                 repl.set_replicaof(host.clone(), port);
                 let repl_clone = repl.clone();
                 let storage_clone = self.storage.clone();
@@ -1544,7 +1548,7 @@ impl CommandExecutor {
                 let repl = self
                     .replication
                     .as_ref()
-                    .ok_or_else(|| AppError::Command("复制管理器未初始化".to_string()))?;
+                    .ok_or_else(|| AppError::Command(Cow::Borrowed("复制管理器未初始化")))?;
                 repl.set_replicaof_no_one();
                 Ok(RespValue::SimpleString(Bytes::from_static(b"OK")))
             }
@@ -1559,17 +1563,15 @@ impl CommandExecutor {
                     None => Ok(RespValue::Integer(0)),
                 }
             }
-            Command::Migrate { .. } => Err(AppError::Command("MIGRATE 应在连接层处理".to_string())),
+            Command::Migrate { .. } => Err(AppError::Command(Cow::Borrowed("MIGRATE 应在连接层处理"))),
             Command::Asking => Ok(RespValue::SimpleString(Bytes::from_static(b"OK"))),
             Command::Failover { .. } => {
                 // FAILOVER 需要在连接层异步处理
-                Err(AppError::Command("FAILOVER 应在连接层处理".to_string()))
+                Err(AppError::Command(Cow::Borrowed("FAILOVER 应在连接层处理")))
             }
             Command::FailoverAbort => {
                 // FAILOVER ABORT 也在连接层处理
-                Err(AppError::Command(
-                    "FAILOVER ABORT 应在连接层处理".to_string(),
-                ))
+                Err(AppError::Command(Cow::Borrowed("FAILOVER ABORT 应在连接层处理")))
             }
             Command::SentinelMasters
             | Command::SentinelMaster(_)
@@ -1584,7 +1586,7 @@ impl CommandExecutor {
             | Command::SentinelCkquorum(_)
             | Command::SentinelMyId
             | Command::SentinelIsMasterDownByAddr { .. } => {
-                Err(AppError::Command("SENTINEL 应在连接层处理".to_string()))
+                Err(AppError::Command(Cow::Borrowed("SENTINEL 应在连接层处理")))
             }
             Command::ClusterInfo
             | Command::ClusterNodes
@@ -1607,17 +1609,13 @@ impl CommandExecutor {
             | Command::ClusterSaveConfig
             | Command::ClusterSetConfigEpoch(_)
             | Command::ClusterMyShardId => {
-                Err(AppError::Command("CLUSTER 应在连接层处理".to_string()))
+                Err(AppError::Command(Cow::Borrowed("CLUSTER 应在连接层处理")))
             }
             Command::ReadOnly => Ok(RespValue::SimpleString(Bytes::from_static(b"OK"))),
             Command::ReadWrite => Ok(RespValue::SimpleString(Bytes::from_static(b"OK"))),
             Command::ModuleList => Ok(RespValue::Array(vec![])),
-            Command::ModuleLoad(_) => Err(AppError::Command(
-                "Module loading is not supported in redis-rust".to_string(),
-            )),
-            Command::ModuleUnload(_) => Err(AppError::Command(
-                "No such module with that name".to_string(),
-            )),
+            Command::ModuleLoad(_) => Err(AppError::Command(Cow::Borrowed("Module loading is not supported in redis-rust"))),
+            Command::ModuleUnload(_) => Err(AppError::Command(Cow::Borrowed("No such module with that name"))),
             Command::Unknown(cmd_name) => Ok(RespValue::Error(Bytes::from(format!(
                 "ERR unknown command '{}'",
                 cmd_name,
@@ -1647,6 +1645,7 @@ impl Clone for CommandExecutor {
             latency: self.latency.clone(),
             keyspace_notifier: self.keyspace_notifier.clone(),
             aof_use_rdb_preamble: self.aof_use_rdb_preamble.clone(),
+            timeout: self.timeout.clone(),
             batch_mode: Arc::new(AtomicBool::new(false)),
             batch_buffer: Arc::new(Mutex::new(Vec::new())),
         }

@@ -2,6 +2,7 @@
 
 // 内存存储引擎，提供键值对的增删改查能力
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -119,10 +120,124 @@ impl Entry {
 }
 
 const NUM_SHARDS: usize = 64;
+const ENTRY_OVERHEAD: usize = 64;
+
+/// 估算单个 StorageValue 的内存大小
+pub(crate) fn estimate_value_size(value: &StorageValue) -> usize {
+    match value {
+        StorageValue::String(b) => b.len(),
+        StorageValue::List(list) => {
+            list.iter().map(|b| b.len()).sum::<usize>()
+                + list.len() * std::mem::size_of::<Bytes>()
+        }
+        StorageValue::Hash(hash) => {
+            hash.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>()
+                + hash.len() * std::mem::size_of::<(String, Bytes)>()
+        }
+        StorageValue::Set(set) => {
+            set.iter().map(|b| b.len()).sum::<usize>()
+                + set.len() * std::mem::size_of::<Bytes>()
+        }
+        StorageValue::ZSet(zset) => {
+            zset.member_to_score.keys().map(|m| m.len()).sum::<usize>()
+                + zset.member_to_score.len() * std::mem::size_of::<(String, f64)>()
+                + zset.score_to_member.len()
+                    * std::mem::size_of::<((OrderedFloat<f64>, String), ())>()
+        }
+        StorageValue::HyperLogLog(_) => 16384,
+        StorageValue::Stream(stream) => {
+            stream
+                .entries
+                .values()
+                .map(|fields| fields.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>())
+                .sum::<usize>()
+                + stream.entries.len()
+                    * std::mem::size_of::<(StreamId, Vec<(String, String)>)>()
+        }
+    }
+}
+
+/// 估算单个 Entry 的内存大小（key + value + 固定开销）
+pub(crate) fn estimate_entry_size(key: &str, entry: &Entry) -> usize {
+    ENTRY_OVERHEAD + key.len() + estimate_value_size(&entry.value)
+}
+
+/// 包装 HashMap，自动追踪 insert/remove/clear 的内存占用
+#[derive(Debug)]
+pub struct TrackedMap {
+    inner: HashMap<String, Entry>,
+    memory_usage: Arc<AtomicUsize>,
+}
+
+impl TrackedMap {
+    pub fn new(memory_usage: Arc<AtomicUsize>) -> Self {
+        Self {
+            inner: HashMap::new(),
+            memory_usage,
+        }
+    }
+
+    pub fn insert(&mut self, key: String, entry: Entry) -> Option<Entry> {
+        let new_size = estimate_entry_size(&key, &entry);
+        let old = self.inner.insert(key.clone(), entry);
+        if let Some(ref old_entry) = old {
+            let old_size = estimate_entry_size(&key, old_entry);
+            self.memory_usage.fetch_sub(old_size, Ordering::Relaxed);
+        }
+        self.memory_usage.fetch_add(new_size, Ordering::Relaxed);
+        old
+    }
+
+    pub fn remove<Q: ?Sized>(&mut self, key: &Q) -> Option<Entry>
+    where
+        String: std::borrow::Borrow<Q>,
+        Q: std::hash::Hash + Eq + AsRef<str>,
+    {
+        let old = self.inner.remove(key);
+        if let Some(ref entry) = old {
+            let size = estimate_entry_size(key.as_ref(), entry);
+            self.memory_usage.fetch_sub(size, Ordering::Relaxed);
+        }
+        old
+    }
+
+    pub fn clear(&mut self) {
+        self.inner.clear();
+        self.memory_usage.store(0, Ordering::Relaxed);
+    }
+}
+
+impl std::ops::Deref for TrackedMap {
+    type Target = HashMap<String, Entry>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl std::ops::DerefMut for TrackedMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl TrackedMap {
+    /// 切换关联的内存计数器，并将当前计数迁移到新计数器
+    pub(crate) fn set_memory_usage(&mut self, new_usage: Arc<AtomicUsize>) {
+        if Arc::ptr_eq(&self.memory_usage, &new_usage) {
+            return;
+        }
+        let current = self.memory_usage.load(Ordering::Relaxed);
+        self.memory_usage.fetch_sub(current, Ordering::Relaxed);
+        new_usage.fetch_add(current, Ordering::Relaxed);
+        self.memory_usage = new_usage;
+    }
+}
 
 #[derive(Debug)]
 pub struct ShardedMap {
-    shards: Vec<RwLock<HashMap<String, Entry>>>,
+    shards: Vec<RwLock<TrackedMap>>,
+    memory_usage: Arc<AtomicUsize>,
 }
 
 impl Default for ShardedMap {
@@ -133,14 +248,15 @@ impl Default for ShardedMap {
 
 impl ShardedMap {
     pub fn new() -> Self {
+        let memory_usage = Arc::new(AtomicUsize::new(0));
         let mut shards = Vec::with_capacity(NUM_SHARDS);
         for _ in 0..NUM_SHARDS {
-            shards.push(RwLock::new(HashMap::new()));
+            shards.push(RwLock::new(TrackedMap::new(memory_usage.clone())));
         }
-        Self { shards }
+        Self { shards, memory_usage }
     }
 
-    pub fn get_shard(&self, key: &str) -> &RwLock<HashMap<String, Entry>> {
+    pub fn get_shard(&self, key: &str) -> &RwLock<TrackedMap> {
         &self.shards[Self::shard_index(key)]
     }
 
@@ -150,8 +266,12 @@ impl ShardedMap {
         hasher.finish() as usize % NUM_SHARDS
     }
 
-    pub fn all_shards(&self) -> &[RwLock<HashMap<String, Entry>>] {
+    pub fn all_shards(&self) -> &[RwLock<TrackedMap>] {
         &self.shards
+    }
+
+    pub fn memory_usage(&self) -> usize {
+        self.memory_usage.load(Ordering::Relaxed)
     }
 }
 
@@ -269,9 +389,7 @@ impl StorageEngine {
     /// 切换数据库（0-15）
     pub fn select(&self, db: usize) -> Result<()> {
         if db > 15 {
-            return Err(AppError::Command(
-                "SELECT 的数据库索引必须在 0-15 之间".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("SELECT 的数据库索引必须在 0-15 之间")));
         }
         self.current_db.store(db, Ordering::Relaxed);
         Ok(())
@@ -336,7 +454,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let entry = match map.get(key) {
             Some(e) => {
@@ -346,7 +464,7 @@ impl StorageEngine {
                         .inner
                         .get_shard(key)
                         .write()
-                        .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                        .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
                     self.check_and_remove_expired(&mut map, key);
                     return Ok(None);
                 }
@@ -418,7 +536,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(entry) => {
@@ -428,7 +546,7 @@ impl StorageEngine {
                         .inner
                         .get_shard(key)
                         .write()
-                        .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                        .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
                     self.check_and_remove_expired(&mut map, key);
                     Ok(None)
                 } else {
@@ -445,7 +563,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(entry) => {
@@ -455,7 +573,7 @@ impl StorageEngine {
                         .inner
                         .get_shard(key)
                         .write()
-                        .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                        .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
                     self.check_and_remove_expired(&mut map, key);
                     Ok(None)
                 } else {
@@ -472,7 +590,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get(key) {
             Some(entry) => {
@@ -482,7 +600,7 @@ impl StorageEngine {
                         .inner
                         .get_shard(key)
                         .write()
-                        .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                        .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
                     self.check_and_remove_expired(&mut map, key);
                     Ok(None)
                 } else {
@@ -517,7 +635,7 @@ impl StorageEngine {
         for shard in db.inner.all_shards() {
             let map = shard
                 .read()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             for (k, entry) in map.iter() {
                 if !entry.is_expired() {
                     all_keys.push(k.clone());
@@ -541,7 +659,7 @@ impl StorageEngine {
                 .inner
                 .get_shard(key)
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             if let Some(entry) = map.get_mut(key) {
                 if !entry.is_expired() {
                     count += 1;
@@ -570,7 +688,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(entry) => {
@@ -593,7 +711,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(entry) => {
@@ -618,7 +736,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         match map.get_mut(key) {
             Some(entry) => {
@@ -645,15 +763,15 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
 
         let entry = match map.get(key) {
             Some(e) if e.is_expired() => {
                 map.remove(key);
-                return Err(AppError::Storage("键不存在或已过期".to_string()));
+                return Err(AppError::Storage(Cow::Borrowed("键不存在或已过期")));
             }
             Some(e) => e.clone(),
-            None => return Err(AppError::Storage("键不存在".to_string())),
+            None => return Err(AppError::Storage(Cow::Borrowed("键不存在"))),
         };
 
         drop(map);
@@ -661,7 +779,7 @@ impl StorageEngine {
             .inner
             .get_shard(newkey)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         if new_map.contains_key(newkey) {
             return Ok(false);
         }
@@ -670,7 +788,7 @@ impl StorageEngine {
             .inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
         map.remove(key);
         new_map.insert(newkey.to_string(), entry);
 
@@ -682,9 +800,7 @@ self.bump_version(&mut map, key);
     /// 交换两个数据库的数据
     pub fn swap_db(&self, index1: usize, index2: usize) -> Result<()> {
         if index1 > 15 || index2 > 15 {
-            return Err(AppError::Command(
-                "SWAPDB 的数据库索引必须在 0-15 之间".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("SWAPDB 的数据库索引必须在 0-15 之间")));
         }
         if index1 == index2 {
             return Ok(());
@@ -695,6 +811,8 @@ self.bump_version(&mut map, key);
             let mut s1 = db1.inner.all_shards()[i].write().unwrap();
             let mut s2 = db2.inner.all_shards()[i].write().unwrap();
             std::mem::swap(&mut *s1, &mut *s2);
+            s1.set_memory_usage(db1.inner.memory_usage.clone());
+            s2.set_memory_usage(db2.inner.memory_usage.clone());
         }
         {
             let mut w1 = db1.blocking_waiters.write().unwrap();
@@ -711,17 +829,15 @@ self.bump_version(&mut map, key);
 
     pub fn flush_db(&self, db_index: usize) -> Result<()> {
         if db_index > 15 {
-            return Err(AppError::Command(
-                "FLUSHDB 的数据库索引必须在 0-15 之间".to_string(),
-            ));
+            return Err(AppError::Command(Cow::Borrowed("FLUSHDB 的数据库索引必须在 0-15 之间")));
         }
         let db = self
             .db_at(db_index)
-            .ok_or_else(|| AppError::Command("无效的数据库索引".to_string()))?;
+            .ok_or_else(|| AppError::Command(Cow::Borrowed("无效的数据库索引")))?;
         for shard in db.inner.all_shards() {
             let mut map = shard
                 .write()
-                .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))?;
+                .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))?;
             map.clear();
         }
         Ok(())
@@ -791,7 +907,7 @@ self.bump_version(&mut map, key);
     }
 
     /// 递增指定 key 的版本号（调用者必须已持有对应 shard 的写锁）
-    fn bump_version(&self, map: &mut std::collections::HashMap<String, Entry>, key: &str) {
+    fn bump_version(&self, map: &mut TrackedMap, key: &str) {
         if let Some(entry) = map.get_mut(key) {
             let new_ver = self
                 .version_counter
@@ -828,10 +944,10 @@ self.bump_version(&mut map, key);
                 }
                 // 自旋失败后回退到阻塞锁（此时持有锁的任务大概率已释放）
                 shard.read().map_err(|e| {
-                    AppError::Storage(format!("版本号锁中毒: {}", e))
+                    AppError::Storage(Cow::Owned(format!("版本号锁中毒: {}", e)))
                 })?
             }
-            Err(e) => return Err(AppError::Storage(format!("版本号锁中毒: {}", e))),
+            Err(e) => return Err(AppError::Storage(Cow::Owned(format!("版本号锁中毒: {}", e)))),
         };
         Ok(map.get(key).map_or(0, |e| e.version))
     }
@@ -857,10 +973,10 @@ self.bump_version(&mut map, key);
                     }
                     // 自旋仍未成功，回退到阻塞锁
                     shard.read().map_err(|e| {
-                        AppError::Storage(format!("版本号锁中毒: {}", e))
+                        AppError::Storage(Cow::Owned(format!("版本号锁中毒: {}", e)))
                     })?
                 }
-                Err(e) => return Err(AppError::Storage(format!("版本号锁中毒: {}", e))),
+                Err(e) => return Err(AppError::Storage(Cow::Owned(format!("版本号锁中毒: {}", e)))),
             };
             let current = map.get(key).map_or(0, |e| e.version);
             if current != *old_version {
@@ -880,28 +996,28 @@ self.bump_version(&mut map, key);
     pub(crate) fn write_shard(
         &self,
         key: &str,
-    ) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<String, Entry>>> {
+    ) -> Result<std::sync::RwLockWriteGuard<'_, TrackedMap>> {
         let db = &self.dbs[self.current_db.load(Ordering::Relaxed).min(15)];
         db.inner
             .get_shard(key)
             .write()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))
     }
 
     pub(crate) fn read_shard(
         &self,
         key: &str,
-    ) -> Result<std::sync::RwLockReadGuard<'_, HashMap<String, Entry>>> {
+    ) -> Result<std::sync::RwLockReadGuard<'_, TrackedMap>> {
         let db = &self.dbs[self.current_db.load(Ordering::Relaxed).min(15)];
         db.inner
             .get_shard(key)
             .read()
-            .map_err(|e| AppError::Storage(format!("锁中毒: {}", e)))
+            .map_err(|e| AppError::Storage(Cow::Owned(format!("锁中毒: {}", e))))
     }
 
     pub(crate) fn check_and_remove_expired(
         &self,
-        map: &mut HashMap<String, Entry>,
+        map: &mut TrackedMap,
         key: &str,
     ) {
         if let Some(entry) = map.get(key) {
@@ -918,9 +1034,7 @@ self.bump_version(&mut map, key);
     fn check_list_type(value: &StorageValue) -> Result<()> {
         match value {
             StorageValue::List(_) => Ok(()),
-            _ => Err(AppError::Storage(
-                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-            )),
+            _ => Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值"))),
         }
     }
 
@@ -934,9 +1048,7 @@ self.bump_version(&mut map, key);
     fn check_hash_type(value: &StorageValue) -> Result<()> {
         match value {
             StorageValue::Hash(_) => Ok(()),
-            _ => Err(AppError::Storage(
-                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-            )),
+            _ => Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值"))),
         }
     }
 
@@ -950,9 +1062,7 @@ self.bump_version(&mut map, key);
     fn check_set_type(value: &StorageValue) -> Result<()> {
         match value {
             StorageValue::Set(_) => Ok(()),
-            _ => Err(AppError::Storage(
-                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-            )),
+            _ => Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值"))),
         }
     }
 
@@ -968,9 +1078,7 @@ impl StorageEngine {
     fn check_hll_type(value: &StorageValue) -> Result<()> {
         match value {
             StorageValue::HyperLogLog(_) => Ok(()),
-            _ => Err(AppError::Storage(
-                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-            )),
+            _ => Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值"))),
         }
     }
 }
@@ -979,9 +1087,7 @@ impl StorageEngine {
     fn check_zset_type(value: &StorageValue) -> Result<()> {
         match value {
             StorageValue::ZSet(_) => Ok(()),
-            _ => Err(AppError::Storage(
-                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-            )),
+            _ => Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值"))),
         }
     }
 
@@ -995,9 +1101,7 @@ impl StorageEngine {
     fn check_stream_type(value: &StorageValue) -> Result<()> {
         match value {
             StorageValue::Stream(_) => Ok(()),
-            _ => Err(AppError::Storage(
-                "WRONGTYPE 操作对象持有的是错误类型的值".to_string(),
-            )),
+            _ => Err(AppError::Storage(Cow::Borrowed("WRONGTYPE 操作对象持有的是错误类型的值"))),
         }
     }
 

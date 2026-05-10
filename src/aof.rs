@@ -1,6 +1,7 @@
 //! AOF 持久化模块，追加写入命令日志并支持重放
 // AOF (Append Only File) 持久化模块
 
+use std::borrow::Cow;
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 
@@ -224,7 +225,7 @@ impl AofAsyncWriter {
         RespParser::new().encode_append(&resp, &mut buf);
         self.sender
             .send(AofMessage::Data(buf))
-            .map_err(|_| AppError::Storage("AOF channel 已关闭".to_string()))?;
+            .map_err(|_| AppError::Storage(Cow::Borrowed("AOF channel 已关闭")))?;
         Ok(())
     }
 
@@ -238,7 +239,7 @@ impl AofAsyncWriter {
         }
         self.sender
             .send(AofMessage::Data(buf))
-            .map_err(|_| AppError::Storage("AOF channel 已关闭".to_string()))?;
+            .map_err(|_| AppError::Storage(Cow::Borrowed("AOF channel 已关闭")))?;
         Ok(())
     }
 
@@ -247,9 +248,9 @@ impl AofAsyncWriter {
         let (tx, rx) = std::sync::mpsc::channel();
         self.sender
             .send(AofMessage::Flush(tx))
-            .map_err(|_| AppError::Storage("AOF channel 已关闭".to_string()))?;
+            .map_err(|_| AppError::Storage(Cow::Borrowed("AOF channel 已关闭")))?;
         rx.recv()
-            .map_err(|_| AppError::Storage("AOF flush 等待失败".to_string()))?;
+            .map_err(|_| AppError::Storage(Cow::Borrowed("AOF flush 等待失败")))?;
         Ok(())
     }
 
@@ -258,9 +259,9 @@ impl AofAsyncWriter {
         let (tx, rx) = std::sync::mpsc::channel();
         self.sender
             .send(AofMessage::Sync(tx))
-            .map_err(|_| AppError::Storage("AOF channel 已关闭".to_string()))?;
+            .map_err(|_| AppError::Storage(Cow::Borrowed("AOF channel 已关闭")))?;
         rx.recv()
-            .map_err(|_| AppError::Storage("AOF sync 等待失败".to_string()))?;
+            .map_err(|_| AppError::Storage(Cow::Borrowed("AOF sync 等待失败")))?;
         Ok(())
     }
 
@@ -273,7 +274,7 @@ impl AofAsyncWriter {
     pub fn reopen(&self) -> Result<()> {
         self.sender
             .send(AofMessage::Reopen(self.path.clone()))
-            .map_err(|_| AppError::Storage("AOF channel 已关闭".to_string()))?;
+            .map_err(|_| AppError::Storage(Cow::Borrowed("AOF channel 已关闭")))?;
         Ok(())
     }
 
